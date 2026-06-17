@@ -6,7 +6,7 @@ Platform-specific guidance for using ahelpa inside the Codex CLI.
 
 Codex operates in persistent interactive mode only — there is no background agent or subagent tool. All ahelpa operations happen inline in your conversation loop.
 
-Codex is launched with `--dangerously-bypass-approvals-and-sandbox`, so helper agents also run with full permissions. Be deliberate about `--project` and working directory isolation.
+Codex is launched with `--dangerously-bypass-approvals-and-sandbox` by default, so helper agents also run with full permissions. Use `ahelpa launch codex --safe ...` to run Codex with `-s workspace-write -a never` instead. Be deliberate about `--project` and working directory isolation.
 
 ## Binary Mapping
 

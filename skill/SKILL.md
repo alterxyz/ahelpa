@@ -58,7 +58,7 @@ Verify prerequisites with `command -v claude` or `command -v codex`, not `comman
 6. **Use `task` for long instructions.** `ahelpa task <id> --file <path>` avoids tmux keystroke limits.
 7. **`capture` is for debugging only.** Not a communication channel.
 8. **Tidy up.** After reading results, move useful outputs to the project tree and keep `.ahelpa/` clean.
-9. **Helpers have full permissions.** They run as the local user. Use `--project` to scope working directories, or git worktrees for isolation.
+9. **Helpers have full permissions by default.** They run as the local user. Use `--project` to scope working directories, `--safe` to omit or bound default danger flags, or git worktrees for isolation.
 10. **Inline refresh works without daemon.** `wait`, `check`, and `status` refresh session state even if the daemon isn't running.
 11. **Don't re-derive the CLI.** Follow this document for normal helper delegation. Only inspect `src/` or `tests/` when debugging ahelpa itself.
 12. **Trust prompt handling is automatic.** The `codex` driver handles directory trust prompts by sending Enter. No manual intervention needed during normal use.
@@ -77,7 +77,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 | Command | Description |
 |---------|-------------|
-| `launch <type> --task "..." [--label] [--project]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
+| `launch <type> --task "..." [--label] [--project] [--safe]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
 | `wait <id...> [--all] [--timeout <seconds>]` | Block until sessions complete or timeout (default 500s). |
 | `check [--parent <id>]` | Non-blocking status poll. |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper. |

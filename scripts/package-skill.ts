@@ -1,6 +1,7 @@
 import { $ } from "bun";
-import { mkdirSync, readdirSync, rmSync } from "fs";
-import { dirname, resolve } from "path";
+import { createHash } from "crypto";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { basename, dirname, resolve } from "path";
 import { packageSkill } from "./skill-package";
 
 function cleanupBunBuildArtifacts(repoRoot: string): void {
@@ -9,6 +10,15 @@ function cleanupBunBuildArtifacts(repoRoot: string): void {
       rmSync(resolve(repoRoot, entry), { recursive: true, force: true });
     }
   }
+}
+
+function sha256File(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function writeChecksums(distDir: string, paths: string[]): void {
+  const lines = paths.map((path) => `${sha256File(path)}  ${basename(path)}`);
+  writeFileSync(resolve(distDir, "SHASUMS256.txt"), `${lines.join("\n")}\n`);
 }
 
 async function main(): Promise<void> {
@@ -25,6 +35,7 @@ async function main(): Promise<void> {
   await $`tar czf ${runtimeBundlePath} -C dist ahelpa`.cwd(repoRoot).quiet();
 
   const archivePath = await packageSkill(skillDir, distDir);
+  writeChecksums(distDir, [runtimeBundlePath, archivePath]);
   console.log(archivePath);
 }
 

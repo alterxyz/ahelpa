@@ -1,9 +1,10 @@
 import { $ } from "bun";
+import { shellEscape } from "./shell";
 
 export class Tmux {
   static async create(name: string, command: string): Promise<void> {
     // Wrap command so the session persists after the command exits
-    const wrapped = `bash -c '${command}; exec bash'`;
+    const wrapped = `bash -lc ${shellEscape(`${command}; exec bash`)}`;
     await $`tmux new-session -d -s ${name} ${wrapped}`.quiet();
   }
 

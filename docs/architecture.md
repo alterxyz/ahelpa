@@ -99,12 +99,14 @@ Drivers encapsulate agent-specific terminal behavior so that launch orchestratio
 | Responsibility | Example |
 | --- | --- |
 | Session prefix | `claude`, `codex` |
-| Launch command | `claude --dangerously-skip-permissions --verbose` |
+| Launch command | `claude --dangerously-skip-permissions --verbose`, `codex --dangerously-bypass-approvals-and-sandbox` |
 | Pre-task readiness | Wait for CLI to be ready, handle trust prompts |
 | Post-submission nudge | Press Enter if the prompt queued but didn't submit |
 | Sentinel detection | Delegates to shared sentinel matching in `src/drivers/sentinels.ts` |
 
 The supported drivers are `claude-code` and `codex`. Both share the same sentinel protocol and file handoff paths — they differ only in startup commands and interactive prompt handling.
+
+`launch --safe` passes a safe-mode hint into the selected driver. Claude Code omits `--dangerously-skip-permissions`; Codex uses `-s workspace-write -a never` instead of `--dangerously-bypass-approvals-and-sandbox`.
 
 ## Nesting
 

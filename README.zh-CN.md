@@ -74,7 +74,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> --task "..."` | 启动 helper（`claude-code` 或 `codex`） |
+| `launch <type> --task "..." [--safe]` | 启动 helper（`claude-code` 或 `codex`） |
 | `wait <id...> [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>]` | 非阻塞状态查询，并做 inline refresh |
 | `send <id> "msg" --token <tok>` | 给运行中的 helper 发送短消息 |
@@ -103,7 +103,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 ## 安全姿态
 
-Helper 以 host process 相同的本地用户权限运行，没有 sandbox。请用 `--project` 收窄工作目录；风险任务优先放到 git worktree；不要把 secret 放进任务 prompt 或结果 artifact。更多细节见 [安全说明](docs/zh-CN/security.md)。
+Helper 默认以 host process 相同的本地用户权限运行。请用 `--project` 收窄工作目录，用 `--safe` 省略或收窄默认 danger flags；风险任务优先放到 git worktree；不要把 secret 放进任务 prompt 或结果 artifact。更多细节见 [安全说明](docs/zh-CN/security.md)。
 
 ## 开发
 

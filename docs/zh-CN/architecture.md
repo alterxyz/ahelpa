@@ -93,12 +93,14 @@ Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration �
 | 职责 | 示例 |
 | --- | --- |
 | Session prefix | `claude`、`codex` |
-| Launch command | `claude --dangerously-skip-permissions --verbose` |
+| Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
 | 提交后 nudge | 如果输入排队但没提交，补 Enter |
 | 状态检测 | 委托 `src/drivers/sentinels.ts` 的暗号匹配 |
 
 当前支持 `claude-code` 和 `codex`。二者共享暗号协议和文件交接路径，只在启动命令和交互细节上不同。
+
+`launch --safe` 会把 safe-mode hint 传给选定 driver。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`。
 
 ## Nesting
 

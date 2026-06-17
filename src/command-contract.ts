@@ -51,10 +51,10 @@ export function resolveWaitTimeoutMs(timeoutSeconds?: number): number {
 export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "launch",
-    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>]",
+    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>] [--safe]",
     description: "Launch a helper agent",
     minPositionals: 1,
-    flags: { task: { kind: "string", required: true }, project: { kind: "string" }, label: { kind: "string" } },
+    flags: { task: { kind: "string", required: true }, project: { kind: "string" }, label: { kind: "string" }, safe: { kind: "boolean" } },
     async run(ctx) {
       const result = await launch({
         db: ctx.db,
@@ -63,6 +63,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         projectPath: ctx.flags.strings.project || process.cwd(),
         parentId: process.env.AHELPA_PARENT_ID || `cli-${Date.now()}`,
         label: ctx.flags.strings.label,
+        safe: ctx.flags.booleans.safe,
       });
       ctx.print(JSON.stringify(result, null, 2));
     },

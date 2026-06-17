@@ -4,9 +4,11 @@
 
 ## Permission Model
 
-ahelpa launches helper agents with the same local user permissions as the host process. There is no sandbox, no capability restriction, and no approval gate between the helper and the local filesystem. A helper can read, write, and execute anything the user account can.
+ahelpa launches helper agents with the same local user permissions as the host process by default. In default mode there is no sandbox, no capability restriction, and no approval gate between the helper and the local filesystem. A helper can read, write, and execute anything the user account can.
 
 This is a deliberate design choice for local development. The tradeoff: maximum helper capability in exchange for the responsibility of scoping tasks carefully.
+
+`ahelpa launch --safe` omits or bounds the default danger flags. Claude Code launches as `claude --verbose`; Codex launches as `codex -s workspace-write -a never`. This is a lower-permission posture, not a separate OS user, VM, or hard security boundary.
 
 ## Practical Mitigations
 

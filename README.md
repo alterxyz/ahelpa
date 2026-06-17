@@ -74,7 +74,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> --task "..."` | Start a helper (`claude-code` or `codex`) |
+| `launch <type> --task "..." [--safe]` | Start a helper (`claude-code` or `codex`) |
 | `wait <id...> [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>]` | Non-blocking status poll with inline refresh |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
@@ -103,7 +103,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 
 ## Security Posture
 
-Helpers run with the same local user permissions as the host process. There is no sandbox. Use `--project` to constrain working directories, prefer git worktrees for risky tasks, and keep secrets out of task prompts and result artifacts. See [docs/security.md](docs/security.md) for details.
+Helpers run with the same local user permissions as the host process by default. Use `--project` to constrain working directories, `--safe` to omit or bound default danger flags, git worktrees for risky tasks, and keep secrets out of task prompts and result artifacts. See [docs/security.md](docs/security.md) for details.
 
 ## Development
 

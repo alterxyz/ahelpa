@@ -9,6 +9,8 @@ Platform-specific guidance for using ahelpa inside Claude Code.
 
 Verify with `command -v claude` or `command -v codex`, not `command -v claude-code`.
 
+Claude Code is launched with `--dangerously-skip-permissions --verbose` by default. Use `ahelpa launch claude-code --safe ...` to omit `--dangerously-skip-permissions`.
+
 ## Typical Workflow
 
 ```bash

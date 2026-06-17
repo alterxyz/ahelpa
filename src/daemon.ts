@@ -8,6 +8,7 @@ import { settle } from "./settle";
 import { getDriver } from "./drivers/registry";
 import { SESSION_STATUS, statusFromCapture } from "./session-lifecycle";
 import { defaultRuntimeLayout } from "./runtime-layout";
+import { shellEscape } from "./shell";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
 const PID_FILE = defaultRuntimeLayout.daemonPidPath();
@@ -96,10 +97,6 @@ export function getDaemonLaunchCommand(
   }
 
   return [execPath, DAEMON_SUBCOMMAND];
-}
-
-function shellEscape(arg: string): string {
-  return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
 export function spawnDetached(command: string[]): number {

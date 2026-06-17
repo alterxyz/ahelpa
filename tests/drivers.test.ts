@@ -9,11 +9,37 @@ describe("Drivers", () => {
     expect(driver.sessionPrefix).toBe("claude");
   });
 
-  test("claude-code builds launch command", () => {
+  test("claude-code safe mode omits danger flag", () => {
+    const driver = getDriver("claude-code");
+    const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project", safe: true });
+    expect(cmd).toContain("claude --verbose");
+    expect(cmd).not.toContain("--dangerously-skip-permissions");
+  });
+
+  test("claude-code danger mode includes danger flag by default", () => {
     const driver = getDriver("claude-code");
     const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project" });
     expect(cmd).toContain("claude");
     expect(cmd).toContain("--dangerously-skip-permissions");
+  });
+
+  test("claude-code launch command shell-quotes cwd", () => {
+    const driver = getDriver("claude-code");
+    const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project with spaces/it's ok" });
+    expect(cmd).toContain(`cd '/tmp/project with spaces/it'\\''s ok' && claude`);
+  });
+
+  test("codex safe mode uses workspace-write sandbox", () => {
+    const driver = getDriver("codex");
+    const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project", safe: true });
+    expect(cmd).toContain("codex -s workspace-write -a never");
+    expect(cmd).not.toContain("--dangerously-bypass");
+  });
+
+  test("codex danger mode includes bypass flag by default", () => {
+    const driver = getDriver("codex");
+    const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project" });
+    expect(cmd).toContain("--dangerously-bypass");
   });
 
   test("claude-code detects status via sentinel", () => {

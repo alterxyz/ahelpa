@@ -162,6 +162,23 @@ describe("launch", () => {
     expect(plan.input.task).toBe("plan only");
   });
 
+  test("planLaunch safe mode omits danger flags", () => {
+    db = new StateDB(TEST_DB);
+
+    const plan = planLaunch({
+      db,
+      agentType: "codex",
+      task: "plan safe",
+      projectPath: "/tmp/nonexistent",
+      parentId: "test-parent",
+      safe: true,
+    });
+
+    expect(plan.launchCmd).toContain("codex -s workspace-write -a never");
+    expect(plan.launchCmd).not.toContain("--dangerously-bypass");
+    expect(plan.launchCmd).not.toContain("--dangerously-skip-permissions");
+  });
+
   test("planLaunch rejects beyond max nesting depth without side effects", () => {
     db = new StateDB(TEST_DB);
     mkdirSync(TEST_PROJECT, { recursive: true });

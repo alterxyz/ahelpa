@@ -16,6 +16,7 @@ export interface LaunchInput {
   projectPath: string;
   parentId: string;
   label?: string;
+  safe?: boolean;
 }
 
 export interface LaunchResult {
@@ -54,7 +55,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   }
 
   const fileHandoff = planFileHandoff(input.projectPath, sessionId);
-  const baseLaunchCmd = driver.buildLaunchCommand({ cwd: input.projectPath });
+  const baseLaunchCmd = driver.buildLaunchCommand({ cwd: input.projectPath, safe: input.safe });
   const launchCmd = `export AHELPA_PARENT_ID=${sessionId} AHELPA_MAX_NESTING_DEPTH=${maxDepth}; ${baseLaunchCmd}`;
 
   return {

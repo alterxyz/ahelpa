@@ -1,4 +1,4 @@
-export interface LaunchOptions { cwd: string; }
+export interface LaunchOptions { cwd: string; safe?: boolean; }
 
 export interface DriverRuntime {
   sleep(ms: number): Promise<void>;

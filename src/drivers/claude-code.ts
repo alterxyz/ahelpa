@@ -1,5 +1,6 @@
 import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions } from "./types.ts";
 import { isTaskInstructionEcho } from "../file-handoff";
+import { shellEscape } from "../shell";
 import { detectSentinelStatus, hasInlineSentinel } from "./sentinels";
 
 function claudeNeedsSubmitNudge(captureOutput: string): boolean {
@@ -28,7 +29,8 @@ export const claudeCodeDriver: AgentDriver = {
   sessionPrefix: "claude",
 
   buildLaunchCommand(opts: LaunchOptions): string {
-    return `cd ${opts.cwd} && claude --dangerously-skip-permissions --verbose`;
+    const args = opts.safe ? "--verbose" : "--dangerously-skip-permissions --verbose";
+    return `cd ${shellEscape(opts.cwd)} && claude ${args}`;
   },
 
   async prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void> {

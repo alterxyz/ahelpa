@@ -4,9 +4,11 @@
 
 ## 权限模型
 
-ahelpa 启动的 helper agent 拥有和 host process 相同的本地用户权限。它没有 sandbox，没有 capability restriction，也没有介于 helper 和本地文件系统之间的审批 gate。helper 能读取、写入和执行该用户账号能做的事情。
+ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户权限。在默认模式下，它没有 sandbox，没有 capability restriction，也没有介于 helper 和本地文件系统之间的审批 gate。helper 能读取、写入和执行该用户账号能做的事情。
 
 这是本地开发场景下的刻意取舍：最大化 helper 能力，同时要求使用者认真收窄任务范围。
+
+`ahelpa launch --safe` 会省略或收窄默认 danger flags。Claude Code 会以 `claude --verbose` 启动；Codex 会以 `codex -s workspace-write -a never` 启动。这是更低权限的姿态，但不是独立 OS user、VM 或强安全边界。
 
 ## 实用防护
 

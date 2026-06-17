@@ -24,6 +24,14 @@ Use `--label` to tag sessions for easier identification:
 ahelpa launch claude-code --task "Fix auth bug" --label "auth-fix"
 ```
 
+Use `--safe` to omit or bound the default danger flags:
+
+```bash
+ahelpa launch codex --safe --project /path/to/project --task "Review this change"
+```
+
+Safe mode is a lower-permission launch posture, not a separate OS user or VM. See [Security](security.md) for the exact driver behavior.
+
 ## Wait for Completion
 
 ```bash

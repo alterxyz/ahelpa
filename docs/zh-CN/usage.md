@@ -24,6 +24,14 @@ ahelpa launch codex --project /path/to/project --task "Add tests for the CLI par
 ahelpa launch claude-code --task "Fix auth bug" --label "auth-fix"
 ```
 
+用 `--safe` 省略或收窄默认 danger flags：
+
+```bash
+ahelpa launch codex --safe --project /path/to/project --task "Review this change"
+```
+
+Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。各 driver 的具体行为见 [安全说明](security.md)。
+
 ## 等待完成
 
 ```bash
