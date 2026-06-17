@@ -12,6 +12,7 @@ export class FIFO {
     }
   }
 
+  // ponytail: sync impl behind async interface; upgrade to true async only if write ever needs to block
   static async tryWrite(path: string, data: string): Promise<boolean> {
     let fd: number | null = null;
     try {

@@ -82,12 +82,9 @@ export function isDaemonRunning(): boolean {
 }
 
 export function getDaemonLaunchCommand(
-  argv: string[] = process.argv,
   execPath: string = process.execPath,
   moduleDir: string = import.meta.dir,
 ): string[] {
-  void argv; // kept for signature/back-compat; intentionally unused (see below)
-
   // Dev mode: running from the source tree (`bun run src/cli.ts`). execPath is
   // the bun runtime, so re-invoke it against cli.ts.
   const cliPath = join(moduleDir, "cli.ts");

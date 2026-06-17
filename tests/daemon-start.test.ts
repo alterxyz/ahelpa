@@ -10,7 +10,7 @@ describe("daemon launch command", () => {
     mkdirSync(root, { recursive: true });
     writeFileSync(join(root, "cli.ts"), "console.log('stub');");
 
-    const command = getDaemonLaunchCommand(["bun", "src/cli.ts"], "/opt/homebrew/bin/bun", root);
+    const command = getDaemonLaunchCommand("/opt/homebrew/bin/bun", root);
 
     expect(command).toEqual([
       "/opt/homebrew/bin/bun",
@@ -25,11 +25,7 @@ describe("daemon launch command", () => {
     const root = mkdtempSync(join(tmpdir(), "ahelpa-daemon-launch-"));
     const installedBinary = join(tmpdir(), ".ahelpa", "bin", "ahelpa");
 
-    const command = getDaemonLaunchCommand(
-      [installedBinary],
-      installedBinary,
-      root,
-    );
+    const command = getDaemonLaunchCommand(installedBinary, root);
 
     expect(command).toEqual([
       installedBinary,
@@ -49,11 +45,7 @@ describe("daemon launch command", () => {
     const binary = join(root, "ahelpa");
     writeFileSync(binary, "#!/bin/sh\n"); // argv[1] must exist to reproduce the bug
 
-    const command = getDaemonLaunchCommand(
-      ["bun", binary, "daemon", "start"],
-      binary,
-      root,
-    );
+    const command = getDaemonLaunchCommand(binary, root);
 
     expect(command).toEqual([binary, DAEMON_SUBCOMMAND]);
 
