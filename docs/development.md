@@ -4,7 +4,7 @@
 
 ## Requirements
 
-- **macOS** (the only supported platform today)
+- **macOS or Linux** (x64 and arm64)
 - **Bun** (runtime, SQLite, test runner, and binary compiler)
 - **tmux** (helper session management)
 
@@ -85,7 +85,7 @@ bun run package:skill
 
 This produces:
 - `dist/ahelpa` — compiled binary
-- `skill/bundle/ahelpa-darwin-arm64.tar.gz` — runtime tarball for skill distribution
+- `skill/bundle/ahelpa-<platform>.tar.gz` — runtime tarball for skill distribution (platform is e.g. `darwin-arm64`, `linux-x64`)
 - `dist/ahelpa.skill` — packaged skill
 
 All generated artifacts are git-ignored.
@@ -112,7 +112,7 @@ Public installs use the release installer:
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-The public installer downloads `ahelpa-darwin-arm64.tar.gz` from GitHub Releases and then calls `ahelpa install-skill`.
+The public installer downloads the platform-specific tarball (e.g. `ahelpa-darwin-arm64.tar.gz`) from GitHub Releases and then calls `ahelpa install-skill`.
 
 ## Testing
 
