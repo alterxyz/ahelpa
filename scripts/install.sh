@@ -7,14 +7,24 @@ set -euo pipefail
 REPO="${AHELPA_REPO:-alterxyz/ahelpa}"
 VERSION="${AHELPA_VERSION:-latest}"
 BIN_DIR="${AHELPA_BIN_DIR:-$HOME/.ahelpa/bin}"
-ASSET_NAME="ahelpa-darwin-arm64.tar.gz"
 
+# Pick the release asset for this OS/arch. Supports macOS and Linux; the
+# runtime itself is platform-agnostic Bun, so binaries are produced per
+# platform by the release workflow.
 OS="$(uname -s)"
 ARCH="$(uname -m)"
-if [ "$OS" != "Darwin" ] || [ "$ARCH" != "arm64" ]; then
-  echo "ahelpa currently ships a macOS arm64 runtime only (got $OS $ARCH)." >&2
-  exit 1
-fi
+case "$OS/$ARCH" in
+  Darwin/arm64) PLATFORM="darwin-arm64" ;;
+  Darwin/x86_64) PLATFORM="darwin-x64" ;;
+  Linux/x86_64 | Linux/amd64) PLATFORM="linux-x64" ;;
+  Linux/aarch64 | Linux/arm64) PLATFORM="linux-arm64" ;;
+  *)
+    echo "ahelpa has no prebuilt runtime for $OS/$ARCH." >&2
+    echo "Build from source instead: clone the repo and run scripts/deploy-local.sh" >&2
+    exit 1
+    ;;
+esac
+ASSET_NAME="ahelpa-${PLATFORM}.tar.gz"
 
 if [ -n "${AHELPA_ARCHIVE_URL:-}" ]; then
   ARCHIVE_URL="$AHELPA_ARCHIVE_URL"

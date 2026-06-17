@@ -12,13 +12,13 @@ ahelpa 把这些胶水收束成一个小 CLI。一个 agent 启动 helper，把�
 
 ## 安装
 
-要求：macOS arm64、tmux，以及用于安装 skill 的 `npx`。
+要求：macOS 或 Linux（x64 / arm64）、tmux，以及用于安装 skill 的 `npx`。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-安装脚本会从 GitHub Releases 下载 runtime binary，安装到 `~/.ahelpa/bin/ahelpa`，然后把 skill 安装交给 `npx skills@latest`。skill 会以全局 hard copy 的方式安装到两个受支持的 agent：
+安装脚本会按你的 OS/arch 从 GitHub Releases 下载对应的 runtime binary，安装到 `~/.ahelpa/bin/ahelpa`，然后把 skill 安装交给 `npx skills@latest`。skill 会以全局 hard copy 的方式安装到两个受支持的 agent：
 
 - Codex：`~/.agents/skills/ahelpa`（`skills` 使用的 global universal 位置）
 - Claude Code：`~/.claude/skills/ahelpa`
@@ -30,6 +30,16 @@ ahelpa install-skill
 ```
 
 这个命令固定使用公开源 `alterxyz/ahelpa`、全局作用域、hard-copy 模式，并显式安装到 `codex` + `claude-code`。
+
+### 从源码安装
+
+如果某个平台还没有预编译产物（或你在做开发），可以本地构建安装——Bun 会为当前 OS/arch 编译原生 binary：
+
+```bash
+git clone https://github.com/alterxyz/ahelpa
+cd ahelpa
+bash scripts/deploy-local.sh   # 构建 dist/ahelpa，装到 ~/.ahelpa/bin，并 hard-copy skill
+```
 
 ## 快速开始
 
@@ -107,7 +117,7 @@ Helper 默认以 host process 相同的本地用户权限运行。请用 `--proj
 
 ## 开发
 
-要求：macOS、Bun、tmux。
+要求：macOS 或 Linux、Bun、tmux。
 
 ```bash
 bun test                       # 单元测试

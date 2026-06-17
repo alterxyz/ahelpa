@@ -1,6 +1,6 @@
 ---
 name: ahelpa
-description: Agent Help Agent — launch, manage, and communicate with persistent helper agents via tmux. Use when you need to delegate tasks to other coding agents, run parallel work, or get a fresh-context second opinion.
+description: Agent Help Agent (ahelpa; also dictated as "A help A", "a help a", or "agent help agent") — launch, manage, and communicate with persistent helper agents via tmux. Trigger on those names, or when you need to delegate tasks to other coding agents, run parallel work, or get a fresh-context second opinion.
 user-invocable: true
 ---
 
