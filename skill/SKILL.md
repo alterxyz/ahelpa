@@ -10,7 +10,7 @@ user-invocable: true
 
 ahelpa lets you spawn, manage, and communicate with persistent helper agents running in tmux. Use it to delegate long-running tasks, fan out work across multiple parallel agents, or get a second opinion from a fresh context without polluting your own conversation.
 
-Packaged releases include the runtime bundle. Source checkouts can build it with `bun run package:skill`.
+Public installs use GitHub Releases for the runtime and `npx skills@latest` for global hard-copy skill installation. Source checkouts can build a local skill bundle with `bun run package:skill`.
 
 Public documentation is available in English and Simplified Chinese:
 
@@ -20,14 +20,16 @@ Public documentation is available in English and Simplified Chinese:
 ## Installation
 
 ```bash
-which ahelpa || {
-  mkdir -p ~/.ahelpa/bin
-  tar xzf <skill-dir>/bundle/ahelpa-darwin-arm64.tar.gz -C ~/.ahelpa/bin/
-  export PATH="$HOME/.ahelpa/bin:$PATH"
-}
+curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-Replace `<skill-dir>` with the absolute path to this skill's directory. The binary installs to `~/.ahelpa/bin/`. Run `ahelpa version` to verify. If the bundle is missing in a source checkout, run `bun run package:skill` first.
+If the runtime is already installed but the skill is missing or stale:
+
+```bash
+ahelpa install-skill
+```
+
+Both commands install the skill globally as hard copies for Codex and Claude Code. If `ahelpa` is not on `PATH` after installation, run `export PATH="$HOME/.ahelpa/bin:$PATH"` in the current shell or add it to your shell profile.
 
 ## Quick Start
 
@@ -85,6 +87,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `logs <id> --token <tok>` | Read session output (live or archived). |
 | `status` | Show all sessions and daemon state. |
 | `clean` | Remove dead records and orphan runtime files. |
+| `install-skill [--source <repo-or-path>]` | Install global hard-copy skill files for Codex and Claude Code. |
 | `version` | Show installed runtime version. |
 | `daemon start\|stop` | Manage the background session monitor. |
 

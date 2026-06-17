@@ -10,6 +10,27 @@ Coding agents work best with focused context. When a task needs a second perspec
 
 ahelpa wraps that glue into a small CLI. One agent launches a helper, hands it a task file, and blocks until the helper prints a completion sentinel. Results come back as files, not terminal scraping. Sessions are tracked in SQLite with owner tokens, so only the launcher can mutate its own helpers.
 
+## Installation
+
+Requirements: macOS arm64, tmux, and `npx` for skill installation.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
+```
+
+The installer downloads the runtime binary from GitHub Releases, installs it to `~/.ahelpa/bin/ahelpa`, then delegates skill installation to `npx skills@latest`. The skill is installed globally as a hard copy for both supported agents:
+
+- Codex: `~/.agents/skills/ahelpa` (the global universal location used by `skills`)
+- Claude Code: `~/.claude/skills/ahelpa`
+
+If the runtime is already installed and you only need to refresh the skill:
+
+```bash
+ahelpa install-skill
+```
+
+That command always uses the public `alterxyz/ahelpa` source, global scope, hard-copy mode, and explicit `codex` + `claude-code` targets.
+
 ## Quick Start
 
 ```bash
@@ -64,6 +85,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 | `status` | Show all sessions and daemon state |
 | `clean` | Remove dead records and orphan runtime files |
 | `daemon start\|stop` | Manage the background session monitor |
+| `install-skill [--source <repo-or-path>]` | Hard-copy the global skill for Codex and Claude Code |
 | `version` | Print the installed runtime version |
 
 ## Runtime Layout
@@ -91,7 +113,7 @@ Requirements: macOS, Bun, tmux.
 bun test                       # Unit tests
 bun run build                  # Compile binary to dist/
 bun run package:skill          # Build skill package with runtime bundle
-bash scripts/deploy-local.sh   # Install to ~/.ahelpa/bin/
+bash scripts/deploy-local.sh   # Install runtime + global hard-copy skills
 bun run closure:gate           # End-to-end gate across both drivers
 ```
 

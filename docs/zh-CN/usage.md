@@ -135,6 +135,16 @@ ahelpa daemon start    # 手动启动
 ahelpa daemon stop     # 手动停止
 ```
 
+## 刷新 agent skill
+
+如果 runtime 已安装，但 agent skill 缺失或过期：
+
+```bash
+ahelpa install-skill
+```
+
+它会把安装交给 `npx skills@latest`，并为 Codex 和 Claude Code 安装全局 hard-copy skill 文件。
+
 ## 时间预期
 
 Helper 是完整 coding agent：它需要启动、读取任务、探索代码、计划、执行、打印暗号。一个有意义的任务通常需要 2–10 分钟。

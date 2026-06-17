@@ -21,7 +21,8 @@ src/
   *.ts                     # 核心模块（state、daemon、wakeup 等）
 tests/                     # Bun 测试
 scripts/
-  deploy-local.sh          # 安装编译后的 binary 到 ~/.ahelpa/bin/
+  install.sh               # 公开安装脚本：release binary + global skills
+  deploy-local.sh          # 安装本地 binary + 全局 hard-copy skills
   closure-gate.sh          # 端到端验证 gate
   package-skill.ts         # Skill packaging（docs + runtime bundle）
   skill-package.ts         # Packaging helpers
@@ -61,7 +62,8 @@ dist/                      # 构建输出（git-ignored）
 bun test                       # 跑测试
 bun run build                  # 编译到 dist/ahelpa
 bun run package:skill          # 构建带 runtime bundle 的 skill package
-bash scripts/deploy-local.sh   # 部署 binary 到 ~/.ahelpa/bin/
+bash scripts/deploy-local.sh   # 部署 runtime + 全局 hard-copy skills
+ahelpa install-skill           # 从公开 repo 刷新 global skill
 bun run closure:gate           # 端到端 closure gate
 ```
 
@@ -91,13 +93,27 @@ bun run package:skill
 
 ## 部署
 
-本地安装编译后的 binary：
+本地安装编译后的 binary，并刷新全局 skills：
 
 ```bash
 bash scripts/deploy-local.sh
 ```
 
-脚本会复制 binary 到 `~/.ahelpa/bin/ahelpa`。请确保 `~/.ahelpa/bin` 在 `PATH` 中。
+脚本会复制 binary 到 `~/.ahelpa/bin/ahelpa`，然后运行：
+
+```bash
+ahelpa install-skill --source ./skill
+```
+
+`install-skill` 会把安装交给 `npx skills@latest`，不重新实现 agent skill 安装逻辑。策略固定为：全局作用域、hard-copy 模式、显式安装 `codex` + `claude-code`。请确保 `~/.ahelpa/bin` 在 `PATH` 中。
+
+公开安装使用 release installer：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
+```
+
+公开安装脚本会从 GitHub Releases 下载 `ahelpa-darwin-arm64.tar.gz`，然后调用 `ahelpa install-skill`。
 
 ## 测试
 

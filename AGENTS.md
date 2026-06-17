@@ -27,7 +27,7 @@ Instructions for agents working on the ahelpa codebase.
 - `src/drivers/` — agent-specific adapters (claude-code, codex)
 - `tests/` — Bun test suite
 - `scripts/` — build, deploy, packaging, closure gate
-- `skill/` — skill package (docs + generated bundle)
+- `skill/` — skill package source (docs + generated bundle during local packaging)
 - `docs/` — public documentation
 
 ## Documentation i18n
@@ -42,6 +42,7 @@ When changing user-facing docs, update both language versions or explicitly note
 ## Requirements
 
 - macOS, Bun, tmux
+- `npx` for `ahelpa install-skill` / public skill installation
 - `jq` for shell examples (not required by runtime)
 
 ## Common Commands
@@ -50,7 +51,8 @@ When changing user-facing docs, update both language versions or explicitly note
 bun test                       # run tests
 bun run build                  # compile binary
 bun run package:skill          # build skill package
-bash scripts/deploy-local.sh   # install locally
+bash scripts/deploy-local.sh   # install runtime + global hard-copy skills
+ahelpa install-skill           # refresh global skill from the public repo
 bun run closure:gate           # end-to-end gate
 ```
 
@@ -66,7 +68,7 @@ The gate runs tests, builds, and launches both drivers. For each, verify that `w
 
 ## Guardrails
 
-- Preserve the skill distribution model: docs + generated runtime bundle.
+- Preserve the skill distribution model: public repo skill source, generated runtime bundle for local packages, and GitHub Release assets for public installs.
 - Prefer file handoff over terminal output parsing.
 - Keep `wait` bounded — long tasks use re-wait or polling.
 - Keep agent-specific behavior inside drivers.

@@ -6,6 +6,7 @@
 import type { StateDB } from "./state";
 import { parseCliArgs } from "./cli-args";
 import { launch } from "./commands/launch";
+import { installSkill } from "./commands/install-skill";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, kill, logs, check, status, clean } from "./commands/session-ops";
 import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
@@ -166,6 +167,21 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
     async run(ctx) {
       const result = clean(ctx.db);
       ctx.print(`removed ${result.removed} dead session record(s), swept ${result.orphanFiles} orphan file(s)`);
+    },
+  },
+  {
+    name: "install-skill",
+    usage: "install-skill [--source <repo-or-path>]",
+    description: "Install the ahelpa skill globally for Codex and Claude Code",
+    flags: { source: { kind: "string" } },
+    async run(ctx) {
+      const result = await installSkill({ source: ctx.flags.strings.source });
+      ctx.print(
+        [
+          `installed ${result.mode} skill globally for ${result.agents.join(", ")}`,
+          `source: ${result.source}`,
+        ].join("\n"),
+      );
     },
   },
   {

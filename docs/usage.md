@@ -135,6 +135,16 @@ ahelpa daemon start    # manual start
 ahelpa daemon stop     # manual stop
 ```
 
+## Refresh Agent Skill
+
+If the runtime is installed but the agent skill is missing or stale:
+
+```bash
+ahelpa install-skill
+```
+
+This delegates to `npx skills@latest` and installs global hard-copy skill files for Codex and Claude Code.
+
 ## Timing Expectations
 
 Helpers are full coding agents — they boot, read the task, explore the codebase, plan, execute, and signal completion. A meaningful task typically takes 2–10 minutes.

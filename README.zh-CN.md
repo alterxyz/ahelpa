@@ -10,6 +10,27 @@ Coding agent 最擅长处理边界清楚、上下文集中的任务。当一个�
 
 ahelpa 把这些胶水收束成一个小 CLI。一个 agent 启动 helper，把任务交给它，然后等待 helper 打印完成暗号。结果通过文件返回，而不是解析终端输出。session 状态记录在 SQLite 中，写操作需要 launch 返回的 owner token。
 
+## 安装
+
+要求：macOS arm64、tmux，以及用于安装 skill 的 `npx`。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
+```
+
+安装脚本会从 GitHub Releases 下载 runtime binary，安装到 `~/.ahelpa/bin/ahelpa`，然后把 skill 安装交给 `npx skills@latest`。skill 会以全局 hard copy 的方式安装到两个受支持的 agent：
+
+- Codex：`~/.agents/skills/ahelpa`（`skills` 使用的 global universal 位置）
+- Claude Code：`~/.claude/skills/ahelpa`
+
+如果 runtime 已经装好，只需要刷新 skill：
+
+```bash
+ahelpa install-skill
+```
+
+这个命令固定使用公开源 `alterxyz/ahelpa`、全局作用域、hard-copy 模式，并显式安装到 `codex` + `claude-code`。
+
 ## 快速开始
 
 ```bash
@@ -64,6 +85,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `status` | 显示所有 session 和 daemon 状态 |
 | `clean` | 清理 dead 记录和孤儿运行时文件 |
 | `daemon start\|stop` | 管理后台 session monitor |
+| `install-skill [--source <repo-or-path>]` | 全局 hard-copy 安装 Codex 和 Claude Code 的 skill |
 | `version` | 显示已安装 runtime 版本 |
 
 ## 运行时布局
@@ -91,7 +113,7 @@ Helper 以 host process 相同的本地用户权限运行，没有 sandbox。请
 bun test                       # 单元测试
 bun run build                  # 编译二进制到 dist/
 bun run package:skill          # 构建带 runtime bundle 的 skill package
-bash scripts/deploy-local.sh   # 安装到 ~/.ahelpa/bin/
+bash scripts/deploy-local.sh   # 安装 runtime + 全局 hard-copy skills
 bun run closure:gate           # 两个 driver 的端到端 gate
 ```
 

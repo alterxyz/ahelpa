@@ -21,7 +21,8 @@ src/
   *.ts                     # Core modules (state, daemon, wakeup, etc.)
 tests/                     # Bun test suite
 scripts/
-  deploy-local.sh          # Install built binary to ~/.ahelpa/bin/
+  install.sh               # Public installer: release binary + global skills
+  deploy-local.sh          # Install local binary + global hard-copy skills
   closure-gate.sh          # End-to-end verification gate
   package-skill.ts         # Skill packaging (docs + runtime bundle)
   skill-package.ts         # Packaging helpers
@@ -61,7 +62,8 @@ This repository is the source tree. The installed runtime is a compiled binary g
 bun test                       # Run the test suite
 bun run build                  # Compile to dist/ahelpa
 bun run package:skill          # Build skill package with runtime bundle
-bash scripts/deploy-local.sh   # Deploy binary to ~/.ahelpa/bin/
+bash scripts/deploy-local.sh   # Deploy runtime + global hard-copy skills
+ahelpa install-skill           # Refresh global skill from the public repo
 bun run closure:gate           # End-to-end closure gate
 ```
 
@@ -90,13 +92,27 @@ All generated artifacts are git-ignored.
 
 ## Deployment
 
-Install the compiled binary locally:
+Install the compiled binary and refresh global skills locally:
 
 ```bash
 bash scripts/deploy-local.sh
 ```
 
-This copies the binary to `~/.ahelpa/bin/ahelpa`. Ensure `~/.ahelpa/bin` is on your `PATH`.
+This copies the binary to `~/.ahelpa/bin/ahelpa`, then runs:
+
+```bash
+ahelpa install-skill --source ./skill
+```
+
+`install-skill` delegates to `npx skills@latest` instead of reimplementing agent skill installation. The policy is fixed: global scope, hard-copy mode, and explicit `codex` + `claude-code` targets. Ensure `~/.ahelpa/bin` is on your `PATH`.
+
+Public installs use the release installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
+```
+
+The public installer downloads `ahelpa-darwin-arm64.tar.gz` from GitHub Releases and then calls `ahelpa install-skill`.
 
 ## Testing
 
