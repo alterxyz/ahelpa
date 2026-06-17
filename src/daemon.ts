@@ -86,21 +86,33 @@ export function getDaemonLaunchCommand(
   execPath: string = process.execPath,
   moduleDir: string = import.meta.dir,
 ): string[] {
+  void argv; // kept for signature/back-compat; intentionally unused (see below)
+
+  // Dev mode: running from the source tree (`bun run src/cli.ts`). execPath is
+  // the bun runtime, so re-invoke it against cli.ts.
   const cliPath = join(moduleDir, "cli.ts");
   if (existsSync(cliPath)) {
     return [execPath, cliPath, DAEMON_SUBCOMMAND];
   }
 
-  const maybeScriptPath = argv[1];
-  if (maybeScriptPath && existsSync(maybeScriptPath)) {
-    return [execPath, maybeScriptPath, DAEMON_SUBCOMMAND];
-  }
-
+  // Compiled single-file binary (`bun build --compile`) — macOS or Linux alike:
+  // process.execPath IS the ahelpa binary, so re-invoke it directly. Do NOT
+  // append argv[1]: for a compiled binary argv[1] is the binary path itself,
+  // which duplicates execPath and shifts the daemon's args. The daemon then
+  // received `ahelpa <binpath> __daemon`, exited as "Unknown command", never
+  // ran, and wait/settle silently broke.
   return [execPath, DAEMON_SUBCOMMAND];
 }
 
-export function spawnDetached(command: string[]): number {
-  const shellCommand = `nohup ${command.map(shellEscape).join(" ")} >/dev/null 2>&1 & echo $!`;
+export function spawnDetached(command: string[], logPath?: string): number {
+  // Route the detached process's own stdout/stderr to a log instead of
+  // /dev/null, so a daemon that crashes on startup leaves a trace to debug
+  // (previously the crash was silently swallowed and the daemon just appeared
+  // "stopped").
+  const redirect = logPath
+    ? `>>${shellEscape(logPath)} 2>&1`
+    : ">/dev/null 2>&1";
+  const shellCommand = `nohup ${command.map(shellEscape).join(" ")} ${redirect} & echo $!`;
   const proc = Bun.spawnSync(["/bin/sh", "-c", shellCommand], {
     stdout: "pipe",
     stderr: "pipe",
@@ -123,7 +135,7 @@ export function startDaemon(): void {
   mkdirSync(AHELPA_DIR, { recursive: true });
 
   try {
-    const pid = spawnDetached(getDaemonLaunchCommand());
+    const pid = spawnDetached(getDaemonLaunchCommand(), LOG_FILE);
     writeFileSync(PID_FILE, String(pid));
   } catch {
     // ignore startup errors; caller will observe daemon as stopped

@@ -12,13 +12,13 @@ ahelpa wraps that glue into a small CLI. One agent launches a helper, hands it a
 
 ## Installation
 
-Requirements: macOS arm64, tmux, and `npx` for skill installation.
+Requirements: macOS or Linux (x64 / arm64), tmux, and `npx` for skill installation.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-The installer downloads the runtime binary from GitHub Releases, installs it to `~/.ahelpa/bin/ahelpa`, then delegates skill installation to `npx skills@latest`. The skill is installed globally as a hard copy for both supported agents:
+The installer downloads the runtime binary for your OS/arch from GitHub Releases, installs it to `~/.ahelpa/bin/ahelpa`, then delegates skill installation to `npx skills@latest`. The skill is installed globally as a hard copy for both supported agents:
 
 - Codex: `~/.agents/skills/ahelpa` (the global universal location used by `skills`)
 - Claude Code: `~/.claude/skills/ahelpa`
@@ -30,6 +30,16 @@ ahelpa install-skill
 ```
 
 That command always uses the public `alterxyz/ahelpa` source, global scope, hard-copy mode, and explicit `codex` + `claude-code` targets.
+
+### Install from source
+
+If a prebuilt runtime is not yet published for your platform (or you are developing), build and install locally — Bun compiles a native binary for the host OS/arch:
+
+```bash
+git clone https://github.com/alterxyz/ahelpa
+cd ahelpa
+bash scripts/deploy-local.sh   # builds dist/ahelpa, installs to ~/.ahelpa/bin, hard-copies skills
+```
 
 ## Quick Start
 
@@ -107,7 +117,7 @@ Helpers run with the same local user permissions as the host process by default.
 
 ## Development
 
-Requirements: macOS, Bun, tmux.
+Requirements: macOS or Linux, Bun, tmux.
 
 ```bash
 bun test                       # Unit tests

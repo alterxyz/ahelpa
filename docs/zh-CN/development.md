@@ -4,7 +4,7 @@
 
 ## 要求
 
-- **macOS**（目前唯一支持的平台）
+- **macOS 或 Linux**（x64 和 arm64）
 - **Bun**（runtime、SQLite、test runner、binary compiler）
 - **tmux**（helper session 管理）
 
@@ -86,7 +86,7 @@ bun run package:skill
 输出：
 
 - `dist/ahelpa` — 编译后的 binary
-- `skill/bundle/ahelpa-darwin-arm64.tar.gz` — skill distribution 用 runtime tarball
+- `skill/bundle/ahelpa-<platform>.tar.gz` — skill distribution 用 runtime tarball（platform 如 `darwin-arm64`、`linux-x64`）
 - `dist/ahelpa.skill` — 打包后的 skill
 
 这些都是 git-ignored 生成物。
@@ -113,7 +113,7 @@ ahelpa install-skill --source ./skill
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-公开安装脚本会从 GitHub Releases 下载 `ahelpa-darwin-arm64.tar.gz`，然后调用 `ahelpa install-skill`。
+公开安装脚本会按当前 OS/arch 从 GitHub Releases 下载对应 tarball（如 `ahelpa-darwin-arm64.tar.gz`），然后调用 `ahelpa install-skill`。
 
 ## 测试
 

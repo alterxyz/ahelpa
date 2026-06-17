@@ -21,11 +21,31 @@ function writeChecksums(distDir: string, paths: string[]): void {
   writeFileSync(resolve(distDir, "SHASUMS256.txt"), `${lines.join("\n")}\n`);
 }
 
+// Tag for the host platform, matching the asset names install.sh resolves
+// (darwin-arm64 / darwin-x64 / linux-x64 / linux-arm64). The runtime is
+// platform-agnostic Bun; each platform's `bun build --compile` emits its own
+// native binary, so the bundle is named after wherever it was built.
+function currentPlatformTag(): string {
+  const os =
+    process.platform === "darwin"
+      ? "darwin"
+      : process.platform === "linux"
+        ? "linux"
+        : process.platform;
+  const arch =
+    process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : process.arch;
+  return `${os}-${arch}`;
+}
+
 async function main(): Promise<void> {
   const repoRoot = process.cwd();
   const distDir = resolve(repoRoot, "dist");
   const skillDir = resolve(repoRoot, "skill");
-  const runtimeBundlePath = resolve(skillDir, "bundle", "ahelpa-darwin-arm64.tar.gz");
+  const runtimeBundlePath = resolve(
+    skillDir,
+    "bundle",
+    `ahelpa-${currentPlatformTag()}.tar.gz`,
+  );
 
   mkdirSync(distDir, { recursive: true });
   mkdirSync(dirname(runtimeBundlePath), { recursive: true });

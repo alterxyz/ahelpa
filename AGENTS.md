@@ -6,9 +6,11 @@ Instructions for agents working on the ahelpa codebase.
 
 `ahelpa` is a local helper runtime for coding agents. It lets one agent launch another as a persistent helper in a tmux session, pass tasks through files, and wait for completion via FIFO-based blocking.
 
+> **Naming:** `ahelpa` is frequently dictated by voice input as **"A help A"** (also "a help a" / "agent help agent"). Those are registered as skill triggers so voice-driven users still activate it.
+
 **Stack:** Bun CLI runtime, on-demand daemon, tmux sessions, SQLite state, FIFO wakeup, skill packaging.
 
-**Platform:** macOS-only for now.
+**Platform:** macOS and Linux (x64 and arm64). The runtime is platform-agnostic Bun; only the release/install plumbing is platform-aware.
 
 ## Source vs Installed Runtime
 
@@ -41,7 +43,7 @@ When changing user-facing docs, update both language versions or explicitly note
 
 ## Requirements
 
-- macOS, Bun, tmux
+- macOS or Linux, Bun, tmux
 - `npx` for `ahelpa install-skill` / public skill installation
 - `jq` for shell examples (not required by runtime)
 
