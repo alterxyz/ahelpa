@@ -84,7 +84,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> --task "..." [--safe]` | 启动 helper（`claude-code` 或 `codex`） |
+| `launch <type> --task "..." [--parent <id>] [--safe]` | 启动 helper（`claude-code` 或 `codex`） |
 | `wait <id...> [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>]` | 非阻塞状态查询，并做 inline refresh |
 | `send <id> "msg" --token <tok>` | 给运行中的 helper 发送短消息 |
@@ -92,6 +92,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `task <id> --file <path> --token <tok>` | 发送长任务文件 |
 | `kill <id> --token <tok>` | 终止 helper session |
 | `logs <id> --token <tok>` | 读取 live 或 archived session output |
+| `resume <id> --token <tok> [--safe]` | 从 agent session 恢复已完成的 helper |
 | `status` | 显示所有 session 和 daemon 状态 |
 | `clean` | 清理 dead 记录和孤儿运行时文件 |
 | `daemon start\|stop` | 管理后台 session monitor |

@@ -24,6 +24,12 @@ Use `--label` to tag sessions for easier identification:
 ahelpa launch claude-code --task "Fix auth bug" --label "auth-fix"
 ```
 
+Use `--parent` when a headless host needs an explicit trace ID:
+
+```bash
+ahelpa launch codex --parent "bench-run-42" --task "Review this change"
+```
+
 Use `--safe` to omit or bound the default danger flags:
 
 ```bash
@@ -116,6 +122,14 @@ Full session output, including archived output after the tmux session is gone:
 
 ```bash
 ahelpa logs "$session_id" --token "$token"
+```
+
+## Resume a Completed Helper
+
+If `check` shows an `agentResumeId`, resume the agent conversation into a new helper session:
+
+```bash
+ahelpa resume "$session_id" --token "$token"
 ```
 
 ## Reclaim Sessions

@@ -40,4 +40,23 @@ describe("refreshSessionStatuses", () => {
     expect(db.getSession("live-idle")?.status).toBe("idle");
     expect(captureSpy).not.toHaveBeenCalled();
   });
+
+  test("captures agent resume token after graceful exit enters draining", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "done-claude", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    let captures = 0;
+    spyOn(Tmux, "capture").mockImplementation(async () => {
+      captures++;
+      return captures === 1
+        ? "[AHELPA:DONE]"
+        : "Resume this session with:\n  claude --resume dc8ca9c2-766b-4d52-9623-1ff9d44b2075";
+    });
+
+    await refreshSessionStatuses(db, ["done-claude"]);
+    await refreshSessionStatuses(db, ["done-claude"]);
+
+    expect(db.getSession("done-claude")?.agentResumeId).toBe("dc8ca9c2-766b-4d52-9623-1ff9d44b2075");
+  });
 });

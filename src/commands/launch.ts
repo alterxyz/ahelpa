@@ -8,6 +8,8 @@ import { getPendingLaunchNestingInfo, getMaxNestingDepth } from "../nesting";
 import { mkdirSync, existsSync } from "fs";
 import { defaultRuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff, type FileHandoffPlan } from "../file-handoff";
+import { requireAuthorizedSession } from "../session-access";
+import { SESSION_STATUS } from "../session-lifecycle";
 
 export interface LaunchInput {
   db: StateDB;
@@ -110,4 +112,67 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
 
 export async function launch(input: LaunchInput): Promise<LaunchResult> {
   return executeLaunch(planLaunch(input));
+}
+
+export interface ResumeInput {
+  db: StateDB;
+  sessionId: string;
+  ownerToken: string;
+  safe?: boolean;
+}
+
+export interface ResumeResult {
+  sessionId: string;
+  ownerToken: string;
+  tmuxSession: string;
+  resumedFrom: string;
+}
+
+export async function resume(input: ResumeInput): Promise<ResumeResult> {
+  const oldSession = requireAuthorizedSession(input.db, input.sessionId, input.ownerToken);
+
+  if (oldSession.status === SESSION_STATUS.Running || oldSession.status === SESSION_STATUS.Draining) {
+    throw new Error(`Cannot resume: session ${input.sessionId} is still ${oldSession.status}`);
+  }
+  if (!oldSession.agentResumeId) {
+    throw new Error(`Session ${input.sessionId} has no resume token`);
+  }
+
+  const driver = getDriver(oldSession.agentType);
+  const uuid = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+  const sessionId = `${driver.sessionPrefix}-${uuid}`;
+  const ownerToken = crypto.randomUUID().replace(/-/g, "");
+  const maxDepth = getMaxNestingDepth();
+
+  const resumeCmd = driver.buildResumeCommand({
+    cwd: oldSession.projectPath,
+    resumeId: oldSession.agentResumeId,
+    safe: input.safe,
+  });
+  const launchCmd = `export AHELPA_PARENT_ID=${sessionId} AHELPA_MAX_NESTING_DEPTH=${maxDepth}; ${resumeCmd}`;
+
+  if (!existsSync(defaultRuntimeLayout.tmpDir)) {
+    mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+  }
+
+  await Tmux.create(sessionId, launchCmd);
+  await defaultWakeup.prepare(sessionId);
+
+  input.db.createSession({
+    id: sessionId,
+    parentId: oldSession.parentId,
+    agentType: oldSession.agentType,
+    task: `(resumed from ${oldSession.id})`,
+    ownerToken,
+    projectPath: oldSession.projectPath,
+    label: oldSession.label,
+    depth: oldSession.depth,
+    resumedFrom: oldSession.id,
+  });
+
+  if (!daemon.isDaemonRunning()) {
+    daemon.startDaemon();
+  }
+
+  return { sessionId, ownerToken, tmuxSession: sessionId, resumedFrom: oldSession.id };
 }

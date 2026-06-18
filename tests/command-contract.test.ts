@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { COMMAND_CONTRACTS, renderHelpText, resolveWaitTimeoutMs } from "../src/command-contract";
+import { COMMAND_CONTRACTS, renderHelpText, resolveParentId, resolveWaitTimeoutMs } from "../src/command-contract";
 import { DEFAULT_WAIT_TIMEOUT_MS } from "../src/commands/wait";
 
 describe("command contract", () => {
@@ -14,6 +14,12 @@ describe("command contract", () => {
 
   test("rejects negative wait timeout seconds", () => {
     expect(() => resolveWaitTimeoutMs(-1)).toThrow("--timeout must be >= 0 seconds");
+  });
+
+  test("resolves parent identity from agent environment", () => {
+    expect(resolveParentId({ CODEX_THREAD_ID: "codex-thread" }, () => 123)).toBe("codex-thread");
+    expect(resolveParentId({ CLAUDE_CODE_SESSION_ID: "claude-session", CODEX_THREAD_ID: "codex-thread" }, () => 123)).toBe("claude-session");
+    expect(resolveParentId({}, () => 123)).toBe("cli-123");
   });
 
   test("renders help from the command catalog", () => {

@@ -24,6 +24,12 @@ ahelpa launch codex --project /path/to/project --task "Add tests for the CLI par
 ahelpa launch claude-code --task "Fix auth bug" --label "auth-fix"
 ```
 
+headless host 需要显式追踪 ID 时，用 `--parent`：
+
+```bash
+ahelpa launch codex --parent "bench-run-42" --task "Review this change"
+```
+
 用 `--safe` 省略或收窄默认 danger flags：
 
 ```bash
@@ -116,6 +122,14 @@ ahelpa capture "$session_id" --token "$token" --lines 100  # 最近 100 行
 
 ```bash
 ahelpa logs "$session_id" --token "$token"
+```
+
+## 恢复已完成的 helper
+
+如果 `check` 显示 `agentResumeId`，可以把 agent 对话恢复成一个新的 helper session：
+
+```bash
+ahelpa resume "$session_id" --token "$token"
 ```
 
 ## 回收 session

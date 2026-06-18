@@ -62,6 +62,7 @@ export function check(db: StateDB, parentId?: string) {
     ...getSessionNestingInfo(db, s.id),
     id: s.id, agentType: s.agentType, status: s.status,
     task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
+    agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
   }));
 }
 

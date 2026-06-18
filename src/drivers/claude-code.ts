@@ -1,4 +1,4 @@
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions } from "./types.ts";
+import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ResumeOptions } from "./types.ts";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus, hasInlineSentinel } from "./sentinels";
@@ -31,6 +31,16 @@ export const claudeCodeDriver: AgentDriver = {
   buildLaunchCommand(opts: LaunchOptions): string {
     const args = opts.safe ? "--verbose" : "--dangerously-skip-permissions --verbose";
     return `cd ${shellEscape(opts.cwd)} && claude ${args}`;
+  },
+
+  buildResumeCommand(opts: ResumeOptions): string {
+    const args = opts.safe ? "--verbose" : "--dangerously-skip-permissions --verbose";
+    return `cd ${shellEscape(opts.cwd)} && claude --resume ${shellEscape(opts.resumeId)} ${args}`;
+  },
+
+  extractResumeToken(captureOutput: string): string | null {
+    const match = captureOutput.match(/claude --resume\s+(\S+)/);
+    return match?.[1] ?? null;
   },
 
   async prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void> {

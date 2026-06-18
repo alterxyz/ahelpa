@@ -14,6 +14,8 @@ export interface SessionRecord {
   updatedAt: string;
   label?: string | null;
   depth: number;
+  agentResumeId?: string | null;
+  resumedFrom?: string | null;
 }
 
 export interface CreateSessionInput {
@@ -25,6 +27,7 @@ export interface CreateSessionInput {
   projectPath: string;
   label?: string;
   depth?: number;
+  resumedFrom?: string;
 }
 
 interface SessionRow {
@@ -39,6 +42,8 @@ interface SessionRow {
   updated_at: string;
   label: string | null;
   depth: number;
+  agent_resume_id: string | null;
+  resumed_from: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -54,6 +59,8 @@ function rowToRecord(row: SessionRow): SessionRecord {
     updatedAt: row.updated_at,
     label: row.label,
     depth: row.depth,
+    agentResumeId: row.agent_resume_id,
+    resumedFrom: row.resumed_from,
   };
 }
 
@@ -102,14 +109,21 @@ export class StateDB {
     if (!columns.some((column) => column.name === "depth")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN depth INTEGER NOT NULL DEFAULT 1");
     }
+    // Migration: add agent resume and session lineage columns.
+    if (!columns.some((column) => column.name === "agent_resume_id")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN agent_resume_id TEXT");
+    }
+    if (!columns.some((column) => column.name === "resumed_from")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN resumed_from TEXT");
+    }
   }
 
   createSession(input: CreateSessionInput): SessionRecord {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -122,6 +136,7 @@ export class StateDB {
       now,
       input.label ?? null,
       depth,
+      input.resumedFrom ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
   }
@@ -134,6 +149,11 @@ export class StateDB {
   updateStatus(id: string, status: SessionStatus): void {
     const now = new Date().toISOString();
     this.db.prepare("UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?").run(status, now, id);
+  }
+
+  updateResumeId(id: string, agentResumeId: string): void {
+    const now = new Date().toISOString();
+    this.db.prepare("UPDATE sessions SET agent_resume_id = ?, updated_at = ? WHERE id = ?").run(agentResumeId, now, id);
   }
 
   listSessions(parentId?: string): SessionRecord[] {

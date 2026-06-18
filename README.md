@@ -84,7 +84,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> --task "..." [--safe]` | Start a helper (`claude-code` or `codex`) |
+| `launch <type> --task "..." [--parent <id>] [--safe]` | Start a helper (`claude-code` or `codex`) |
 | `wait <id...> [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>]` | Non-blocking status poll with inline refresh |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
@@ -92,6 +92,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 | `task <id> --file <path> --token <tok>` | Deliver a task file for long instructions |
 | `kill <id> --token <tok>` | Terminate a helper session |
 | `logs <id> --token <tok>` | Read live or archived session output |
+| `resume <id> --token <tok> [--safe]` | Resume a completed helper from its agent session |
 | `status` | Show all sessions and daemon state |
 | `clean` | Remove dead records and orphan runtime files |
 | `daemon start\|stop` | Manage the background session monitor |

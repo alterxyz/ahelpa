@@ -71,6 +71,24 @@ describe("driver launch protocol", () => {
     expect(runtime.captures.length).toBe(2);
   });
 
+  test("codex skips update prompt instead of accepting update", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      [
+        "Update available! 0.128.0 -> 0.140.0",
+        "1. Update now",
+        "2. Skip",
+        "3. Skip until next version",
+        "Press enter to continue",
+      ].join("\n"),
+      "Working (1s)",
+    ]);
+
+    await driver.prepareForTask("codex-test", runtime);
+
+    expect(runtime.sent).toEqual(["2"]);
+  });
+
   test("claude-code waits for the input prompt before task submission", async () => {
     const driver = getDriver("claude-code");
     const runtime = probeRuntime([

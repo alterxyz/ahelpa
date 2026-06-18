@@ -7,6 +7,7 @@ export interface ArchivedSession {
   status: SessionStatus;
   lastOutput?: string;
   reason?: string;
+  agentResumeId?: string;
 }
 
 export class Archive {

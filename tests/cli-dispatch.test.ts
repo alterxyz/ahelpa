@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { StateDB } from "../src/state";
 import { runCli } from "../src/command-contract";
 import { Tmux } from "../src/tmux";
 import * as daemon from "../src/daemon";
+import { FIFO } from "../src/fifo";
 
 const TEST_DB = "/tmp/ahelpa-dispatch-test.db";
 const TEST_PROJECT = "/tmp/ahelpa-dispatch-project";
@@ -140,6 +141,29 @@ describe("cli dispatch", () => {
     expect(code).toBe(0);
     expect(captured.out[0]).toBe("sent");
     expect(sendKeysSpy).toHaveBeenCalledWith("send-1", "hello");
+  });
+
+  test("launch accepts an explicit parent for headless hosts", async () => {
+    db = new StateDB(TEST_DB);
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(Tmux, "capture").mockResolvedValue("Working (1s)");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+    const captured: Captured = { out: [], err: [] };
+
+    const code = await runCli(db, [
+      "launch", "codex",
+      "--task", "t",
+      "--project", TEST_PROJECT,
+      "--parent", "headless-codex-1",
+    ], io(captured));
+
+    expect(code).toBe(0);
+    const result = JSON.parse(captured.out[0]);
+    expect(db.getSession(result.sessionId)?.parentId).toBe("headless-codex-1");
   });
 
   test("check runs end to end through the dispatch", async () => {

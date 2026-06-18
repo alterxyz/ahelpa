@@ -77,7 +77,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 | Command | Description |
 |---------|-------------|
-| `launch <type> --task "..." [--label] [--project] [--safe]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
+| `launch <type> --task "..." [--label] [--project] [--parent <id>] [--safe]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
 | `wait <id...> [--all] [--timeout <seconds>]` | Block until sessions complete or timeout (default 500s). |
 | `check [--parent <id>]` | Non-blocking status poll. |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper. |
@@ -85,11 +85,18 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `task <id> --file <path> --token <tok>` | Deliver a task file to a running helper. |
 | `kill <id> --token <tok>` | Terminate a helper session. |
 | `logs <id> --token <tok>` | Read session output (live or archived). |
+| `resume <id> --token <tok> [--safe]` | Resume a completed helper from its agent session. |
 | `status` | Show all sessions and daemon state. |
 | `clean` | Remove dead records and orphan runtime files. |
 | `install-skill [--source <repo-or-path>]` | Install global hard-copy skill files for Codex and Claude Code. |
 | `version` | Show installed runtime version. |
 | `daemon start\|stop` | Manage the background session monitor. |
+
+## Resume and Identity
+
+Helpers' agent sessions can be resumed after completion. When a helper exits, ahelpa captures its resume token (e.g., `claude --resume <id>`) automatically. Use `ahelpa check` to see which sessions have resume tokens (`agentResumeId` field), then `ahelpa resume <id> --token <tok>` to reconnect.
+
+For headless hosts, pass `--parent <id>` or set `AHELPA_PARENT_ID` explicitly. If the hosting agent exports a known session variable such as `CLAUDE_CODE_SESSION_ID` or `CODEX_THREAD_ID`, ahelpa uses it as a best-effort fallback. Use `ahelpa check` to see the full parent chain for any session.
 
 ## Sentinel Protocol
 

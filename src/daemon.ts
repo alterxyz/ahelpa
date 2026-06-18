@@ -59,6 +59,19 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
     }
 
     if (session.status === SESSION_STATUS.Draining) {
+      // Capture agent resume token while session is still alive
+      if (!session.agentResumeId) {
+        try {
+          const output = await Tmux.capture(session.id, 50);
+          const driver = getDriver(session.agentType);
+          const resumeId = driver.extractResumeToken(output);
+          if (resumeId) {
+            db.updateResumeId(session.id, resumeId);
+            log(`${session.id}: captured resume token`);
+          }
+        } catch {}
+      }
+
       const startedAt = drainingAt.get(session.id) ?? 0;
       if (!startedAt || Date.now() - startedAt > DRAIN_TIMEOUT_MS) {
         await Tmux.kill(session.id);

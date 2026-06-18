@@ -1,6 +1,6 @@
 {
   "name": "ahelpa",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "Agent Help Agent — skill-shaped agent enhancement system",
   "type": "module",
   "bin": {

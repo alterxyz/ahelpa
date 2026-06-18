@@ -5,7 +5,7 @@
 
 import type { StateDB } from "./state";
 import { parseCliArgs } from "./cli-args";
-import { launch } from "./commands/launch";
+import { launch, resume } from "./commands/launch";
 import { installSkill } from "./commands/install-skill";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, kill, logs, check, status, clean } from "./commands/session-ops";
@@ -48,20 +48,31 @@ export function resolveWaitTimeoutMs(timeoutSeconds?: number): number {
   return timeoutSeconds * 1000;
 }
 
+export function resolveParentId(
+  env: Record<string, string | undefined> = process.env,
+  now: () => number = Date.now,
+): string {
+  return env.AHELPA_PARENT_ID
+    || env.CLAUDE_CODE_SESSION_ID
+    || env.CODEX_THREAD_ID
+    || env.CODEX_COMPANION_SESSION_ID
+    || `cli-${now()}`;
+}
+
 export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "launch",
-    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>] [--safe]",
+    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>] [--parent <id>] [--safe]",
     description: "Launch a helper agent",
     minPositionals: 1,
-    flags: { task: { kind: "string", required: true }, project: { kind: "string" }, label: { kind: "string" }, safe: { kind: "boolean" } },
+    flags: { task: { kind: "string", required: true }, project: { kind: "string" }, parent: { kind: "string" }, label: { kind: "string" }, safe: { kind: "boolean" } },
     async run(ctx) {
       const result = await launch({
         db: ctx.db,
         agentType: ctx.positionals[0],
         task: ctx.flags.strings.task!,
         projectPath: ctx.flags.strings.project || process.cwd(),
-        parentId: process.env.AHELPA_PARENT_ID || `cli-${Date.now()}`,
+        parentId: ctx.flags.strings.parent || resolveParentId(),
         label: ctx.flags.strings.label,
         safe: ctx.flags.booleans.safe,
       });
@@ -159,6 +170,22 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         await refreshSessionStatuses(ctx.db);
       }
       ctx.print(status(ctx.db, daemonRunning));
+    },
+  },
+  {
+    name: "resume",
+    usage: "resume <id> --token <token> [--safe]",
+    description: "Resume a completed helper from its agent session",
+    minPositionals: 1,
+    flags: { token: { kind: "string", required: true }, safe: { kind: "boolean" } },
+    async run(ctx) {
+      const result = await resume({
+        db: ctx.db,
+        sessionId: ctx.positionals[0],
+        ownerToken: ctx.flags.strings.token!,
+        safe: ctx.flags.booleans.safe,
+      });
+      ctx.print(JSON.stringify(result, null, 2));
     },
   },
   {

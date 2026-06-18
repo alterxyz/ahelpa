@@ -1,4 +1,4 @@
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions } from "./types.ts";
+import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ResumeOptions } from "./types.ts";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus } from "./sentinels";
@@ -11,6 +11,12 @@ function codexNeedsSubmitNudge(captureOutput: string): boolean {
 function codexNeedsPromptNudge(captureOutput: string): boolean {
   return /Press enter to continue/i.test(captureOutput)
     || /Do you trust the contents of this directory\?/i.test(captureOutput);
+}
+
+function codexNeedsUpdateSkip(captureOutput: string): boolean {
+  return /Update available!/i.test(captureOutput)
+    && /2\.\s*Skip/i.test(captureOutput)
+    && /Press enter to continue/i.test(captureOutput);
 }
 
 function codexIsStarting(captureOutput: string): boolean {
@@ -31,6 +37,16 @@ export const codexDriver: AgentDriver = {
     return `cd ${shellEscape(opts.cwd)} && codex ${args}`;
   },
 
+  buildResumeCommand(opts: ResumeOptions): string {
+    const args = opts.safe ? "-s workspace-write -a never" : "--dangerously-bypass-approvals-and-sandbox";
+    return `cd ${shellEscape(opts.cwd)} && codex resume ${shellEscape(opts.resumeId)} ${args}`;
+  },
+
+  extractResumeToken(captureOutput: string): string | null {
+    const match = captureOutput.match(/codex resume\s+(\S+)/);
+    return match?.[1] ?? null;
+  },
+
   async prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void> {
     let nudged = false;
 
@@ -42,6 +58,11 @@ export const codexDriver: AgentDriver = {
         break;
       }
       if (codexIsStarting(recentOutput)) {
+        continue;
+      }
+      if (!nudged && codexNeedsUpdateSkip(recentOutput)) {
+        await runtime.sendKeys(sessionId, "2");
+        nudged = true;
         continue;
       }
       if (
