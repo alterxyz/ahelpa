@@ -60,4 +60,8 @@ export const codexDriver: AgentDriver = {
   detectStatus(captureOutput: string): DetectedStatus {
     return detectSentinelStatus(captureOutput);
   },
+
+  async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
+    await runtime.sendKey(sessionId, "Escape");
+  },
 };

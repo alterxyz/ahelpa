@@ -4,6 +4,7 @@ export interface DriverRuntime {
   sleep(ms: number): Promise<void>;
   capture(sessionId: string, lines?: number): Promise<string>;
   sendKeys(sessionId: string, text: string): Promise<void>;
+  sendKey(sessionId: string, key: string): Promise<void>;
 }
 
 export type DetectedStatus = "idle" | "error" | "running";
@@ -15,4 +16,5 @@ export interface AgentDriver {
   prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void>;
   afterTaskSubmitted(sessionId: string, runtime: DriverRuntime): Promise<void>;
   detectStatus(captureOutput: string): DetectedStatus;
+  gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void>;
 }

@@ -75,6 +75,7 @@ const driverRuntime: DriverRuntime = {
   sleep: (ms) => Bun.sleep(ms),
   capture: (sessionId, lines) => Tmux.capture(sessionId, lines),
   sendKeys: (sessionId, text) => Tmux.sendKeys(sessionId, text),
+  sendKey: (sessionId, key) => Tmux.sendKey(sessionId, key),
 };
 
 export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {

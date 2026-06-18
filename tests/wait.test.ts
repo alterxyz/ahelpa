@@ -32,6 +32,7 @@ describe("wait", () => {
     spyOn(daemon, "isDaemonRunning").mockReturnValue(false);
     spyOn(Tmux, "hasSession").mockResolvedValue(true);
     spyOn(Tmux, "capture").mockResolvedValue("[AHELPA:DONE]");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
 
     const result = await wait(db, ["wait-session"], false, 50);
 
@@ -39,7 +40,7 @@ describe("wait", () => {
       sessionId: "wait-session",
       status: "idle",
     });
-    expect(db.getSession("wait-session")?.status).toBe("idle");
+    expect(db.getSession("wait-session")?.status).toBe("draining");
   });
 
   test("returns still_running for a missing session immediately", async () => {

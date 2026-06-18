@@ -30,6 +30,11 @@ export class Tmux {
     await $`tmux send-keys -t ${name} Enter`.quiet();
   }
 
+  // Send a single named key (e.g. "Escape", "C-c") without appending Enter.
+  static async sendKey(name: string, key: string): Promise<void> {
+    await $`tmux send-keys -t ${name} ${key}`.quiet();
+  }
+
   static async kill(name: string): Promise<void> {
     await $`tmux kill-session -t ${name}`.quiet();
   }

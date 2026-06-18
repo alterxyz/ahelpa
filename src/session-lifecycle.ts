@@ -4,6 +4,7 @@ export const SESSION_STATUS = {
   Running: "running",
   Idle: "idle",
   Error: "error",
+  Draining: "draining",
   Dead: "dead",
 } as const;
 

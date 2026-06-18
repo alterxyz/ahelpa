@@ -55,4 +55,8 @@ export const claudeCodeDriver: AgentDriver = {
   detectStatus(captureOutput: string): DetectedStatus {
     return detectSentinelStatus(captureOutput);
   },
+
+  async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
+    await runtime.sendKeys(sessionId, "/exit");
+  },
 };

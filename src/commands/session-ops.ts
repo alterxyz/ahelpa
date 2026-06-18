@@ -86,12 +86,15 @@ export interface CleanResult { removed: number; orphanFiles: number; }
 // any leftover pipe or task file. Live sessions go through kill instead.
 export function clean(db: StateDB, layout: RuntimeLayout = defaultRuntimeLayout): CleanResult {
   const wakeup = new Wakeup(layout);
-  const dead = db.listSessions().filter((session) => session.status === SESSION_STATUS.Dead);
-  for (const session of dead) {
+  const cleanable = db.listSessions().filter((session) =>
+    session.status === SESSION_STATUS.Dead || session.status === SESSION_STATUS.Draining,
+  );
+  for (const session of cleanable) {
     wakeup.cleanup(session.id);
     try { unlinkSync(layout.taskFilePath(session.id)); } catch {}
   }
-  const removed = db.deleteSessionsByStatus(SESSION_STATUS.Dead);
+  const removed = db.deleteSessionsByStatus(SESSION_STATUS.Dead)
+    + db.deleteSessionsByStatus(SESSION_STATUS.Draining);
   return { removed, orphanFiles: sweepOrphanFiles(db, layout) };
 }
 

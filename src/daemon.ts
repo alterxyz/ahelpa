@@ -9,11 +9,23 @@ import { getDriver } from "./drivers/registry";
 import { SESSION_STATUS, statusFromCapture } from "./session-lifecycle";
 import { defaultRuntimeLayout } from "./runtime-layout";
 import { shellEscape } from "./shell";
+import type { DriverRuntime } from "./drivers/types";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
 const PID_FILE = defaultRuntimeLayout.daemonPidPath();
 const LOG_FILE = defaultRuntimeLayout.daemonLogPath();
 export const DAEMON_SUBCOMMAND = "__daemon";
+
+// ponytail: 15s is generous for /exit or Escape; bump if a driver needs longer cleanup
+const DRAIN_TIMEOUT_MS = 15_000;
+const drainingAt = new Map<string, number>();
+
+const driverRuntime: DriverRuntime = {
+  sleep: (ms) => Bun.sleep(ms),
+  capture: (sid, lines) => Tmux.capture(sid, lines),
+  sendKeys: (sid, text) => Tmux.sendKeys(sid, text),
+  sendKey: (sid, key) => Tmux.sendKey(sid, key),
+};
 
 function log(message: string): void {
   const line = `[${new Date().toISOString()}] ${message}\n`;
@@ -42,18 +54,37 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
       } else {
         db.updateStatus(session.id, SESSION_STATUS.Dead);
       }
+      drainingAt.delete(session.id);
+      continue;
+    }
+
+    if (session.status === SESSION_STATUS.Draining) {
+      const startedAt = drainingAt.get(session.id) ?? 0;
+      if (!startedAt || Date.now() - startedAt > DRAIN_TIMEOUT_MS) {
+        await Tmux.kill(session.id);
+        db.updateStatus(session.id, SESSION_STATUS.Dead);
+        drainingAt.delete(session.id);
+        log(`${session.id}: drain timeout, killed`);
+      }
       continue;
     }
 
     if (session.status !== SESSION_STATUS.Running) continue;
 
     const output = await Tmux.capture(session.id, 30);
-    const newStatus = statusFromCapture(output, getDriver(session.agentType));
+    const driver = getDriver(session.agentType);
+    const newStatus = statusFromCapture(output, driver);
     if (newStatus !== SESSION_STATUS.Running) {
       await settle(db, archive, defaultWakeup, session.id, newStatus, {
         status: newStatus,
         lastOutput: output.slice(-500),
       });
+      if (newStatus === SESSION_STATUS.Idle) {
+        try { await driver.gracefulExit(session.id, driverRuntime); } catch {}
+        db.updateStatus(session.id, SESSION_STATUS.Draining);
+        drainingAt.set(session.id, Date.now());
+        log(`${session.id}: sent graceful exit, draining`);
+      }
     }
   }
 }

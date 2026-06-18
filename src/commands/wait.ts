@@ -38,7 +38,9 @@ export async function wait(
     const results = sessionIds.map((id): WaitResult => {
       const session = db.getSession(id);
       if (!session) return { sessionId: id, status: WAIT_STATUS.StillRunning };
-      return { sessionId: id, status: session.status };
+      // ponytail: draining is an internal cleanup detail; callers see "idle" (task is done)
+      const status = session.status === SESSION_STATUS.Draining ? SESSION_STATUS.Idle : session.status;
+      return { sessionId: id, status };
     });
 
     if (all && results.every((result) => stopsWaiting(result.status))) {
