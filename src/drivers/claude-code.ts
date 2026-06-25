@@ -1,7 +1,8 @@
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ResumeOptions } from "./types.ts";
+import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types.ts";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus, hasInlineSentinel } from "./sentinels";
+import { findModelChoice, findSelectedChoice, waitForOutput } from "./model-menu";
 
 function claudeNeedsSubmitNudge(captureOutput: string): boolean {
   return isTaskInstructionEcho(captureOutput)
@@ -21,6 +22,13 @@ async function waitForInput(sessionId: string, runtime: DriverRuntime): Promise<
     if (claudeIsReadyForInput(recentOutput)) {
       return;
     }
+  }
+}
+
+async function sendSteps(sessionId: string, runtime: DriverRuntime, key: "Up" | "Down", count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    await runtime.sendKey(sessionId, key);
+    await runtime.sleep(50);
   }
 }
 
@@ -60,6 +68,31 @@ export const claudeCodeDriver: AgentDriver = {
         break;
       }
     }
+  },
+
+  async switchModel(sessionId: string, runtime: DriverRuntime, opts: ModelSwitchOptions): Promise<string> {
+    await runtime.sendKeys(sessionId, "/model");
+    const menu = await waitForOutput(
+      sessionId,
+      runtime,
+      (output) => output.includes("Select model"),
+      "Claude model menu",
+    );
+    const selected = findSelectedChoice(menu);
+    const target = findModelChoice(menu, opts.model);
+    const delta = target.lineIndex - selected.lineIndex;
+
+    await sendSteps(sessionId, runtime, delta < 0 ? "Up" : "Down", Math.abs(delta));
+    await runtime.sendKey(sessionId, "s");
+
+    const result = await waitForOutput(
+      sessionId,
+      runtime,
+      (output) => /Set model to .* for this session only/i.test(output),
+      "Claude session-only model switch",
+    );
+    return result.split("\n").find((line) => /Set model to/i.test(line))?.trim()
+      ?? `Set model to ${opts.model} for this session only`;
   },
 
   detectStatus(captureOutput: string): DetectedStatus {

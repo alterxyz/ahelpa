@@ -90,6 +90,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
 | `capture <id> --token <tok>` | Snapshot terminal output (debugging only) |
 | `task <id> --file <path> --token <tok>` | Deliver a task file for long instructions |
+| `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | Switch a running helper's model |
 | `kill <id> --token <tok>` | Terminate a helper session |
 | `logs <id> --token <tok>` | Read live or archived session output |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper from its agent session |

@@ -38,6 +38,15 @@ ahelpa launch codex --safe --project /path/to/project --task "Review this change
 
 Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。各 driver 的具体行为见 [安全说明](security.md)。
 
+## 切换运行中 helper 的模型
+
+```bash
+ahelpa model "$session_id" --to sonnet --token "$token"
+ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
+```
+
+Helper 必须停在可输入的 idle prompt。Claude Code 只切当前 session。Codex 会走自己的 `/model` TUI，而该 TUI 会写入 Codex config；ahelpa 默认在当前 session 切换后恢复原 config。需要保留 Codex 新默认模型时，加 `--persist`。
+
 ## 等待完成
 
 ```bash

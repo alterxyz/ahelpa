@@ -1,7 +1,11 @@
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ResumeOptions } from "./types.ts";
+import { existsSync, readFileSync, writeFileSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
+import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types.ts";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus } from "./sentinels";
+import { findModelChoice, waitForOutput } from "./model-menu";
 
 function codexNeedsSubmitNudge(captureOutput: string): boolean {
   return isTaskInstructionEcho(captureOutput)
@@ -26,6 +30,34 @@ function codexIsStarting(captureOutput: string): boolean {
 function codexHasStartedTask(captureOutput: string): boolean {
   return captureOutput.includes("Working (")
     || /\n\s*• (Reading|Explored|Using|Ran|Updated|Edited|Searching|Checked|Inspecting|Analyzing|Planning|Summarizing|Opened)\b/.test(captureOutput);
+}
+
+function codexConfigPath(): string {
+  return join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml");
+}
+
+function snapshotCodexConfig(): { path: string; content: string } | null {
+  const path = codexConfigPath();
+  return existsSync(path) ? { path, content: readFileSync(path, "utf-8") } : null;
+}
+
+function reasoningKey(effort?: string): string {
+  switch ((effort || "").toLowerCase().replace(/[-_\s]+/g, "")) {
+    case "":
+      return "Enter";
+    case "low":
+      return "1";
+    case "medium":
+    case "default":
+      return "2";
+    case "high":
+      return "3";
+    case "xhigh":
+    case "extrahigh":
+      return "4";
+    default:
+      throw new Error(`Unsupported Codex effort: ${effort}`);
+  }
 }
 
 export const codexDriver: AgentDriver = {
@@ -76,6 +108,42 @@ export const codexDriver: AgentDriver = {
   },
 
   async afterTaskSubmitted(): Promise<void> {
+  },
+
+  async switchModel(sessionId: string, runtime: DriverRuntime, opts: ModelSwitchOptions): Promise<string> {
+    const configSnapshot = opts.persist ? null : snapshotCodexConfig();
+    try {
+      await runtime.sendKeys(sessionId, "/model");
+      const menu = await waitForOutput(
+        sessionId,
+        runtime,
+        (output) => output.includes("Select Model and Effort"),
+        "Codex model menu",
+      );
+      const target = findModelChoice(menu, opts.model);
+      await runtime.sendKey(sessionId, target.number);
+
+      const next = await waitForOutput(
+        sessionId,
+        runtime,
+        (output) => output.includes("Select Reasoning Level") || /Model changed to/i.test(output),
+        "Codex reasoning menu",
+      );
+      if (next.includes("Select Reasoning Level")) {
+        await runtime.sendKey(sessionId, reasoningKey(opts.effort));
+      }
+
+      const result = await waitForOutput(
+        sessionId,
+        runtime,
+        (output) => /Model changed to/i.test(output),
+        "Codex model switch confirmation",
+      );
+      return result.split("\n").find((line) => /Model changed to/i.test(line))?.trim()
+        ?? `Model changed to ${opts.model}`;
+    } finally {
+      if (configSnapshot) writeFileSync(configSnapshot.path, configSnapshot.content);
+    }
   },
 
   detectStatus(captureOutput: string): DetectedStatus {

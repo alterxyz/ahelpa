@@ -143,6 +143,35 @@ describe("cli dispatch", () => {
     expect(sendKeysSpy).toHaveBeenCalledWith("send-1", "hello");
   });
 
+  test("model command authorizes and switches the running helper model", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({
+      id: "model-1", parentId: "p", agentType: "claude-code",
+      task: "t", ownerToken: "tok", projectPath: "/tmp",
+    });
+    const sendKeysSpy = spyOn(Tmux, "sendKeys").mockResolvedValue();
+    const sendKeySpy = spyOn(Tmux, "sendKey").mockResolvedValue();
+    spyOn(Tmux, "capture")
+      .mockResolvedValueOnce([
+        "Select model",
+        "  1. Default",
+        "  2. Opus",
+        "❯ 3. Sonnet",
+        "  4. Haiku",
+      ].join("\n"))
+      .mockResolvedValueOnce("Set model to Haiku 4.5 for this session only");
+    spyOn(Bun, "sleep").mockResolvedValue();
+    const captured: Captured = { out: [], err: [] };
+
+    const code = await runCli(db, ["model", "model-1", "--to", "haiku", "--token", "tok"], io(captured));
+
+    expect(code).toBe(0);
+    expect(captured.out[0]).toContain("Set model to Haiku 4.5");
+    expect(sendKeysSpy).toHaveBeenCalledWith("model-1", "/model");
+    expect(sendKeySpy).toHaveBeenCalledWith("model-1", "Down");
+    expect(sendKeySpy).toHaveBeenCalledWith("model-1", "s");
+  });
+
   test("launch accepts an explicit parent for headless hosts", async () => {
     db = new StateDB(TEST_DB);
     mkdirSync(TEST_PROJECT, { recursive: true });

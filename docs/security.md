@@ -24,7 +24,7 @@ The owner token returned by `launch` gates all mutating operations:
 
 | Requires token | Does not require token |
 | --- | --- |
-| `send`, `task`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean` |
+| `send`, `task`, `model`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean` |
 
 Read-only status views intentionally do not expose owner tokens. This means any agent can observe session status (who's running, what state they're in), but only the launching agent can interact with or terminate a session.
 

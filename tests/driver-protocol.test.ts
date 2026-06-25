@@ -5,18 +5,21 @@ import type { DriverRuntime } from "../src/drivers/types";
 type ProbeRuntime = DriverRuntime & {
   captures: Array<{ sessionId: string; lines?: number }>;
   sent: string[];
+  keys: string[];
   sleeps: number[];
 };
 
 function probeRuntime(outputs: string[]): ProbeRuntime {
   const captures: Array<{ sessionId: string; lines?: number }> = [];
   const sent: string[] = [];
+  const keys: string[] = [];
   const sleeps: number[] = [];
   let outputIndex = 0;
 
   return {
     captures,
     sent,
+    keys,
     sleeps,
 
     async sleep(ms: number): Promise<void> {
@@ -32,6 +35,10 @@ function probeRuntime(outputs: string[]): ProbeRuntime {
 
     async sendKeys(_sessionId: string, text: string): Promise<void> {
       sent.push(text);
+    },
+
+    async sendKey(_sessionId: string, key: string): Promise<void> {
+      keys.push(key);
     },
   };
 }
@@ -124,5 +131,55 @@ describe("driver launch protocol", () => {
     expect(runtime.sent).toEqual([""]);
     expect(runtime.captures).toEqual([{ sessionId: "claude-test", lines: 30 }]);
     expect(runtime.sleeps).toEqual([1000]);
+  });
+
+  test("claude-code switches model with cursor navigation and session-only select", async () => {
+    const driver = getDriver("claude-code");
+    const runtime = probeRuntime([
+      [
+        "  1. Default",
+        "  2. Opus",
+        "  3. Sonnet",
+        "  4. Haiku",
+        "❯ 5. Opus 4.6 ✔",
+        "Select model",
+      ].join("\n"),
+      "Set model to Sonnet 4.6 for this session only",
+    ]);
+
+    const result = await driver.switchModel("claude-test", runtime, { model: "sonnet" });
+
+    expect(result).toContain("Set model to Sonnet 4.6");
+    expect(runtime.sent).toEqual(["/model"]);
+    expect(runtime.keys).toEqual(["Up", "Up", "s"]);
+  });
+
+  test("codex switches model through model and reasoning menus", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      [
+        "Select Model and Effort",
+        "❯ 1. gpt-5.5 (current)",
+        "  2. gpt-5.4",
+      ].join("\n"),
+      [
+        "Select Reasoning Level for gpt-5.4",
+        "  1. Low",
+        "❯ 2. Medium (default)",
+        "  3. High",
+        "  4. Extra high",
+      ].join("\n"),
+      "Model changed to gpt-5.4 xhigh",
+    ]);
+
+    const result = await driver.switchModel("codex-test", runtime, {
+      model: "gpt-5.4",
+      effort: "xhigh",
+      persist: true,
+    });
+
+    expect(result).toContain("Model changed to gpt-5.4 xhigh");
+    expect(runtime.sent).toEqual(["/model"]);
+    expect(runtime.keys).toEqual(["2", "4"]);
   });
 });

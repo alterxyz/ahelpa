@@ -11,6 +11,8 @@ import { requireAuthorizedSession } from "../session-access";
 import { getSessionNestingInfo } from "../nesting";
 import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff } from "../file-handoff";
+import { getDriver } from "../drivers/registry";
+import type { DriverRuntime, ModelSwitchOptions } from "../drivers/types";
 import { readFileSync, unlinkSync, readdirSync } from "fs";
 import { join } from "path";
 
@@ -38,6 +40,18 @@ export const sendTask = withAuth(async ({ session }, filePath: string) => {
   const fileHandoff = planFileHandoff(session.projectPath, session.id);
   prepareFileHandoff(fileHandoff, content);
   await Tmux.sendKeys(session.id, fileHandoff.taskInstruction);
+});
+
+const driverRuntime: DriverRuntime = {
+  sleep: (ms) => Bun.sleep(ms),
+  capture: (sessionId, lines) => Tmux.capture(sessionId, lines),
+  sendKeys: (sessionId, text) => Tmux.sendKeys(sessionId, text),
+  sendKey: (sessionId, key) => Tmux.sendKey(sessionId, key),
+};
+
+export const switchModel = withAuth(async ({ session }, opts: ModelSwitchOptions) => {
+  const driver = getDriver(session.agentType);
+  return driver.switchModel(session.id, driverRuntime, opts);
 });
 
 export const kill = withAuth(async ({ db, session }) => {

@@ -8,7 +8,7 @@ import { parseCliArgs } from "./cli-args";
 import { launch, resume } from "./commands/launch";
 import { installSkill } from "./commands/install-skill";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
-import { send, capture, sendTask, kill, logs, check, status, clean } from "./commands/session-ops";
+import { send, capture, sendTask, switchModel, kill, logs, check, status, clean } from "./commands/session-ops";
 import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
 import { SessionAccessError } from "./session-access";
 import { VERSION } from "./version";
@@ -137,6 +137,26 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
     async run(ctx) {
       await sendTask(ctx.db, ctx.positionals[0], ctx.flags.strings.token!, ctx.flags.strings.file!);
       ctx.print("task sent");
+    },
+  },
+  {
+    name: "model",
+    usage: "model <id> --to <model> --token <token> [--effort <level>] [--persist]",
+    description: "Switch a running helper's model",
+    minPositionals: 1,
+    flags: {
+      to: { kind: "string", required: true },
+      token: { kind: "string", required: true },
+      effort: { kind: "string" },
+      persist: { kind: "boolean" },
+    },
+    async run(ctx) {
+      const result = await switchModel(ctx.db, ctx.positionals[0], ctx.flags.strings.token!, {
+        model: ctx.flags.strings.to!,
+        effort: ctx.flags.strings.effort,
+        persist: ctx.flags.booleans.persist,
+      });
+      ctx.print(result);
     },
   },
   {

@@ -83,6 +83,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `send <id> "msg" --token <tok>` | Send a message to a running helper. |
 | `capture <id> --token <tok> [--lines N]` | Snapshot terminal output (debugging only). |
 | `task <id> --file <path> --token <tok>` | Deliver a task file to a running helper. |
+| `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | Switch a running helper's model. |
 | `kill <id> --token <tok>` | Terminate a helper session. |
 | `logs <id> --token <tok>` | Read session output (live or archived). |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper from its agent session. |
@@ -91,6 +92,10 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `install-skill [--source <repo-or-path>]` | Install global hard-copy skill files for Codex and Claude Code. |
 | `version` | Show installed runtime version. |
 | `daemon start\|stop` | Manage the background session monitor. |
+
+## Switching a Running Helper's Model
+
+Use `ahelpa model <id> --to <model> --token <tok>` when a helper is idle at its input prompt. Claude Code switches the current session only. Codex switches the running session and ahelpa restores the previous Codex config by default; add `--persist` to keep the new Codex default. For Codex reasoning level, pass `--effort low|medium|high|xhigh`.
 
 ## Resume and Identity
 

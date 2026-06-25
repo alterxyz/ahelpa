@@ -24,7 +24,7 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 | 需要 token | 不需要 token |
 | --- | --- |
-| `send`、`task`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean` |
+| `send`、`task`、`model`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean` |
 
 只读状态视图不会暴露 owner token。这意味着任何 agent 都可以观察 session 状态，但只有启动者能交互或终止该 session。
 

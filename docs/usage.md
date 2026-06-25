@@ -38,6 +38,15 @@ ahelpa launch codex --safe --project /path/to/project --task "Review this change
 
 Safe mode is a lower-permission launch posture, not a separate OS user or VM. See [Security](security.md) for the exact driver behavior.
 
+## Switch a Running Helper Model
+
+```bash
+ahelpa model "$session_id" --to sonnet --token "$token"
+ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
+```
+
+The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. Add `--persist` when you want Codex's new model to remain the default.
+
 ## Wait for Completion
 
 ```bash

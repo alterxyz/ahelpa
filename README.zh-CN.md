@@ -90,6 +90,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `send <id> "msg" --token <tok>` | 给运行中的 helper 发送短消息 |
 | `capture <id> --token <tok>` | 截取终端输出，仅用于调试 |
 | `task <id> --file <path> --token <tok>` | 发送长任务文件 |
+| `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | 切换运行中 helper 的模型 |
 | `kill <id> --token <tok>` | 终止 helper session |
 | `logs <id> --token <tok>` | 读取 live 或 archived session output |
 | `resume <id> --token <tok> [--safe]` | 从 agent session 恢复已完成的 helper |
