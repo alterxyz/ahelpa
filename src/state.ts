@@ -165,6 +165,10 @@ export class StateDB {
     return rows.map(rowToRecord);
   }
 
+  deleteSession(id: string): void {
+    this.db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+  }
+
   deleteSessionsByStatus(status: SessionStatus): number {
     return this.db.prepare("DELETE FROM sessions WHERE status = ?").run(status).changes;
   }

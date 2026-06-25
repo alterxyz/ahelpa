@@ -43,7 +43,7 @@ describe("wait", () => {
     expect(db.getSession("wait-session")?.status).toBe("draining");
   });
 
-  test("returns still_running for a missing session immediately", async () => {
+  test("returns dead for a missing (reaped) session immediately", async () => {
     db = new StateDB(TEST_DB);
     spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
 
@@ -51,7 +51,7 @@ describe("wait", () => {
 
     expect(result).toEqual({
       sessionId: "missing-session",
-      status: "still_running",
+      status: "dead",
     });
   });
 });

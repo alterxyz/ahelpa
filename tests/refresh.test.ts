@@ -17,7 +17,7 @@ describe("refreshSessionStatuses", () => {
     }
   });
 
-  test("reconciles settled sessions whose tmux session has gone away", async () => {
+  test("reaps settled sessions whose tmux session has gone away", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "stale-idle", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
     db.updateStatus("stale-idle", "idle");
@@ -25,7 +25,7 @@ describe("refreshSessionStatuses", () => {
 
     await refreshSessionStatuses(db);
 
-    expect(db.getSession("stale-idle")?.status).toBe("dead");
+    expect(db.getSession("stale-idle")).toBeNull();
   });
 
   test("leaves settled sessions alone while their tmux session lives", async () => {

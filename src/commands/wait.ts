@@ -37,7 +37,8 @@ export async function wait(
 
     const results = sessionIds.map((id): WaitResult => {
       const session = db.getSession(id);
-      if (!session) return { sessionId: id, status: WAIT_STATUS.StillRunning };
+      // ponytail: reaped sessions have no DB row — treat as done, not stuck
+      if (!session) return { sessionId: id, status: SESSION_STATUS.Dead };
       const status = session.status === SESSION_STATUS.Draining ? SESSION_STATUS.Idle : session.status;
       return { sessionId: id, status };
     });

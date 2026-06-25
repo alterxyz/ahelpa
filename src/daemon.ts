@@ -3,7 +3,7 @@ import { join } from "path";
 import { StateDB } from "./state";
 import { Tmux } from "./tmux";
 import { Archive } from "./archive";
-import { defaultWakeup } from "./wakeup";
+import { Wakeup, defaultWakeup } from "./wakeup";
 import { settle } from "./settle";
 import { getDriver } from "./drivers/registry";
 import { SESSION_STATUS, statusFromCapture } from "./session-lifecycle";
@@ -15,6 +15,15 @@ const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
 const PID_FILE = defaultRuntimeLayout.daemonPidPath();
 const LOG_FILE = defaultRuntimeLayout.daemonLogPath();
 export const DAEMON_SUBCOMMAND = "__daemon";
+
+// ponytail: auto-reap dead sessions so `clean` isn't needed manually.
+// summary.md in the project dir is the receipt; DB row is disposable.
+function reapSession(db: StateDB, sessionId: string): void {
+  const wakeup = new Wakeup();
+  wakeup.cleanup(sessionId);
+  try { unlinkSync(defaultRuntimeLayout.taskFilePath(sessionId)); } catch {}
+  db.deleteSession(sessionId);
+}
 
 // ponytail: 15s is generous for /exit or Escape; bump if a driver needs longer cleanup
 const DRAIN_TIMEOUT_MS = 15_000;
@@ -56,10 +65,10 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
           status: SESSION_STATUS.Dead,
           reason: "tmux session gone",
         });
-      } else {
-        db.updateStatus(session.id, SESSION_STATUS.Dead);
       }
       drainingAt.delete(session.id);
+      reapSession(db, session.id);
+      log(`${session.id}: reaped`);
       continue;
     }
 
@@ -80,9 +89,9 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
       const startedAt = drainingAt.get(session.id) ?? 0;
       if (!startedAt || Date.now() - startedAt > DRAIN_TIMEOUT_MS) {
         await Tmux.kill(session.id);
-        db.updateStatus(session.id, SESSION_STATUS.Dead);
         drainingAt.delete(session.id);
-        log(`${session.id}: drain timeout, killed`);
+        reapSession(db, session.id);
+        log(`${session.id}: drain timeout, killed & reaped`);
       }
       continue;
     }
