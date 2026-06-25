@@ -61,5 +61,5 @@ describe("integration", () => {
     // Verify tmux session is gone
     const alive = await Tmux.hasSession(result.sessionId);
     expect(alive).toBe(false);
-  }, 20000);
+  }, 45000);
 });

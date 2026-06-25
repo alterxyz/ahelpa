@@ -93,7 +93,7 @@ $CLI help >/tmp/ahelpa-closure-gate-cli.txt
 bun run test
 bun run build
 
-run_gate claude-code 'Print gate-claude, then print [AHELPA:DONE] on its own line.' 'gate-claude' 'Your account does not have access to Claude Code\|weekly limit'
+run_gate claude-code 'Print gate-claude, then print [AHELPA:DONE] on its own line.' 'gate-claude' 'Your account does not have access to Claude Code\|weekly limit\|session limit'
 run_gate codex 'Print gate-codex, then print [AHELPA:DONE] on its own line.' 'gate-codex'
 
 echo

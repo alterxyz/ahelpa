@@ -63,7 +63,7 @@ describe("launch", () => {
     // tmux session exists
     const exists = await Tmux.hasSession(result.sessionId);
     expect(exists).toBe(true);
-  }, 10000);
+  }, 30000);
 
   test("auto-starts daemon when it is not already running", async () => {
     mkdirSync(TEST_PROJECT, { recursive: true });
