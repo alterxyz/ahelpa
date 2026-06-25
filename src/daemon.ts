@@ -19,6 +19,9 @@ export const DAEMON_SUBCOMMAND = "__daemon";
 // ponytail: 15s is generous for /exit or Escape; bump if a driver needs longer cleanup
 const DRAIN_TIMEOUT_MS = 15_000;
 const drainingAt = new Map<string, number>();
+// ponytail: debounce stuck detection — only fire after 2 consecutive polls with same reason
+const stuckSeen = new Map<string, { reason: string; count: number }>();
+const STUCK_DEBOUNCE = 2;
 
 const driverRuntime: DriverRuntime = {
   sleep: (ms) => Bun.sleep(ms),
@@ -88,6 +91,7 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
     const driver = getDriver(session.agentType);
     const newStatus = statusFromCapture(output, driver);
     if (newStatus !== SESSION_STATUS.Running) {
+      stuckSeen.delete(session.id);
       await settle(db, archive, defaultWakeup, session.id, newStatus, {
         status: newStatus,
         lastOutput: output.slice(-500),
@@ -97,6 +101,24 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
         db.updateStatus(session.id, SESSION_STATUS.Draining);
         drainingAt.set(session.id, Date.now());
         log(`${session.id}: sent graceful exit, draining`);
+      }
+    } else {
+      const stuck = driver.detectStuck(output);
+      if (stuck) {
+        const prev = stuckSeen.get(session.id);
+        const count = (prev && prev.reason === stuck.reason) ? prev.count + 1 : 1;
+        stuckSeen.set(session.id, { reason: stuck.reason, count });
+        if (count >= STUCK_DEBOUNCE) {
+          await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
+            status: SESSION_STATUS.NeedsAttention,
+            reason: stuck.reason,
+            hint: stuck.hint,
+            lastOutput: output.slice(-500),
+          });
+          log(`${session.id}: needs attention — ${stuck.reason}`);
+        }
+      } else {
+        stuckSeen.delete(session.id);
       }
     }
   }

@@ -170,7 +170,7 @@ export class StateDB {
   }
 
   listActiveSessions(): SessionRecord[] {
-    const rows = this.db.prepare("SELECT * FROM sessions WHERE status IN (?, ?)").all(SESSION_STATUS.Running, SESSION_STATUS.Draining) as SessionRow[];
+    const rows = this.db.prepare("SELECT * FROM sessions WHERE status IN (?, ?, ?)").all(SESSION_STATUS.Running, SESSION_STATUS.Draining, SESSION_STATUS.NeedsAttention) as SessionRow[];
     return rows.map(rowToRecord);
   }
 

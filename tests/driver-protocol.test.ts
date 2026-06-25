@@ -183,3 +183,48 @@ describe("driver launch protocol", () => {
     expect(runtime.keys).toEqual(["2", "4"]);
   });
 });
+
+describe("detectStuck", () => {
+  test("claude-code detects hooks dialog", () => {
+    const driver = getDriver("claude-code");
+    const output = "Press enter to view hooks; esc to close";
+    const stuck = driver.detectStuck(output);
+    expect(stuck).not.toBeNull();
+    expect(stuck!.reason).toContain("TUI dialog");
+    expect(stuck!.hint).toContain("Escape");
+  });
+
+  test("claude-code detects workspace trust prompt", () => {
+    const driver = getDriver("claude-code");
+    const stuck = driver.detectStuck("Do you trust the files in this folder?");
+    expect(stuck).not.toBeNull();
+    expect(stuck!.reason).toContain("workspace trust");
+  });
+
+  test("claude-code returns null for normal agent output", () => {
+    const driver = getDriver("claude-code");
+    expect(driver.detectStuck("⏺ Reading file src/cli.ts\n0 tokens")).toBeNull();
+    expect(driver.detectStuck("Working on the task...")).toBeNull();
+  });
+
+  test("codex detects hooks dialog", () => {
+    const driver = getDriver("codex");
+    const output = "Press enter to view hooks; esc to close\nSubagentStart hooks\nesc to go back";
+    const stuck = driver.detectStuck(output);
+    expect(stuck).not.toBeNull();
+    expect(stuck!.reason).toContain("hooks dialog");
+  });
+
+  test("codex detects update prompt", () => {
+    const driver = getDriver("codex");
+    const output = "Update available! 0.128.0 -> 0.140.0\n1. Update now\n2. Skip\nPress enter to continue";
+    const stuck = driver.detectStuck(output);
+    expect(stuck).not.toBeNull();
+    expect(stuck!.hint).toContain("2");
+  });
+
+  test("codex returns null when actively working", () => {
+    const driver = getDriver("codex");
+    expect(driver.detectStuck("Working (5s)\n• Reading file src/cli.ts")).toBeNull();
+  });
+});

@@ -27,8 +27,12 @@ function withAuth<TArgs extends any[], TResult>(
   };
 }
 
-export const send = withAuth(async ({ session }, message: string) => {
+export const send = withAuth(async ({ db, session }, message: string) => {
   await Tmux.sendKeys(session.id, message);
+  // Host intervened — resume daemon monitoring
+  if (session.status === SESSION_STATUS.NeedsAttention) {
+    db.updateStatus(session.id, SESSION_STATUS.Running);
+  }
 });
 
 export const capture = withAuth(async ({ session }, lines: number = 50) => {
@@ -71,13 +75,21 @@ export const logs = withAuth(async ({ session }) => {
 });
 
 export function check(db: StateDB, parentId?: string) {
+  const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const sessions = db.listSessions(parentId);
-  return sessions.map(s => ({
-    ...getSessionNestingInfo(db, s.id),
-    id: s.id, agentType: s.agentType, status: s.status,
-    task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
-    agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
-  }));
+  return sessions.map(s => {
+    const base = {
+      ...getSessionNestingInfo(db, s.id),
+      id: s.id, agentType: s.agentType, status: s.status,
+      task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
+      agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
+    };
+    if (s.status === SESSION_STATUS.NeedsAttention) {
+      const archived = archive.get(s.id);
+      return { ...base, reason: archived?.reason, hint: archived?.hint };
+    }
+    return base;
+  });
 }
 
 export function status(db: StateDB, daemonRunning: boolean): string {

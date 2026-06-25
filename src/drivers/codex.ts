@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types.ts";
+import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, StuckSignal } from "./types.ts";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus } from "./sentinels";
@@ -148,6 +148,20 @@ export const codexDriver: AgentDriver = {
 
   detectStatus(captureOutput: string): DetectedStatus {
     return detectSentinelStatus(captureOutput);
+  },
+
+  detectStuck(captureOutput: string): StuckSignal | null {
+    if (/Press enter to view hooks|esc to close|esc to go back/i.test(captureOutput))
+      return { reason: "hooks dialog waiting for input", hint: "send Escape" };
+    if (/Do you trust the contents of this directory\?/i.test(captureOutput))
+      return { reason: "workspace trust prompt", hint: "send Enter" };
+    if (/Update available!/i.test(captureOutput) && /Skip/i.test(captureOutput))
+      return { reason: "update prompt", hint: "send '2' to skip" };
+    if (/sign in|log in|authenticate/i.test(captureOutput) && !codexHasStartedTask(captureOutput))
+      return { reason: "authentication prompt", hint: "fix login state externally" };
+    if (/Select Model and Effort/i.test(captureOutput) && !codexHasStartedTask(captureOutput))
+      return { reason: "model selection menu open", hint: "send Escape" };
+    return null;
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {

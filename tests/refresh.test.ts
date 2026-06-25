@@ -59,4 +59,38 @@ describe("refreshSessionStatuses", () => {
 
     expect(db.getSession("done-claude")?.agentResumeId).toBe("dc8ca9c2-766b-4d52-9623-1ff9d44b2075");
   });
+
+  test("detects stuck helper and transitions to needs_attention after debounce", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "stuck-codex", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue(
+      "Press enter to view hooks; esc to close\nSubagentStart hooks\nesc to go back",
+    );
+
+    // First poll — debounce, stays running
+    await refreshSessionStatuses(db, ["stuck-codex"]);
+    expect(db.getSession("stuck-codex")?.status).toBe("running");
+
+    // Second poll — debounce met, transitions to needs_attention
+    await refreshSessionStatuses(db, ["stuck-codex"]);
+    expect(db.getSession("stuck-codex")?.status).toBe("needs_attention");
+  });
+
+  test("stuck detection resets when output changes", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "flaky", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    let callCount = 0;
+    spyOn(Tmux, "capture").mockImplementation(async () => {
+      callCount++;
+      if (callCount === 1) return "Press enter to view hooks; esc to close";
+      return "Working (2s)\n• Reading file src/cli.ts";
+    });
+
+    await refreshSessionStatuses(db, ["flaky"]);
+    await refreshSessionStatuses(db, ["flaky"]);
+
+    expect(db.getSession("flaky")?.status).toBe("running");
+  });
 });
