@@ -190,9 +190,9 @@ describe("detectActivity", () => {
     expect(driver.detectActivity("⏺ Reading file src/cli.ts\n0 tokens")).toBe("working");
   });
 
-  test("claude-code: non-zero token counter = working", () => {
+  test("claude-code: non-zero token counter without ⏺ = idle (persists after turn)", () => {
     const driver = getDriver("claude-code");
-    expect(driver.detectActivity("Opus 4.6 | 1234 tokens")).toBe("working");
+    expect(driver.detectActivity("Opus 4.6 | 1234 tokens")).toBe("idle");
   });
 
   test("claude-code: prompt with 0 tokens = booting", () => {

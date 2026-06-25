@@ -2,10 +2,8 @@ import { StateDB } from "../state";
 import { isDaemonRunning, refreshSessionStatuses } from "../daemon";
 import { SESSION_STATUS, WAIT_STATUS, type WaitStatus } from "../session-lifecycle";
 import { Wakeup, defaultWakeup } from "../wakeup";
-import { Archive } from "../archive";
-import { defaultRuntimeLayout } from "../runtime-layout";
 
-interface WaitResult { sessionId: string; status: WaitStatus; lastOutput?: string; }
+interface WaitResult { sessionId: string; status: WaitStatus; }
 
 // Stays under the Bash hard timeout of agent platforms (e.g. 600s): wait
 // returns still_running at the deadline instead of being killed mid-call.
@@ -37,15 +35,10 @@ export async function wait(
       await refreshSessionStatuses(db, sessionIds);
     }
 
-    const archive = new Archive(defaultRuntimeLayout.archiveDir());
     const results = sessionIds.map((id): WaitResult => {
       const session = db.getSession(id);
       if (!session) return { sessionId: id, status: WAIT_STATUS.StillRunning };
       const status = session.status === SESSION_STATUS.Draining ? SESSION_STATUS.Idle : session.status;
-      if (status === SESSION_STATUS.NeedsAttention) {
-        const archived = archive.get(id);
-        return { sessionId: id, status, lastOutput: archived?.lastOutput };
-      }
       return { sessionId: id, status };
     });
 

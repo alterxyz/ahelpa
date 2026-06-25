@@ -75,21 +75,13 @@ export const logs = withAuth(async ({ session }) => {
 });
 
 export function check(db: StateDB, parentId?: string) {
-  const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const sessions = db.listSessions(parentId);
-  return sessions.map(s => {
-    const base = {
-      ...getSessionNestingInfo(db, s.id),
-      id: s.id, agentType: s.agentType, status: s.status,
-      task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
-      agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
-    };
-    if (s.status === SESSION_STATUS.NeedsAttention) {
-      const archived = archive.get(s.id);
-      return { ...base, lastOutput: archived?.lastOutput };
-    }
-    return base;
-  });
+  return sessions.map(s => ({
+    ...getSessionNestingInfo(db, s.id),
+    id: s.id, agentType: s.agentType, status: s.status,
+    task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
+    agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
+  }));
 }
 
 export function status(db: StateDB, daemonRunning: boolean): string {

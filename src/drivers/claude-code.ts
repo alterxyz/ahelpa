@@ -100,10 +100,10 @@ export const claudeCodeDriver: AgentDriver = {
   },
 
   detectActivity(captureOutput: string): "working" | "booting" | "idle" {
-    // ⏺ = thinking or tool use in progress
+    // ⏺ is the only reliable active-turn indicator — token counters persist
+    // at the idle prompt after a turn completes, so they can't distinguish
+    // "working" from "idle with history".
     if (captureOutput.includes("⏺")) return "working";
-    // Token counter climbing = active turn
-    if (/\b[1-9]\d*\s*tokens?\b/.test(captureOutput)) return "working";
     // Prompt visible with 0 tokens = just started, ready for task
     if (claudeIsReadyForInput(captureOutput)) return "booting";
     // Header/banner appearing = CLI still loading

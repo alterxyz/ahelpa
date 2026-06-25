@@ -110,6 +110,7 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
       const count = (idleCount.get(session.id) ?? 0) + 1;
       idleCount.set(session.id, count);
       if (count >= IDLE_DEBOUNCE) {
+        idleCount.delete(session.id);
         await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
           status: SESSION_STATUS.NeedsAttention,
           lastOutput: output.slice(-500),
