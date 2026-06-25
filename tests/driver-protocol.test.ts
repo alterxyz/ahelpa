@@ -184,37 +184,43 @@ describe("driver launch protocol", () => {
   });
 });
 
-describe("isWorking", () => {
-  test("claude-code recognizes active tool use", () => {
+describe("detectActivity", () => {
+  test("claude-code: ⏺ = working", () => {
     const driver = getDriver("claude-code");
-    expect(driver.isWorking("⏺ Reading file src/cli.ts\n0 tokens")).toBe(true);
+    expect(driver.detectActivity("⏺ Reading file src/cli.ts\n0 tokens")).toBe("working");
   });
 
-  test("claude-code recognizes token counter as working", () => {
+  test("claude-code: non-zero token counter = working", () => {
     const driver = getDriver("claude-code");
-    expect(driver.isWorking("Opus 4.6 | 1234 tokens")).toBe(true);
+    expect(driver.detectActivity("Opus 4.6 | 1234 tokens")).toBe("working");
   });
 
-  test("claude-code flags idle terminal as not working", () => {
+  test("claude-code: prompt with 0 tokens = booting", () => {
     const driver = getDriver("claude-code");
-    expect(driver.isWorking("Press enter to view hooks; esc to close")).toBe(false);
-    expect(driver.isWorking("Do you trust the files in this folder?")).toBe(false);
-    expect(driver.isWorking("0 tokens")).toBe(false);
+    expect(driver.detectActivity("0 tokens\n❯")).toBe("booting");
+    expect(driver.detectActivity("Claude Code v2.1.191")).toBe("booting");
   });
 
-  test("codex recognizes active task", () => {
-    const driver = getDriver("codex");
-    expect(driver.isWorking("Working (5s)\n• Reading file src/cli.ts")).toBe(true);
+  test("claude-code: unrecognized output = idle", () => {
+    const driver = getDriver("claude-code");
+    expect(driver.detectActivity("Press enter to view hooks; esc to close")).toBe("idle");
+    expect(driver.detectActivity("Do you trust the files in this folder?")).toBe("idle");
   });
 
-  test("codex recognizes startup as working", () => {
+  test("codex: active task = working", () => {
     const driver = getDriver("codex");
-    expect(driver.isWorking("Starting MCP servers")).toBe(true);
+    expect(driver.detectActivity("Working (5s)\n• Reading file src/cli.ts")).toBe("working");
   });
 
-  test("codex flags idle terminal as not working", () => {
+  test("codex: MCP startup = booting", () => {
     const driver = getDriver("codex");
-    expect(driver.isWorking("Press enter to view hooks; esc to close")).toBe(false);
-    expect(driver.isWorking("Select Model and Effort\n❯ 1. gpt-5.5")).toBe(false);
+    expect(driver.detectActivity("Starting MCP servers")).toBe("booting");
+    expect(driver.detectActivity("OpenAI Codex (v0.141.0)\nmodel: loading")).toBe("booting");
+  });
+
+  test("codex: unrecognized output = idle", () => {
+    const driver = getDriver("codex");
+    expect(driver.detectActivity("Press enter to view hooks; esc to close")).toBe("idle");
+    expect(driver.detectActivity("Select Model and Effort\n❯ 1. gpt-5.5")).toBe("idle");
   });
 });

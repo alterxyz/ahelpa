@@ -104,7 +104,7 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
         drainingAt.set(session.id, Date.now());
         log(`${session.id}: sent graceful exit, draining`);
       }
-    } else if (driver.isWorking(output)) {
+    } else if (driver.detectActivity(output) !== "idle") {
       idleCount.delete(session.id);
     } else {
       const count = (idleCount.get(session.id) ?? 0) + 1;

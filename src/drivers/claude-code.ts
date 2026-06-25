@@ -99,12 +99,16 @@ export const claudeCodeDriver: AgentDriver = {
     return detectSentinelStatus(captureOutput);
   },
 
-  isWorking(captureOutput: string): boolean {
+  detectActivity(captureOutput: string): "working" | "booting" | "idle" {
     // ⏺ = thinking or tool use in progress
-    if (captureOutput.includes("⏺")) return true;
+    if (captureOutput.includes("⏺")) return "working";
     // Token counter climbing = active turn
-    if (/\b[1-9]\d*\s*tokens?\b/.test(captureOutput)) return true;
-    return false;
+    if (/\b[1-9]\d*\s*tokens?\b/.test(captureOutput)) return "working";
+    // Prompt visible with 0 tokens = just started, ready for task
+    if (claudeIsReadyForInput(captureOutput)) return "booting";
+    // Header/banner appearing = CLI still loading
+    if (/Claude Code v/i.test(captureOutput)) return "booting";
+    return "idle";
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {

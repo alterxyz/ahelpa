@@ -150,10 +150,12 @@ export const codexDriver: AgentDriver = {
     return detectSentinelStatus(captureOutput);
   },
 
-  isWorking(captureOutput: string): boolean {
-    if (codexHasStartedTask(captureOutput)) return true;
-    if (codexIsStarting(captureOutput)) return true;
-    return false;
+  detectActivity(captureOutput: string): "working" | "booting" | "idle" {
+    if (codexHasStartedTask(captureOutput)) return "working";
+    if (codexIsStarting(captureOutput)) return "booting";
+    // Config banner visible = CLI just opened, not yet ready
+    if (/OpenAI Codex/i.test(captureOutput)) return "booting";
+    return "idle";
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {

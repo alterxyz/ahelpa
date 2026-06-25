@@ -11,6 +11,9 @@ export interface DriverRuntime {
 
 export type DetectedStatus = "idle" | "error" | "running";
 
+// ponytail: normal is finite, abnormal is infinite — detect the known-good, flag the rest
+export type ActivitySignal = "working" | "booting" | "idle";
+
 export interface AgentDriver {
   name: string;
   sessionPrefix: string;
@@ -21,7 +24,6 @@ export interface AgentDriver {
   afterTaskSubmitted(sessionId: string, runtime: DriverRuntime): Promise<void>;
   switchModel(sessionId: string, runtime: DriverRuntime, opts: ModelSwitchOptions): Promise<string>;
   detectStatus(captureOutput: string): DetectedStatus;
-  // ponytail: normal is finite, abnormal is infinite — detect the known-good, flag the rest
-  isWorking(captureOutput: string): boolean;
+  detectActivity(captureOutput: string): ActivitySignal;
   gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void>;
 }
