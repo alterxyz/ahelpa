@@ -1,4 +1,4 @@
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, StuckSignal } from "./types.ts";
+import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types.ts";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus, hasInlineSentinel } from "./sentinels";
@@ -99,16 +99,12 @@ export const claudeCodeDriver: AgentDriver = {
     return detectSentinelStatus(captureOutput);
   },
 
-  detectStuck(captureOutput: string): StuckSignal | null {
-    if (/Do you trust the files in this folder\?/i.test(captureOutput))
-      return { reason: "workspace trust prompt", hint: "send Enter or 'y'" };
-    if (/sign in|log in|authenticate/i.test(captureOutput) && !/⏺/.test(captureOutput))
-      return { reason: "authentication prompt", hint: "fix login state externally" };
-    if (/Press enter to view hooks|esc to close|esc to go back/i.test(captureOutput))
-      return { reason: "TUI dialog waiting for input", hint: "send Escape" };
-    if (/Select model/i.test(captureOutput) && !/⏺/.test(captureOutput))
-      return { reason: "model selection menu open", hint: "send Escape" };
-    return null;
+  isWorking(captureOutput: string): boolean {
+    // ⏺ = thinking or tool use in progress
+    if (captureOutput.includes("⏺")) return true;
+    // Token counter climbing = active turn
+    if (/\b[1-9]\d*\s*tokens?\b/.test(captureOutput)) return true;
+    return false;
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {

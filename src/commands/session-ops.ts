@@ -86,7 +86,7 @@ export function check(db: StateDB, parentId?: string) {
     };
     if (s.status === SESSION_STATUS.NeedsAttention) {
       const archived = archive.get(s.id);
-      return { ...base, reason: archived?.reason, hint: archived?.hint };
+      return { ...base, lastOutput: archived?.lastOutput };
     }
     return base;
   });

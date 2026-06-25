@@ -5,7 +5,7 @@ import { Wakeup, defaultWakeup } from "../wakeup";
 import { Archive } from "../archive";
 import { defaultRuntimeLayout } from "../runtime-layout";
 
-interface WaitResult { sessionId: string; status: WaitStatus; reason?: string; hint?: string; }
+interface WaitResult { sessionId: string; status: WaitStatus; lastOutput?: string; }
 
 // Stays under the Bash hard timeout of agent platforms (e.g. 600s): wait
 // returns still_running at the deadline instead of being killed mid-call.
@@ -44,7 +44,7 @@ export async function wait(
       const status = session.status === SESSION_STATUS.Draining ? SESSION_STATUS.Idle : session.status;
       if (status === SESSION_STATUS.NeedsAttention) {
         const archived = archive.get(id);
-        return { sessionId: id, status, reason: archived?.reason, hint: archived?.hint };
+        return { sessionId: id, status, lastOutput: archived?.lastOutput };
       }
       return { sessionId: id, status };
     });

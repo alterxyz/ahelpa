@@ -7,7 +7,6 @@ export interface ArchivedSession {
   status: SessionStatus;
   lastOutput?: string;
   reason?: string;
-  hint?: string;
   agentResumeId?: string;
 }
 

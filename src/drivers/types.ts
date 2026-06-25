@@ -11,11 +11,6 @@ export interface DriverRuntime {
 
 export type DetectedStatus = "idle" | "error" | "running";
 
-export interface StuckSignal {
-  reason: string;
-  hint?: string; // suggested recovery action, e.g. "send Escape"
-}
-
 export interface AgentDriver {
   name: string;
   sessionPrefix: string;
@@ -26,6 +21,7 @@ export interface AgentDriver {
   afterTaskSubmitted(sessionId: string, runtime: DriverRuntime): Promise<void>;
   switchModel(sessionId: string, runtime: DriverRuntime, opts: ModelSwitchOptions): Promise<string>;
   detectStatus(captureOutput: string): DetectedStatus;
-  detectStuck(captureOutput: string): StuckSignal | null;
+  // ponytail: normal is finite, abnormal is infinite — detect the known-good, flag the rest
+  isWorking(captureOutput: string): boolean;
   gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void>;
 }

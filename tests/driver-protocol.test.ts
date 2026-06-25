@@ -184,47 +184,37 @@ describe("driver launch protocol", () => {
   });
 });
 
-describe("detectStuck", () => {
-  test("claude-code detects hooks dialog", () => {
+describe("isWorking", () => {
+  test("claude-code recognizes active tool use", () => {
     const driver = getDriver("claude-code");
-    const output = "Press enter to view hooks; esc to close";
-    const stuck = driver.detectStuck(output);
-    expect(stuck).not.toBeNull();
-    expect(stuck!.reason).toContain("TUI dialog");
-    expect(stuck!.hint).toContain("Escape");
+    expect(driver.isWorking("⏺ Reading file src/cli.ts\n0 tokens")).toBe(true);
   });
 
-  test("claude-code detects workspace trust prompt", () => {
+  test("claude-code recognizes token counter as working", () => {
     const driver = getDriver("claude-code");
-    const stuck = driver.detectStuck("Do you trust the files in this folder?");
-    expect(stuck).not.toBeNull();
-    expect(stuck!.reason).toContain("workspace trust");
+    expect(driver.isWorking("Opus 4.6 | 1234 tokens")).toBe(true);
   });
 
-  test("claude-code returns null for normal agent output", () => {
+  test("claude-code flags idle terminal as not working", () => {
     const driver = getDriver("claude-code");
-    expect(driver.detectStuck("⏺ Reading file src/cli.ts\n0 tokens")).toBeNull();
-    expect(driver.detectStuck("Working on the task...")).toBeNull();
+    expect(driver.isWorking("Press enter to view hooks; esc to close")).toBe(false);
+    expect(driver.isWorking("Do you trust the files in this folder?")).toBe(false);
+    expect(driver.isWorking("0 tokens")).toBe(false);
   });
 
-  test("codex detects hooks dialog", () => {
+  test("codex recognizes active task", () => {
     const driver = getDriver("codex");
-    const output = "Press enter to view hooks; esc to close\nSubagentStart hooks\nesc to go back";
-    const stuck = driver.detectStuck(output);
-    expect(stuck).not.toBeNull();
-    expect(stuck!.reason).toContain("hooks dialog");
+    expect(driver.isWorking("Working (5s)\n• Reading file src/cli.ts")).toBe(true);
   });
 
-  test("codex detects update prompt", () => {
+  test("codex recognizes startup as working", () => {
     const driver = getDriver("codex");
-    const output = "Update available! 0.128.0 -> 0.140.0\n1. Update now\n2. Skip\nPress enter to continue";
-    const stuck = driver.detectStuck(output);
-    expect(stuck).not.toBeNull();
-    expect(stuck!.hint).toContain("2");
+    expect(driver.isWorking("Starting MCP servers")).toBe(true);
   });
 
-  test("codex returns null when actively working", () => {
+  test("codex flags idle terminal as not working", () => {
     const driver = getDriver("codex");
-    expect(driver.detectStuck("Working (5s)\n• Reading file src/cli.ts")).toBeNull();
+    expect(driver.isWorking("Press enter to view hooks; esc to close")).toBe(false);
+    expect(driver.isWorking("Select Model and Effort\n❯ 1. gpt-5.5")).toBe(false);
   });
 });
