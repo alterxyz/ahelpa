@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { getDriver } from "../src/drivers/registry";
+import { codexNeedsHooksTrustEscape } from "../src/drivers/codex";
 
 describe("Drivers", () => {
   test("claude-code driver exists", () => {
@@ -62,6 +63,16 @@ describe("Drivers", () => {
     });
     expect(cmd).toContain("--model 'gpt-5.5'");
     expect(cmd).toContain("-c 'model_reasoning_effort=\"xhigh\"'");
+  });
+
+  test("codex hooks trust screens trigger an escape", () => {
+    expect(codexNeedsHooksTrustEscape(
+      "SessionStart hooks\n  Press t to trust all; enter to review hooks; esc to close",
+    )).toBe(true);
+    expect(codexNeedsHooksTrustEscape(
+      "[ ] Hook 1\n  Press space or enter to toggle; esc to go back",
+    )).toBe(true);
+    expect(codexNeedsHooksTrustEscape("› Implement {feature}\n  gpt-5.5 high")).toBe(false);
   });
 
   test("claude-code detects status via sentinel", () => {

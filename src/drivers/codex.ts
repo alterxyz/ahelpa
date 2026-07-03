@@ -17,6 +17,14 @@ function codexNeedsPromptNudge(captureOutput: string): boolean {
     || /Do you trust the contents of this directory\?/i.test(captureOutput);
 }
 
+// Codex >=0.141 asks to trust configured plugin hooks before the prompt.
+// Escape declines-for-now and proceeds; Enter would open the hooks review
+// sub-screen and strand the session there.
+export function codexNeedsHooksTrustEscape(captureOutput: string): boolean {
+  return /Press t to trust all/i.test(captureOutput)
+    || /Press space or enter to toggle/i.test(captureOutput);
+}
+
 function codexNeedsUpdateSkip(captureOutput: string): boolean {
   return /Update available!/i.test(captureOutput)
     && /2\.\s*Skip/i.test(captureOutput)
@@ -114,6 +122,11 @@ export const codexDriver: AgentDriver = {
         break;
       }
       if (codexIsStarting(recentOutput)) {
+        continue;
+      }
+      // Not gated on `nudged`: the trust flow can need one Escape per screen.
+      if (codexNeedsHooksTrustEscape(recentOutput)) {
+        await runtime.sendKey(sessionId, "Escape");
         continue;
       }
       if (!nudged && codexNeedsUpdateSkip(recentOutput)) {
