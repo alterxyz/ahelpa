@@ -51,6 +51,7 @@ When changing user-facing docs, update both language versions or explicitly note
 
 ```bash
 bun test                       # run tests
+bun run typecheck              # tsc --noEmit over src/ and tests/
 bun run build                  # compile binary
 bun run package:skill          # build skill package
 bash scripts/deploy-local.sh   # install runtime + global hard-copy skills
@@ -66,7 +67,7 @@ Before closing local runtime work:
 bun run closure:gate
 ```
 
-The gate runs tests, builds, and launches both drivers. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
+The gate runs tests, typechecks, builds, and launches both drivers. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
 
 ## Guardrails
 

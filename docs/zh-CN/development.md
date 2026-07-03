@@ -60,6 +60,7 @@ dist/                      # 构建输出（git-ignored）
 
 ```bash
 bun test                       # 跑测试
+bun run typecheck              # tsc --noEmit 覆盖 src/ 和 tests/
 bun run build                  # 编译到 dist/ahelpa
 bun run package:skill          # 构建带 runtime bundle 的 skill package
 bash scripts/deploy-local.sh   # 部署 runtime + 全局 hard-copy skills

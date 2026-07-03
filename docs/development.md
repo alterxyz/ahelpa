@@ -60,6 +60,7 @@ This repository is the source tree. The installed runtime is a compiled binary g
 
 ```bash
 bun test                       # Run the test suite
+bun run typecheck              # tsc --noEmit over src/ and tests/
 bun run build                  # Compile to dist/ahelpa
 bun run package:skill          # Build skill package with runtime bundle
 bash scripts/deploy-local.sh   # Deploy runtime + global hard-copy skills
