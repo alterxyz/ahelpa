@@ -1,4 +1,4 @@
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types.ts";
+import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus, hasInlineSentinel } from "./sentinels";
@@ -32,18 +32,37 @@ async function sendSteps(sessionId: string, runtime: DriverRuntime, key: "Up" | 
   }
 }
 
+function postureArgs(safe?: boolean): string[] {
+  return safe ? ["--verbose"] : ["--dangerously-skip-permissions", "--verbose"];
+}
+
+function modelArgs(opts: { model?: string; effort?: string }): string[] {
+  const args: string[] = [];
+  if (opts.model) args.push("--model", shellEscape(opts.model));
+  if (opts.effort) args.push("--effort", shellEscape(opts.effort));
+  return args;
+}
+
 export const claudeCodeDriver: AgentDriver = {
   name: "claude-code",
   sessionPrefix: "claude",
+  modelCatalog: {
+    models: [
+      { name: "fable" },
+      { name: "opus" },
+      { name: "sonnet" },
+    ],
+    effortNote: "effort: low, medium, high, xhigh, max (via --effort <level>)",
+  },
 
   buildLaunchCommand(opts: LaunchOptions): string {
-    const args = opts.safe ? "--verbose" : "--dangerously-skip-permissions --verbose";
-    return `cd ${shellEscape(opts.cwd)} && claude ${args}`;
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
+    return `cd ${shellEscape(opts.cwd)} && claude ${args.join(" ")}`;
   },
 
   buildResumeCommand(opts: ResumeOptions): string {
-    const args = opts.safe ? "--verbose" : "--dangerously-skip-permissions --verbose";
-    return `cd ${shellEscape(opts.cwd)} && claude --resume ${shellEscape(opts.resumeId)} ${args}`;
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
+    return `cd ${shellEscape(opts.cwd)} && claude --resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
   },
 
   extractResumeToken(captureOutput: string): string | null {

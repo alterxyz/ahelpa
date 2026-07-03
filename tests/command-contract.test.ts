@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { COMMAND_CONTRACTS, renderHelpText, resolveParentId, resolveWaitTimeoutMs } from "../src/command-contract";
+import { COMMAND_CONTRACTS, renderHelpText, renderModelsText, resolveParentId, resolveWaitTimeoutMs } from "../src/command-contract";
 import { DEFAULT_WAIT_TIMEOUT_MS } from "../src/commands/wait";
 
 describe("command contract", () => {
@@ -41,5 +41,33 @@ describe("command contract", () => {
         }
       }
     }
+  });
+
+  test("renders all available agent model catalogs", () => {
+    const text = renderModelsText();
+
+    expect(text).toContain("Available models");
+    expect(text).toContain("codex");
+    expect(text).toContain("gpt-5.5 (effort: low, medium, high, xhigh; default: medium)");
+    expect(text).toContain("gpt-5.3-codex-spark (effort: low, medium, high, xhigh; default: high)");
+    expect(text).toContain("claude-code");
+    expect(text).toContain("sonnet");
+  });
+
+  test("renders one agent model catalog by name", () => {
+    const text = renderModelsText("codex");
+
+    expect(text).toContain("Available models");
+    expect(text).toContain("codex");
+    expect(text).toContain("gpt-5.4-mini");
+    expect(text).not.toContain("claude-code");
+  });
+
+  test("rejects an unknown model catalog agent", () => {
+    expect(() => renderModelsText("unknown")).toThrow('Unknown driver: "unknown"');
+  });
+
+  test("rejects an empty-string model catalog agent", () => {
+    expect(() => renderModelsText("")).toThrow('Unknown driver: ""');
   });
 });

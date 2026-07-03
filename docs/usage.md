@@ -38,6 +38,17 @@ ahelpa launch codex --safe --project /path/to/project --task "Review this change
 
 Safe mode is a lower-permission launch posture, not a separate OS user or VM. See [Security](security.md) for the exact driver behavior.
 
+## Choose a Model at Launch
+
+```bash
+ahelpa models
+ahelpa models codex
+ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
+ahelpa launch claude-code --model sonnet --task "Review this change"
+```
+
+`models [agent]` prints the static model catalog known to this ahelpa release. `--model` starts the helper with the selected model. `--effort` is passed through when the selected agent supports launch-time effort settings. `resume` reuses the recorded launch model and effort automatically.
+
 ## Switch a Running Helper Model
 
 ```bash

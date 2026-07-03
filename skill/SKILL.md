@@ -77,9 +77,10 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 | Command | Description |
 |---------|-------------|
-| `launch <type> --task "..." [--label] [--project] [--parent <id>] [--safe]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
+| `launch <type> --task "..." [--label] [--project] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
 | `wait <id...> [--all] [--timeout <seconds>]` | Block until sessions complete or timeout (default 500s). |
 | `check [--parent <id>]` | Non-blocking status poll. |
+| `models [agent]` | List launch-time model options. |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper. |
 | `capture <id> --token <tok> [--lines N]` | Snapshot terminal output (debugging only). |
 | `task <id> --file <path> --token <tok>` | Deliver a task file to a running helper. |
@@ -92,6 +93,17 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `install-skill [--source <repo-or-path>]` | Install global hard-copy skill files for Codex and Claude Code. |
 | `version` | Show installed runtime version. |
 | `daemon start\|stop` | Manage the background session monitor. |
+
+## Choosing a Model at Launch
+
+Use `ahelpa models` or `ahelpa models codex` to inspect the static model catalog known to this ahelpa release. Pass `--model <model>` to `launch` when a helper should start on a specific model. Pass `--effort <level>` when the selected agent supports launch-time effort settings. `resume` reuses the recorded launch model and effort automatically.
+
+Examples:
+
+```bash
+ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
+ahelpa launch claude-code --model sonnet --task "Review this change"
+```
 
 ## Switching a Running Helper's Model
 

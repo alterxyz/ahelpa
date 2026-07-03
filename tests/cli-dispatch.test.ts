@@ -86,6 +86,27 @@ describe("cli dispatch", () => {
     expect(captured.err[0]).toBe("--timeout must be a number");
   });
 
+  test("unknown flags fail instead of being silently dropped", async () => {
+    db = new StateDB(TEST_DB);
+    const captured: Captured = { out: [], err: [] };
+
+    const code = await runCli(db, ["launch", "codex", "--task", "t", "--modle", "gpt-5.5"], io(captured));
+
+    expect(code).toBe(1);
+    expect(captured.err[0]).toContain("Unknown flag --modle");
+  });
+
+  test("equals-syntax flags resolve like space-separated ones", async () => {
+    db = new StateDB(TEST_DB);
+    const captured: Captured = { out: [], err: [] };
+
+    // Empty required value via equals syntax is treated as missing.
+    const code = await runCli(db, ["launch", "codex", "--task="], io(captured));
+
+    expect(code).toBe(1);
+    expect(captured.err[0]).toBe("--task is required");
+  });
+
   test("session not found includes error code in output", async () => {
     db = new StateDB(TEST_DB);
     const captured: Captured = { out: [], err: [] };

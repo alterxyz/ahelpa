@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types.ts";
+import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus } from "./sentinels";
@@ -30,6 +30,21 @@ function codexIsStarting(captureOutput: string): boolean {
 function codexHasStartedTask(captureOutput: string): boolean {
   return captureOutput.includes("Working (")
     || /\n\s*• (Reading|Explored|Using|Ran|Updated|Edited|Searching|Checked|Inspecting|Analyzing|Planning|Summarizing|Opened)\b/.test(captureOutput);
+}
+
+const CODEX_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+
+function postureArgs(safe?: boolean): string[] {
+  return safe
+    ? ["-s", "workspace-write", "-a", "never"]
+    : ["--dangerously-bypass-approvals-and-sandbox"];
+}
+
+function modelArgs(opts: { model?: string; effort?: string }): string[] {
+  const args: string[] = [];
+  if (opts.model) args.push("--model", shellEscape(opts.model));
+  if (opts.effort) args.push("-c", shellEscape(`model_reasoning_effort=${JSON.stringify(opts.effort)}`));
+  return args;
 }
 
 function codexConfigPath(): string {
@@ -63,15 +78,24 @@ function reasoningKey(effort?: string): string {
 export const codexDriver: AgentDriver = {
   name: "codex",
   sessionPrefix: "codex",
+  modelCatalog: {
+    models: [
+      { name: "gpt-5.5", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
+      { name: "gpt-5.4", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
+      { name: "gpt-5.4-mini", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
+      { name: "gpt-5.3-codex-spark", efforts: CODEX_EFFORTS, defaultEffort: "high" },
+      { name: "codex-auto-review", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
+    ],
+  },
 
   buildLaunchCommand(opts: LaunchOptions): string {
-    const args = opts.safe ? "-s workspace-write -a never" : "--dangerously-bypass-approvals-and-sandbox";
-    return `cd ${shellEscape(opts.cwd)} && codex ${args}`;
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
+    return `cd ${shellEscape(opts.cwd)} && codex ${args.join(" ")}`;
   },
 
   buildResumeCommand(opts: ResumeOptions): string {
-    const args = opts.safe ? "-s workspace-write -a never" : "--dangerously-bypass-approvals-and-sandbox";
-    return `cd ${shellEscape(opts.cwd)} && codex resume ${shellEscape(opts.resumeId)} ${args}`;
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
+    return `cd ${shellEscape(opts.cwd)} && codex resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
   },
 
   extractResumeToken(captureOutput: string): string | null {

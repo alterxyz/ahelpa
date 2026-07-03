@@ -19,6 +19,8 @@ export interface LaunchInput {
   parentId: string;
   label?: string;
   safe?: boolean;
+  model?: string;
+  effort?: string;
 }
 
 export interface LaunchResult {
@@ -57,7 +59,12 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   }
 
   const fileHandoff = planFileHandoff(input.projectPath, sessionId);
-  const baseLaunchCmd = driver.buildLaunchCommand({ cwd: input.projectPath, safe: input.safe });
+  const baseLaunchCmd = driver.buildLaunchCommand({
+    cwd: input.projectPath,
+    safe: input.safe,
+    model: input.model,
+    effort: input.effort,
+  });
   const launchCmd = `export AHELPA_PARENT_ID=${sessionId} AHELPA_MAX_NESTING_DEPTH=${maxDepth}; ${baseLaunchCmd}`;
 
   return {
@@ -101,6 +108,8 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     projectPath: plan.input.projectPath,
     label: plan.input.label,
     depth: plan.depth,
+    model: plan.input.model,
+    effort: plan.input.effort,
   });
 
   if (!daemon.isDaemonRunning()) {
@@ -148,6 +157,8 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     cwd: oldSession.projectPath,
     resumeId: oldSession.agentResumeId,
     safe: input.safe,
+    model: oldSession.model ?? undefined,
+    effort: oldSession.effort ?? undefined,
   });
   const launchCmd = `export AHELPA_PARENT_ID=${sessionId} AHELPA_MAX_NESTING_DEPTH=${maxDepth}; ${resumeCmd}`;
 
@@ -168,6 +179,8 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     label: oldSession.label,
     depth: oldSession.depth,
     resumedFrom: oldSession.id,
+    model: oldSession.model,
+    effort: oldSession.effort,
   });
 
   if (!daemon.isDaemonRunning()) {

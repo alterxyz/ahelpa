@@ -15,4 +15,20 @@ describe("cli arg parsing", () => {
     expect(parsed.positionals).toEqual(["id-1", "id-2"]);
     expect(parsed.flags.all).toBe("true");
   });
+
+  test("treats an empty string as the flag value, not as a positional", () => {
+    const parsed = parseCliArgs(["codex", "--model", "", "--task", "x"]);
+
+    expect(parsed.flags.model).toBe("");
+    expect(parsed.flags.task).toBe("x");
+    expect(parsed.positionals).toEqual(["codex"]);
+  });
+
+  test("supports --flag=value syntax", () => {
+    const parsed = parseCliArgs(["codex", "--model=gpt-5.5", "--effort=xhigh"]);
+
+    expect(parsed.flags.model).toBe("gpt-5.5");
+    expect(parsed.flags.effort).toBe("xhigh");
+    expect(parsed.positionals).toEqual(["codex"]);
+  });
 });

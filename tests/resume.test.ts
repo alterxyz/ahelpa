@@ -61,6 +61,20 @@ describe("buildResumeCommand", () => {
     expect(cmd).toContain("abc-123");
     expect(cmd).toContain("--dangerously-bypass");
   });
+
+  test("resume commands carry model and effort", () => {
+    const claude = getDriver("claude-code").buildResumeCommand({
+      cwd: "/tmp/project", resumeId: "abc-123", model: "opus", effort: "max",
+    });
+    expect(claude).toContain("--model 'opus'");
+    expect(claude).toContain("--effort 'max'");
+
+    const codex = getDriver("codex").buildResumeCommand({
+      cwd: "/tmp/project", resumeId: "abc-123", model: "gpt-5.5", effort: "high",
+    });
+    expect(codex).toContain("--model 'gpt-5.5'");
+    expect(codex).toContain("-c 'model_reasoning_effort=\"high\"'");
+  });
 });
 
 describe("resume command", () => {
@@ -112,6 +126,39 @@ describe("resume command", () => {
     expect(newSession).not.toBeNull();
     expect(newSession!.resumedFrom).toBe("claude-old1");
     expect(newSession!.status).toBe("running");
+  });
+
+  test("resume reuses the recorded launch model and effort", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    db.createSession({
+      id: "claude-model1",
+      parentId: "cli-1",
+      agentType: "claude-code",
+      task: "original task",
+      ownerToken: "tok-m",
+      projectPath: TEST_PROJECT,
+      depth: 1,
+      model: "opus",
+      effort: "max",
+    });
+    db.updateStatus("claude-model1", "dead");
+    db.updateResumeId("claude-model1", "resume-uuid-999");
+
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    const tmuxSpy = spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(FIFO, "create").mockResolvedValue();
+
+    const result = await resume({ db, sessionId: "claude-model1", ownerToken: "tok-m" });
+
+    const cmd = tmuxSpy.mock.calls[0]?.[1];
+    expect(cmd).toContain("--model 'opus'");
+    expect(cmd).toContain("--effort 'max'");
+
+    const newSession = db.getSession(result.sessionId);
+    expect(newSession!.model).toBe("opus");
+    expect(newSession!.effort).toBe("max");
   });
 
   test("rejects resume of running session", async () => {
@@ -229,5 +276,25 @@ describe("state: resume fields", () => {
     const session = db.getSession("s3");
     expect(session!.agentResumeId).toBeNull();
     expect(session!.resumedFrom).toBeNull();
+    expect(session!.model).toBeNull();
+    expect(session!.effort).toBeNull();
+  });
+
+  test("model and effort round-trip through the session record", () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({
+      id: "s4",
+      parentId: "p1",
+      agentType: "codex",
+      task: "t",
+      ownerToken: "tok",
+      projectPath: "/tmp",
+      model: "gpt-5.5",
+      effort: "xhigh",
+    });
+
+    const session = db.getSession("s4");
+    expect(session!.model).toBe("gpt-5.5");
+    expect(session!.effort).toBe("xhigh");
   });
 });

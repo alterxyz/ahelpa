@@ -16,6 +16,8 @@ export interface SessionRecord {
   depth: number;
   agentResumeId?: string | null;
   resumedFrom?: string | null;
+  model?: string | null;
+  effort?: string | null;
 }
 
 export interface CreateSessionInput {
@@ -25,9 +27,11 @@ export interface CreateSessionInput {
   task: string;
   ownerToken: string;
   projectPath: string;
-  label?: string;
+  label?: string | null;
   depth?: number;
   resumedFrom?: string;
+  model?: string | null;
+  effort?: string | null;
 }
 
 interface SessionRow {
@@ -44,6 +48,8 @@ interface SessionRow {
   depth: number;
   agent_resume_id: string | null;
   resumed_from: string | null;
+  model: string | null;
+  effort: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -61,6 +67,8 @@ function rowToRecord(row: SessionRow): SessionRecord {
     depth: row.depth,
     agentResumeId: row.agent_resume_id,
     resumedFrom: row.resumed_from,
+    model: row.model,
+    effort: row.effort,
   };
 }
 
@@ -97,7 +105,9 @@ export class StateDB {
         project_path TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        label TEXT
+        label TEXT,
+        model TEXT,
+        effort TEXT
       )
     `);
     const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
@@ -116,14 +126,21 @@ export class StateDB {
     if (!columns.some((column) => column.name === "resumed_from")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN resumed_from TEXT");
     }
+    // Migration: add launch-time model/effort columns so resume can reuse them.
+    if (!columns.some((column) => column.name === "model")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN model TEXT");
+    }
+    if (!columns.some((column) => column.name === "effort")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN effort TEXT");
+    }
   }
 
   createSession(input: CreateSessionInput): SessionRecord {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -137,6 +154,8 @@ export class StateDB {
       input.label ?? null,
       depth,
       input.resumedFrom ?? null,
+      input.model ?? null,
+      input.effort ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
   }

@@ -179,6 +179,25 @@ describe("launch", () => {
     expect(plan.launchCmd).not.toContain("--dangerously-skip-permissions");
   });
 
+  test("planLaunch passes model and effort to the driver launch command", () => {
+    db = new StateDB(TEST_DB);
+
+    const plan = planLaunch({
+      db,
+      agentType: "codex",
+      task: "plan model",
+      projectPath: "/tmp/nonexistent",
+      parentId: "test-parent",
+      model: "gpt-5.5",
+      effort: "high",
+    });
+
+    expect(plan.launchCmd).toContain("--model 'gpt-5.5'");
+    expect(plan.launchCmd).toContain("-c 'model_reasoning_effort=\"high\"'");
+    expect(plan.input.model).toBe("gpt-5.5");
+    expect(plan.input.effort).toBe("high");
+  });
+
   test("planLaunch rejects beyond max nesting depth without side effects", () => {
     db = new StateDB(TEST_DB);
     mkdirSync(TEST_PROJECT, { recursive: true });

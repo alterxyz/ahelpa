@@ -23,6 +23,17 @@ describe("Drivers", () => {
     expect(cmd).toContain("--dangerously-skip-permissions");
   });
 
+  test("claude-code launch command accepts model and effort", () => {
+    const driver = getDriver("claude-code");
+    const cmd = driver.buildLaunchCommand({
+      cwd: "/tmp/project",
+      model: "sonnet",
+      effort: "high",
+    });
+    expect(cmd).toContain("--model 'sonnet'");
+    expect(cmd).toContain("--effort 'high'");
+  });
+
   test("claude-code launch command shell-quotes cwd", () => {
     const driver = getDriver("claude-code");
     const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project with spaces/it's ok" });
@@ -40,6 +51,17 @@ describe("Drivers", () => {
     const driver = getDriver("codex");
     const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project" });
     expect(cmd).toContain("--dangerously-bypass");
+  });
+
+  test("codex launch command accepts model and effort", () => {
+    const driver = getDriver("codex");
+    const cmd = driver.buildLaunchCommand({
+      cwd: "/tmp/project",
+      model: "gpt-5.5",
+      effort: "xhigh",
+    });
+    expect(cmd).toContain("--model 'gpt-5.5'");
+    expect(cmd).toContain("-c 'model_reasoning_effort=\"xhigh\"'");
   });
 
   test("claude-code detects status via sentinel", () => {

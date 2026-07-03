@@ -84,9 +84,10 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> --task "..." [--parent <id>] [--safe]` | Start a helper (`claude-code` or `codex`) |
+| `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code` or `codex`) |
 | `wait <id...> [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>]` | Non-blocking status poll with inline refresh |
+| `models [agent]` | List launch-time model options |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
 | `capture <id> --token <tok>` | Snapshot terminal output (debugging only) |
 | `task <id> --file <path> --token <tok>` | Deliver a task file for long instructions |
@@ -137,3 +138,7 @@ For architecture, usage workflows, contributor guide, and security notes:
 - [Usage](docs/usage.md) / [使用指南](docs/zh-CN/usage.md)
 - [Development](docs/development.md) / [开发指南](docs/zh-CN/development.md)
 - [Security](docs/security.md) / [安全说明](docs/zh-CN/security.md)
+
+## Credits
+
+Developed with heavy dogfooding — the coding agents ahelpa launches also help build it. Claude **Fable 5** reviewed, hardened, and optimized this codebase. Fable did that.

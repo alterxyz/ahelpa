@@ -84,9 +84,10 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> --task "..." [--parent <id>] [--safe]` | 启动 helper（`claude-code` 或 `codex`） |
+| `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code` 或 `codex`） |
 | `wait <id...> [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>]` | 非阻塞状态查询，并做 inline refresh |
+| `models [agent]` | 列出启动时可选的模型 |
 | `send <id> "msg" --token <tok>` | 给运行中的 helper 发送短消息 |
 | `capture <id> --token <tok>` | 截取终端输出，仅用于调试 |
 | `task <id> --file <path> --token <tok>` | 发送长任务文件 |
@@ -137,3 +138,7 @@ bun run closure:gate           # 两个 driver 的端到端 gate
 - [使用指南](docs/zh-CN/usage.md) / [Usage](docs/usage.md)
 - [开发指南](docs/zh-CN/development.md) / [Development](docs/development.md)
 - [安全说明](docs/zh-CN/security.md) / [Security](docs/security.md)
+
+## 致谢
+
+本项目重度"吃自己的狗粮"——ahelpa 启动的 coding agent 也在反过来参与构建它。Claude **Fable 5** 复核、加固并优化了本代码库。Fable did that.

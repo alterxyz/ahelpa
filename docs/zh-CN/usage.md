@@ -38,6 +38,17 @@ ahelpa launch codex --safe --project /path/to/project --task "Review this change
 
 Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。各 driver 的具体行为见 [安全说明](security.md)。
 
+## 启动时选择模型
+
+```bash
+ahelpa models
+ahelpa models codex
+ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
+ahelpa launch claude-code --model sonnet --task "Review this change"
+```
+
+`models [agent]` 会打印当前 ahelpa 版本内置的静态模型目录。`--model` 会用指定模型启动 helper。所选 agent 支持启动时设置 effort 时，`--effort` 会一并透传。`resume` 会自动沿用启动时记录的 model 和 effort。
+
 ## 切换运行中 helper 的模型
 
 ```bash

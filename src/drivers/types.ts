@@ -1,6 +1,17 @@
-export interface LaunchOptions { cwd: string; safe?: boolean; }
-export interface ResumeOptions { cwd: string; resumeId: string; safe?: boolean; }
+export interface LaunchOptions { cwd: string; safe?: boolean; model?: string; effort?: string; }
+export interface ResumeOptions { cwd: string; resumeId: string; safe?: boolean; model?: string; effort?: string; }
 export interface ModelSwitchOptions { model: string; effort?: string; persist?: boolean; }
+
+export interface ModelCatalogEntry {
+  name: string;
+  efforts?: readonly string[];
+  defaultEffort?: string;
+}
+
+export interface AgentModelCatalog {
+  models: readonly ModelCatalogEntry[];
+  effortNote?: string;
+}
 
 export interface DriverRuntime {
   sleep(ms: number): Promise<void>;
@@ -17,6 +28,7 @@ export type ActivitySignal = "working" | "booting" | "idle";
 export interface AgentDriver {
   name: string;
   sessionPrefix: string;
+  modelCatalog: AgentModelCatalog;
   buildLaunchCommand(opts: LaunchOptions): string;
   buildResumeCommand(opts: ResumeOptions): string;
   extractResumeToken(captureOutput: string): string | null;

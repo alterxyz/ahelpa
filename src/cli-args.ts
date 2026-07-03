@@ -15,8 +15,14 @@ export function parseCliArgs(args: string[]): ParsedCliArgs {
       continue;
     }
 
+    const eq = arg.indexOf("=");
+    if (eq !== -1) {
+      flags[arg.slice(2, eq)] = arg.slice(eq + 1);
+      continue;
+    }
+
     const next = args[i + 1];
-    if (next && !next.startsWith("--")) {
+    if (next !== undefined && !next.startsWith("--")) {
       flags[arg.slice(2)] = next;
       i++;
       continue;

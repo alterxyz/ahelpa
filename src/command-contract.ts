@@ -10,6 +10,8 @@ import { installSkill } from "./commands/install-skill";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, switchModel, kill, logs, check, status, clean } from "./commands/session-ops";
 import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
+import { getDriver, listDrivers } from "./drivers/registry";
+import type { AgentModelCatalog, ModelCatalogEntry } from "./drivers/types";
 import { SessionAccessError } from "./session-access";
 import { VERSION } from "./version";
 
@@ -59,13 +61,40 @@ export function resolveParentId(
     || `cli-${now()}`;
 }
 
+function renderModelLine(model: ModelCatalogEntry): string {
+  const details: string[] = [];
+  if (model.efforts?.length) details.push(`effort: ${model.efforts.join(", ")}`);
+  if (model.defaultEffort) details.push(`default: ${model.defaultEffort}`);
+  return details.length ? `  ${model.name} (${details.join("; ")})` : `  ${model.name}`;
+}
+
+function renderCatalog(agent: string, catalog: AgentModelCatalog): string {
+  const lines = [agent, ...catalog.models.map(renderModelLine)];
+  if (catalog.effortNote) lines.push(`  ${catalog.effortNote}`);
+  return lines.join("\n");
+}
+
+export function renderModelsText(agent?: string): string {
+  const agents = agent === undefined ? listDrivers() : [agent];
+  const catalogs = agents.map((name) => renderCatalog(name, getDriver(name).modelCatalog));
+  return ["Available models", "", catalogs.join("\n\n")].join("\n");
+}
+
 export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "launch",
-    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>] [--parent <id>] [--safe]",
+    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]",
     description: "Launch a helper agent",
     minPositionals: 1,
-    flags: { task: { kind: "string", required: true }, project: { kind: "string" }, parent: { kind: "string" }, label: { kind: "string" }, safe: { kind: "boolean" } },
+    flags: {
+      task: { kind: "string", required: true },
+      project: { kind: "string" },
+      parent: { kind: "string" },
+      label: { kind: "string" },
+      safe: { kind: "boolean" },
+      model: { kind: "string" },
+      effort: { kind: "string" },
+    },
     async run(ctx) {
       const result = await launch({
         db: ctx.db,
@@ -75,6 +104,8 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         parentId: ctx.flags.strings.parent || resolveParentId(),
         label: ctx.flags.strings.label,
         safe: ctx.flags.booleans.safe,
+        model: ctx.flags.strings.model,
+        effort: ctx.flags.strings.effort,
       });
       ctx.print(JSON.stringify(result, null, 2));
     },
@@ -105,6 +136,14 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         await refreshSessionStatuses(ctx.db);
       }
       ctx.print(JSON.stringify(check(ctx.db, ctx.flags.strings.parent), null, 2));
+    },
+  },
+  {
+    name: "models",
+    usage: "models [agent]",
+    description: "List launch-time model options",
+    async run(ctx) {
+      ctx.print(renderModelsText(ctx.positionals[0]));
     },
   },
   {
@@ -273,10 +312,15 @@ ${commands}`;
 }
 
 function resolveFlags(contract: CommandContract, raw: Record<string, string>): ResolvedFlags {
+  const specs = contract.flags ?? {};
+  for (const name of Object.keys(raw)) {
+    if (!(name in specs)) throw new UsageError(`Unknown flag --${name}. Usage: ahelpa ${contract.usage}`);
+  }
   const resolved: ResolvedFlags = { strings: {}, numbers: {}, booleans: {} };
-  for (const [name, spec] of Object.entries(contract.flags ?? {})) {
+  for (const [name, spec] of Object.entries(specs)) {
     const value = raw[name];
-    if (value === undefined) {
+    // An empty string means "flag given without a usable value" — treat as absent.
+    if (value === undefined || value === "") {
       if (spec.required) throw new UsageError(`--${name} is required`);
       if (spec.kind === "boolean") resolved.booleans[name] = false;
       continue;

@@ -1,6 +1,6 @@
-import type { AgentDriver } from "./types.ts";
-import { claudeCodeDriver } from "./claude-code.ts";
-import { codexDriver } from "./codex.ts";
+import type { AgentDriver } from "./types";
+import { claudeCodeDriver } from "./claude-code";
+import { codexDriver } from "./codex";
 
 const registry = new Map<string, AgentDriver>([
   ["claude-code", claudeCodeDriver],
