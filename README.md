@@ -97,6 +97,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper from its agent session |
 | `status` | Show all sessions and daemon state |
 | `clean` | Remove dead records and orphan runtime files |
+| `harvest <id> \| --idle [--dir <path>]` | Archive finished sessions, then close them |
 | `daemon start\|stop` | Manage the background session monitor |
 | `install-skill [--source <repo-or-path>]` | Hard-copy the global skill for Codex and Claude Code |
 | `version` | Print the installed runtime version |

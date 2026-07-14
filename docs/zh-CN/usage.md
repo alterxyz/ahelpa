@@ -168,6 +168,15 @@ ahelpa clean
 
 `clean` 不会删除 archive，也不会终止 live session。
 
+关闭前先归档终态 session：
+
+```bash
+ahelpa harvest "$session_id"
+ahelpa harvest --idle --dir ./harvested-sessions
+```
+
+`harvest` 只处理终态 session（`needs_attention`、`dead` 或 `error`）。运行中的 helper 会被拒绝。默认会把终端 transcript 和 helper summary 写入 `~/.ahelpa/harvest/<YYYYMMDD>/`，然后移除 runtime row、task file 和 wakeup pipe。和 `clean` 一样，它属于本机 housekeeping，不需要 owner token。
+
 ## Daemon 管理
 
 daemon 会在 `launch` 时自动启动，并在所有 session 结束后退出。通常不需要手动管理：

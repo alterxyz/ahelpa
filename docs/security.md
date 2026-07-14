@@ -20,13 +20,13 @@ This is a deliberate design choice for local development. The tradeoff: maximum 
 
 ## Owner Token Boundaries
 
-The owner token returned by `launch` gates all mutating operations:
+The owner token returned by `launch` gates live-helper operations:
 
 | Requires token | Does not require token |
 | --- | --- |
-| `send`, `task`, `model`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean` |
+| `send`, `task`, `model`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean`, `harvest` |
 
-Read-only status views intentionally do not expose owner tokens. This means any agent can observe session status (who's running, what state they're in), but only the launching agent can interact with or terminate a session.
+Read-only status views intentionally do not expose owner tokens. Local housekeeping commands can also close terminal sessions without a token, but they cannot act on running helpers. This means any agent can observe session status (who's running, what state they're in), but only the launching agent can interact with or terminate a live session.
 
 Ownership is not transitive. If agent A launches helper B, and helper B launches helper C, agent A cannot control C — only B can. "Your friend's friend is not your friend."
 

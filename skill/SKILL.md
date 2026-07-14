@@ -90,6 +90,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper from its agent session. |
 | `status` | Show all sessions and daemon state. |
 | `clean` | Remove dead records and orphan runtime files. |
+| `harvest <id> \| --idle [--dir <path>]` | Archive finished sessions, then close them. |
 | `install-skill [--source <repo-or-path>]` | Install global hard-copy skill files for Codex and Claude Code. |
 | `version` | Show installed runtime version. |
 | `daemon start\|stop` | Manage the background session monitor. |
