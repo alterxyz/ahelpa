@@ -35,6 +35,13 @@ export class RuntimeLayout {
     return join(this.ahelpaHomeDir(), "archive");
   }
 
+  // One directory per UTC day, so a harvest run groups with the sessions it
+  // closed on that day instead of dissolving into one flat pile.
+  harvestDir(at: Date = new Date()): string {
+    const day = at.toISOString().slice(0, 10).replace(/-/g, "");
+    return join(this.ahelpaHomeDir(), "harvest", day);
+  }
+
   projectDeliveryDir(projectPath: string): string {
     return join(projectPath, ".ahelpa");
   }

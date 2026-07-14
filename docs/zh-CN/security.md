@@ -20,13 +20,13 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 ## Owner token 边界
 
-`launch` 返回的 owner token gate 所有写操作：
+`launch` 返回的 owner token gate 对 live helper 的操作：
 
 | 需要 token | 不需要 token |
 | --- | --- |
-| `send`、`task`、`model`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean` |
+| `send`、`task`、`model`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean`、`harvest` |
 
-只读状态视图不会暴露 owner token。这意味着任何 agent 都可以观察 session 状态，但只有启动者能交互或终止该 session。
+只读状态视图不会暴露 owner token。本机 housekeeping 命令也可以无 token 关闭终态 session，但不能作用于运行中的 helper。这意味着任何 agent 都可以观察 session 状态，但只有启动者能交互或终止 live session。
 
 Ownership 不传递。如果 agent A 启动 helper B，helper B 又启动 helper C，那么 A 不能控制 C；只有 B 可以。
 

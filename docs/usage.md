@@ -168,6 +168,15 @@ ahelpa clean
 
 `clean` does not remove archives or terminate live sessions.
 
+Archive finished sessions before closing them:
+
+```bash
+ahelpa harvest "$session_id"
+ahelpa harvest --idle --dir ./harvested-sessions
+```
+
+`harvest` only closes terminal sessions (`needs_attention`, `dead`, or `error`). It refuses running helpers, writes the captured transcript and any helper summary to `~/.ahelpa/harvest/<YYYYMMDD>/` by default, then removes the runtime row and task/wakeup leftovers. Like `clean`, it is local housekeeping and does not require an owner token.
+
 ## Daemon Management
 
 The daemon starts automatically on `launch` and exits when all sessions complete. You rarely need to manage it directly:

@@ -97,6 +97,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `resume <id> --token <tok> [--safe]` | 从 agent session 恢复已完成的 helper |
 | `status` | 显示所有 session 和 daemon 状态 |
 | `clean` | 清理 dead 记录和孤儿运行时文件 |
+| `harvest <id> \| --idle [--dir <path>]` | 归档终态 session，然后关闭 |
 | `daemon start\|stop` | 管理后台 session monitor |
 | `install-skill [--source <repo-or-path>]` | 全局 hard-copy 安装 Codex 和 Claude Code 的 skill |
 | `version` | 显示已安装 runtime 版本 |

@@ -9,6 +9,7 @@ import { launch, resume } from "./commands/launch";
 import { installSkill } from "./commands/install-skill";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, switchModel, kill, logs, check, status, clean } from "./commands/session-ops";
+import { harvest, renderHarvestResult } from "./commands/harvest";
 import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
 import { getDriver, listDrivers } from "./drivers/registry";
 import type { AgentModelCatalog, ModelCatalogEntry } from "./drivers/types";
@@ -254,6 +255,21 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
     async run(ctx) {
       const result = clean(ctx.db);
       ctx.print(`removed ${result.removed} dead session record(s), swept ${result.orphanFiles} orphan file(s)`);
+    },
+  },
+  {
+    name: "harvest",
+    usage: "harvest <id> | --idle [--dir <path>]",
+    description: "Archive a finished session's transcript and summary, then close it",
+    flags: { idle: { kind: "boolean" }, dir: { kind: "string" } },
+    async run(ctx) {
+      const sessionId = ctx.positionals[0];
+      const idle = ctx.flags.booleans.idle;
+      if (!sessionId && !idle) throw new UsageError("Usage: ahelpa harvest <id> | --idle [--dir <path>]");
+      if (sessionId && idle) throw new UsageError("harvest takes an id or --idle, not both");
+
+      const result = await harvest(ctx.db, { sessionId, idle, dir: ctx.flags.strings.dir });
+      ctx.print(renderHarvestResult(result, idle));
     },
   },
   {

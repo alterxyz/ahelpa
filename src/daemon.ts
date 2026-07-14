@@ -3,7 +3,8 @@ import { join } from "path";
 import { StateDB } from "./state";
 import { Tmux } from "./tmux";
 import { Archive } from "./archive";
-import { Wakeup, defaultWakeup } from "./wakeup";
+import { defaultWakeup } from "./wakeup";
+import { reapSession } from "./reap";
 import { settle } from "./settle";
 import { getDriver } from "./drivers/registry";
 import { SESSION_STATUS, statusFromCapture } from "./session-lifecycle";
@@ -15,15 +16,6 @@ const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
 const PID_FILE = defaultRuntimeLayout.daemonPidPath();
 const LOG_FILE = defaultRuntimeLayout.daemonLogPath();
 export const DAEMON_SUBCOMMAND = "__daemon";
-
-// ponytail: auto-reap dead sessions so `clean` isn't needed manually.
-// summary.md in the project dir is the receipt; DB row is disposable.
-function reapSession(db: StateDB, sessionId: string): void {
-  const wakeup = new Wakeup();
-  wakeup.cleanup(sessionId);
-  try { unlinkSync(defaultRuntimeLayout.taskFilePath(sessionId)); } catch {}
-  db.deleteSession(sessionId);
-}
 
 // ponytail: 15s is generous for /exit or Escape; bump if a driver needs longer cleanup
 const DRAIN_TIMEOUT_MS = 15_000;
