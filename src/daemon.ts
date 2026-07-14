@@ -65,6 +65,14 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
           status: SESSION_STATUS.Dead,
           reason: "tmux session gone",
         });
+      } else if (session.status === SESSION_STATUS.Draining) {
+        // Draining sessions that exit on their own (e.g. AHELPA:DONE) never
+        // pass back through the Running branch above, so without this they'd
+        // reap silently and the settle notification would never fire.
+        await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.Dead, {
+          status: SESSION_STATUS.Dead,
+          reason: "drained cleanly (completed)",
+        });
       }
       drainingAt.delete(session.id);
       reapSession(db, session.id);
@@ -88,6 +96,10 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
 
       const startedAt = drainingAt.get(session.id) ?? 0;
       if (!startedAt || Date.now() - startedAt > DRAIN_TIMEOUT_MS) {
+        await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.Dead, {
+          status: SESSION_STATUS.Dead,
+          reason: "drain timeout, killed",
+        });
         await Tmux.kill(session.id);
         drainingAt.delete(session.id);
         reapSession(db, session.id);

@@ -84,7 +84,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code` 或 `codex`） |
+| `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>] [--notify-tmux <target>]` | 启动 helper（`claude-code` 或 `codex`） |
 | `wait <id...> [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>]` | 非阻塞状态查询，并做 inline refresh |
 | `models [agent]` | 列出启动时可选的模型 |
@@ -108,6 +108,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `~/.ahelpa/bin/ahelpa` | 已安装二进制 |
 | `~/.ahelpa/state.db` | SQLite session 状态 |
 | `~/.ahelpa/daemon.pid` | daemon PID 文件 |
+| `~/.ahelpa/config.json` | 可选的全局 notify 设置 |
 | `~/.ahelpa/archive/<id>/` | 终态 session 快照 |
 | `/tmp/ahelpa/<id>.pipe` | FIFO 唤醒管道 |
 | `/tmp/ahelpa/ahelpa-task-<id>.md` | 任务文件 |

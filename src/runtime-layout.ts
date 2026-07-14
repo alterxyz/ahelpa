@@ -31,6 +31,10 @@ export class RuntimeLayout {
     return join(this.ahelpaHomeDir(), "daemon.log");
   }
 
+  configPath(): string {
+    return join(this.ahelpaHomeDir(), "config.json");
+  }
+
   archiveDir(): string {
     return join(this.ahelpaHomeDir(), "archive");
   }

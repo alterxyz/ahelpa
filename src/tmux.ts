@@ -17,6 +17,15 @@ export class Tmux {
     }
   }
 
+  static async hasTarget(target: string): Promise<boolean> {
+    try {
+      await $`tmux display-message -p -t ${target} ${"#{session_name}"}`.quiet();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   static async capture(name: string, lines: number = 50): Promise<string> {
     const result = await $`tmux capture-pane -t ${name} -p -S ${-lines}`.text();
     return result.trim();
@@ -25,6 +34,14 @@ export class Tmux {
   static async sendKeys(name: string, text: string): Promise<void> {
     if (text.length > 0) {
       await $`tmux send-keys -t ${name} ${text}`.quiet();
+      await Bun.sleep(250);
+    }
+    await $`tmux send-keys -t ${name} Enter`.quiet();
+  }
+
+  static async sendLiteral(name: string, text: string): Promise<void> {
+    if (text.length > 0) {
+      await $`tmux send-keys -t ${name} -l ${text}`.quiet();
       await Bun.sleep(250);
     }
     await $`tmux send-keys -t ${name} Enter`.quiet();

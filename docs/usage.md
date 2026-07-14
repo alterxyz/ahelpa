@@ -38,6 +38,25 @@ ahelpa launch codex --safe --project /path/to/project --task "Review this change
 
 Safe mode is a lower-permission launch posture, not a separate OS user or VM. See [Security](security.md) for the exact driver behavior.
 
+Use `--notify-tmux` to push a settlement message into another tmux session when the helper reaches `needs_attention`, `dead`, or `error`:
+
+```bash
+ahelpa launch codex --notify-tmux chief-pane --task "Review this change"
+```
+
+You can set global defaults in `~/.ahelpa/config.json`:
+
+```json
+{
+  "notify": {
+    "tmux": "chief-pane",
+    "command": "printf '%s %s\n' \"$AHELPA_SESSION_ID\" \"$AHELPA_STATUS\" >> ~/.ahelpa/notify.log"
+  }
+}
+```
+
+Per-session `--notify-tmux` takes precedence over the global tmux target. `wait` is still the blocking pull mechanism; notify is a push signal for hosts that want to keep working elsewhere.
+
 ## Choose a Model at Launch
 
 ```bash

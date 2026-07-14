@@ -26,13 +26,16 @@ describe("StateDB", () => {
       ownerToken: "tok-abcdef1234567890",
       projectPath: "/tmp/project",
       label: "auth-refactor",
+      notifyTmux: "chief-pane",
     });
     expect(session.id).toBe("claude-abc12345");
     expect(session.status).toBe("running");
+    expect(session.notifyTmux).toBe("chief-pane");
 
     const found = db.getSession("claude-abc12345");
     expect(found).not.toBeNull();
     expect(found!.task).toBe("Refactor auth module");
+    expect(found!.notifyTmux).toBe("chief-pane");
   });
 
   test("updates session status", () => {
@@ -111,7 +114,8 @@ describe("StateDB", () => {
 
     db = new StateDB(TEST_DB);
     expect(db.getSession("old-1")?.id).toBe("old-1");
-    db.createSession({ id: "new-1", parentId: "p1", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    expect(db.getSession("new-1")).not.toBeNull();
+    expect(db.getSession("old-1")?.notifyTmux).toBeNull();
+    db.createSession({ id: "new-1", parentId: "p1", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp", notifyTmux: "notify-target" });
+    expect(db.getSession("new-1")?.notifyTmux).toBe("notify-target");
   });
 });

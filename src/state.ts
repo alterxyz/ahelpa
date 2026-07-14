@@ -18,6 +18,7 @@ export interface SessionRecord {
   resumedFrom?: string | null;
   model?: string | null;
   effort?: string | null;
+  notifyTmux?: string | null;
 }
 
 export interface CreateSessionInput {
@@ -32,6 +33,7 @@ export interface CreateSessionInput {
   resumedFrom?: string;
   model?: string | null;
   effort?: string | null;
+  notifyTmux?: string | null;
 }
 
 interface SessionRow {
@@ -50,6 +52,7 @@ interface SessionRow {
   resumed_from: string | null;
   model: string | null;
   effort: string | null;
+  notify_tmux: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -69,6 +72,7 @@ function rowToRecord(row: SessionRow): SessionRecord {
     resumedFrom: row.resumed_from,
     model: row.model,
     effort: row.effort,
+    notifyTmux: row.notify_tmux,
   };
 }
 
@@ -107,7 +111,8 @@ export class StateDB {
         updated_at TEXT NOT NULL,
         label TEXT,
         model TEXT,
-        effort TEXT
+        effort TEXT,
+        notify_tmux TEXT
       )
     `);
     const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
@@ -133,14 +138,18 @@ export class StateDB {
     if (!columns.some((column) => column.name === "effort")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN effort TEXT");
     }
+    // Migration: add per-session settle notification target.
+    if (!columns.some((column) => column.name === "notify_tmux")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN notify_tmux TEXT");
+    }
   }
 
   createSession(input: CreateSessionInput): SessionRecord {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, notify_tmux)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -156,6 +165,7 @@ export class StateDB {
       input.resumedFrom ?? null,
       input.model ?? null,
       input.effort ?? null,
+      input.notifyTmux ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
   }

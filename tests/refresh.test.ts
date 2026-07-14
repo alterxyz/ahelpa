@@ -99,4 +99,83 @@ describe("refreshSessionStatuses", () => {
 
     expect(db.getSession("flaky")?.status).toBe("running");
   });
+
+  test("settles Dead and notifies when a draining session's tmux exits cleanly", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({
+      id: "drain-clean",
+      parentId: "p",
+      agentType: "claude-code",
+      task: "t",
+      ownerToken: "tok",
+      projectPath: "/tmp",
+      notifyTmux: "ahelpa-test-drain-clean-target",
+    });
+    db.updateStatus("drain-clean", "draining");
+    spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    spyOn(Tmux, "hasTarget").mockResolvedValue(true);
+    const sendLiteralSpy = spyOn(Tmux, "sendLiteral").mockResolvedValue();
+
+    await refreshSessionStatuses(db);
+
+    expect(sendLiteralSpy).toHaveBeenCalledWith(
+      "ahelpa-test-drain-clean-target",
+      expect.stringContaining("dead"),
+    );
+    expect(db.getSession("drain-clean")).toBeNull();
+  });
+
+  test("settles Dead and notifies on drain timeout", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({
+      id: "drain-timeout",
+      parentId: "p",
+      agentType: "claude-code",
+      task: "t",
+      ownerToken: "tok",
+      projectPath: "/tmp",
+      notifyTmux: "ahelpa-test-drain-timeout-target",
+    });
+    db.updateStatus("drain-timeout", "draining");
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue("anything");
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    spyOn(Tmux, "hasTarget").mockResolvedValue(true);
+    const sendLiteralSpy = spyOn(Tmux, "sendLiteral").mockResolvedValue();
+
+    // This session never passed through the in-process Running->Draining
+    // transition, so the daemon's drainingAt map has no start time recorded
+    // for it — the very first poll is treated as already timed out.
+    await refreshSessionStatuses(db, ["drain-timeout"]);
+
+    expect(killSpy).toHaveBeenCalledWith("drain-timeout");
+    expect(sendLiteralSpy).toHaveBeenCalledWith(
+      "ahelpa-test-drain-timeout-target",
+      expect.stringContaining("dead"),
+    );
+    expect(db.getSession("drain-timeout")).toBeNull();
+  });
+
+  test("does not re-settle or double-notify a session that already reaped as Dead", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({
+      id: "already-dead",
+      parentId: "p",
+      agentType: "claude-code",
+      task: "t",
+      ownerToken: "tok",
+      projectPath: "/tmp",
+      notifyTmux: "ahelpa-test-already-dead-target",
+    });
+    db.updateStatus("already-dead", "dead");
+    spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    spyOn(Tmux, "hasTarget").mockResolvedValue(true);
+    const sendLiteralSpy = spyOn(Tmux, "sendLiteral").mockResolvedValue();
+
+    await refreshSessionStatuses(db);
+
+    // Dead sessions are filtered out before the loop runs, so no second
+    // settle/notify happens for a session that's already terminal.
+    expect(sendLiteralSpy).not.toHaveBeenCalled();
+  });
 });

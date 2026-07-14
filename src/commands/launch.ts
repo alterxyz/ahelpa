@@ -21,6 +21,7 @@ export interface LaunchInput {
   safe?: boolean;
   model?: string;
   effort?: string;
+  notifyTmux?: string;
 }
 
 export interface LaunchResult {
@@ -110,6 +111,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     depth: plan.depth,
     model: plan.input.model,
     effort: plan.input.effort,
+    notifyTmux: plan.input.notifyTmux,
   });
 
   if (!daemon.isDaemonRunning()) {
@@ -181,6 +183,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     resumedFrom: oldSession.id,
     model: oldSession.model,
     effort: oldSession.effort,
+    notifyTmux: oldSession.notifyTmux,
   });
 
   if (!daemon.isDaemonRunning()) {
