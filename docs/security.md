@@ -10,6 +10,8 @@ This is a deliberate design choice for local development. The tradeoff: maximum 
 
 `ahelpa launch --safe` omits or bounds the default danger flags. Claude Code launches as `claude --verbose`; Codex launches as `codex -s workspace-write -a never`. This is a lower-permission posture, not a separate OS user, VM, or hard security boundary.
 
+Configured notify commands in `~/.ahelpa/config.json` also run as the same local user when a session reaches a terminal attention state. Treat them like local shell hooks: keep the command narrow, and do not put secrets in the command text.
+
 ## Practical Mitigations
 
 - **Scope with `--project`.** Point helpers at the smallest useful working directory. A helper that only needs to review one module doesn't need access to the entire home directory.
@@ -20,7 +22,7 @@ This is a deliberate design choice for local development. The tradeoff: maximum 
 
 ## Owner Token Boundaries
 
-The owner token returned by `launch` gates all mutating operations:
+The owner token returned by `launch` gates live-helper operations:
 
 | Requires token | Does not require token |
 | --- | --- |

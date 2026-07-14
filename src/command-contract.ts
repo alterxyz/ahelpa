@@ -83,7 +83,7 @@ export function renderModelsText(agent?: string): string {
 export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "launch",
-    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]",
+    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>] [--parent <id>] [--safe] [--model <model>] [--effort <level>] [--notify-tmux <target>]",
     description: "Launch a helper agent",
     minPositionals: 1,
     flags: {
@@ -94,6 +94,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       safe: { kind: "boolean" },
       model: { kind: "string" },
       effort: { kind: "string" },
+      "notify-tmux": { kind: "string" },
     },
     async run(ctx) {
       const result = await launch({
@@ -106,6 +107,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         safe: ctx.flags.booleans.safe,
         model: ctx.flags.strings.model,
         effort: ctx.flags.strings.effort,
+        notifyTmux: ctx.flags.strings["notify-tmux"],
       });
       ctx.print(JSON.stringify(result, null, 2));
     },

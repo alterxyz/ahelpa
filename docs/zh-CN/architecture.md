@@ -34,7 +34,7 @@ ahelpa CLI ──────────► tmux session
 1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid8}`）和 owner token，写入任务文件，通过选定 driver 创建 tmux session，准备 FIFO，在 SQLite 记录 session，并在需要时启动 daemon。
 2. **任务投递**：driver 的 `prepareForTask` 处理 agent-specific 启动流程，例如 ready 检查和 trust prompt。随后通过 `tmux send-keys` 发送任务指令，告诉 helper 读取哪个任务文件、把结果写到哪里。
 3. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
-4. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、清理 pipe。
+4. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、可选发送外部终态通知、清理 pipe。
 5. **Wakeup**：`wait` 收到 FIFO 事件后返回，调用者从文件交接目录读取结果。
 
 ### 状态转换

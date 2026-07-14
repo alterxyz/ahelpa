@@ -12,6 +12,7 @@ describe("Tmux", () => {
     await Tmux.create(TEST_SESSION, "echo hello");
     const exists = await Tmux.hasSession(TEST_SESSION);
     expect(exists).toBe(true);
+    expect(await Tmux.hasTarget(TEST_SESSION)).toBe(true);
   });
 
   test("captures pane output", async () => {
@@ -28,6 +29,15 @@ describe("Tmux", () => {
     await Bun.sleep(500);
     const output = await Tmux.capture(TEST_SESSION, 20);
     expect(output).toContain("SENT_BY_AHELPA");
+  });
+
+  test("sends literal text", async () => {
+    await Tmux.create(TEST_SESSION, "bash");
+    await Bun.sleep(300);
+    await Tmux.sendLiteral(TEST_SESSION, "C-c literal text");
+    await Bun.sleep(500);
+    const output = await Tmux.capture(TEST_SESSION, 20);
+    expect(output).toContain("C-c literal text");
   });
 
   test("sends Enter even when text is empty", async () => {

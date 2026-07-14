@@ -84,7 +84,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code` or `codex`) |
+| `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>] [--notify-tmux <target>]` | Start a helper (`claude-code` or `codex`) |
 | `wait <id...> [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>]` | Non-blocking status poll with inline refresh |
 | `models [agent]` | List launch-time model options |
@@ -108,6 +108,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 | `~/.ahelpa/bin/ahelpa` | Installed binary |
 | `~/.ahelpa/state.db` | SQLite session state |
 | `~/.ahelpa/daemon.pid` | Daemon PID file |
+| `~/.ahelpa/config.json` | Optional global notify settings |
 | `~/.ahelpa/archive/<id>/` | Final session snapshots |
 | `/tmp/ahelpa/<id>.pipe` | FIFO wakeup pipes |
 | `/tmp/ahelpa/ahelpa-task-<id>.md` | Task files |

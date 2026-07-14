@@ -77,7 +77,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 | Command | Description |
 |---------|-------------|
-| `launch <type> --task "..." [--label] [--project] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
+| `launch <type> --task "..." [--label] [--project] [--parent <id>] [--safe] [--model <model>] [--effort <level>] [--notify-tmux <target>]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
 | `wait <id...> [--all] [--timeout <seconds>]` | Block until sessions complete or timeout (default 500s). |
 | `check [--parent <id>]` | Non-blocking status poll. |
 | `models [agent]` | List launch-time model options. |

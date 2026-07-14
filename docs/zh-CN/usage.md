@@ -38,6 +38,25 @@ ahelpa launch codex --safe --project /path/to/project --task "Review this change
 
 Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。各 driver 的具体行为见 [安全说明](security.md)。
 
+用 `--notify-tmux` 在 helper 进入 `needs_attention`、`dead` 或 `error` 时，把 settle 消息推送到另一个 tmux session：
+
+```bash
+ahelpa launch codex --notify-tmux chief-pane --task "Review this change"
+```
+
+也可以在 `~/.ahelpa/config.json` 设置全局默认：
+
+```json
+{
+  "notify": {
+    "tmux": "chief-pane",
+    "command": "printf '%s %s\n' \"$AHELPA_SESSION_ID\" \"$AHELPA_STATUS\" >> ~/.ahelpa/notify.log"
+  }
+}
+```
+
+单次 launch 的 `--notify-tmux` 优先于全局 tmux target。`wait` 仍是阻塞式拉取机制；notify 是推送信号，适合 host 在别处继续工作时被叫醒。
+
 ## 启动时选择模型
 
 ```bash

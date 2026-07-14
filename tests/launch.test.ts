@@ -190,12 +190,14 @@ describe("launch", () => {
       parentId: "test-parent",
       model: "gpt-5.5",
       effort: "high",
+      notifyTmux: "chief-pane",
     });
 
     expect(plan.launchCmd).toContain("--model 'gpt-5.5'");
     expect(plan.launchCmd).toContain("-c 'model_reasoning_effort=\"high\"'");
     expect(plan.input.model).toBe("gpt-5.5");
     expect(plan.input.effort).toBe("high");
+    expect(plan.input.notifyTmux).toBe("chief-pane");
   });
 
   test("planLaunch rejects beyond max nesting depth without side effects", () => {

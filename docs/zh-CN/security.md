@@ -10,6 +10,8 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 `ahelpa launch --safe` 会省略或收窄默认 danger flags。Claude Code 会以 `claude --verbose` 启动；Codex 会以 `codex -s workspace-write -a never` 启动。这是更低权限的姿态，但不是独立 OS user、VM 或强安全边界。
 
+`~/.ahelpa/config.json` 中配置的 notify command 也会在 session 进入终态关注状态时以同一用户运行。把它当成本机 shell hook：命令范围要窄，不要把 secret 写进命令文本。
+
 ## 实用防护
 
 - **用 `--project` 收窄范围。** 把 helper 指向最小可用工作目录。只需要 review 某个模块时，不要给它整个 home directory。
@@ -20,7 +22,7 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 ## Owner token 边界
 
-`launch` 返回的 owner token gate 所有写操作：
+`launch` 返回的 owner token gate 对 live helper 的操作：
 
 | 需要 token | 不需要 token |
 | --- | --- |
