@@ -101,7 +101,7 @@ describe("driver launch protocol", () => {
     const runtime = probeRuntime([
       "Claude Code is still starting",
       "Claude Code is still starting",
-      "Opus 4.6 (1M context) | 0 tokens\nbypass permissions on",
+      "Opus 4.6 (1M context) | 0 tokens\n❯\nbypass permissions on",
     ]);
 
     await driver.prepareForTask("claude-test", runtime);
@@ -115,6 +115,60 @@ describe("driver launch protocol", () => {
     expect(runtime.sleeps).toEqual([2000, 1000, 1000, 1000]);
   });
 
+  test("claude-code recognizes the Claude 2.1.210 ctx prompt before task submission", async () => {
+    const driver = getDriver("claude-code");
+    const runtime = probeRuntime([
+      "Fable 5 │ ░░░░░░░░░░ 0% ctx │ ? for shortcuts\n❯\nbypass permissions",
+    ]);
+
+    await driver.prepareForTask("claude-test", runtime);
+
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.captures).toEqual([{ sessionId: "claude-test", lines: 30 }]);
+    expect(runtime.sleeps).toEqual([2000, 1000]);
+  });
+
+  test("claude-code confirms the folder trust prompt before task submission", async () => {
+    const driver = getDriver("claude-code");
+    const runtime = probeRuntime([
+      [
+        "Quick safety check: Is this a project you created or one you trust?",
+        "❯ 1. Yes, I trust this folder",
+        "  2. No, exit",
+        "Enter to confirm · Esc to cancel",
+      ].join("\n"),
+      "Sonnet 5 │ ░░░░░░░░░░ 0% ctx\n❯\nbypass permissions",
+    ]);
+
+    await driver.prepareForTask("claude-test", runtime);
+
+    expect(runtime.sent).toEqual([""]);
+    expect(runtime.captures).toEqual([
+      { sessionId: "claude-test", lines: 30 },
+      { sessionId: "claude-test", lines: 30 },
+    ]);
+    expect(runtime.sleeps).toEqual([2000, 1000, 1000]);
+  });
+
+  test("claude-code logs when prompt detection times out before task submission", async () => {
+    const driver = getDriver("claude-code");
+    const runtime = probeRuntime(["Claude Code is still starting"]);
+    const originalError = console.error;
+    const errors: string[] = [];
+    console.error = (message?: unknown) => {
+      errors.push(String(message));
+    };
+
+    try {
+      await driver.prepareForTask("claude-test", runtime);
+    } finally {
+      console.error = originalError;
+    }
+
+    expect(runtime.captures.length).toBe(60);
+    expect(errors).toEqual(["claude prompt not detected after 60s, injecting anyway"]);
+  });
+
   test("claude-code nudges when the submitted task remains queued", async () => {
     const driver = getDriver("claude-code");
     const runtime = probeRuntime([
@@ -123,6 +177,24 @@ describe("driver launch protocol", () => {
         "When you are finished, output [AHELPA:DONE] on its own line.",
         "",
         "0 tokens",
+      ].join("\n"),
+    ]);
+
+    await driver.afterTaskSubmitted("claude-test", runtime);
+
+    expect(runtime.sent).toEqual([""]);
+    expect(runtime.captures).toEqual([{ sessionId: "claude-test", lines: 30 }]);
+    expect(runtime.sleeps).toEqual([1000]);
+  });
+
+  test("claude-code nudges queued submitted tasks with the Claude 2.1.210 ctx prompt", async () => {
+    const driver = getDriver("claude-code");
+    const runtime = probeRuntime([
+      [
+        "Please read and complete the task described in /tmp/ahelpa-task-placeholder.md.",
+        "When you are finished, output [AHELPA:DONE] on its own line.",
+        "",
+        "Fable 5 │ ░░░░░░░░░░ 0% ctx │ ? for shortcuts",
       ].join("\n"),
     ]);
 
@@ -195,9 +267,10 @@ describe("detectActivity", () => {
     expect(driver.detectActivity("Opus 4.6 | 1234 tokens")).toBe("idle");
   });
 
-  test("claude-code: prompt with 0 tokens = booting", () => {
+  test("claude-code: prompt with fresh context counter = booting", () => {
     const driver = getDriver("claude-code");
     expect(driver.detectActivity("0 tokens\n❯")).toBe("booting");
+    expect(driver.detectActivity("Fable 5 │ ░░░░░░░░░░ 0% ctx\n❯")).toBe("booting");
     expect(driver.detectActivity("Claude Code v2.1.191")).toBe("booting");
   });
 

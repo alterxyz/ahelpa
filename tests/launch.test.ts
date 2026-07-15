@@ -80,7 +80,7 @@ describe("launch", () => {
     });
     spyOn(Tmux, "create").mockResolvedValue();
     spyOn(Tmux, "sendKeys").mockResolvedValue();
-    spyOn(Tmux, "capture").mockResolvedValue("[AHELPA:DONE]");
+    spyOn(Tmux, "capture").mockResolvedValue("0 tokens\n❯");
     spyOn(FIFO, "create").mockResolvedValue();
     spyOn(Bun, "sleep").mockResolvedValue();
 
