@@ -4,25 +4,44 @@ import { shellEscape } from "../shell";
 import { detectSentinelStatus, hasInlineSentinel } from "./sentinels";
 import { findModelChoice, findSelectedChoice, waitForOutput } from "./model-menu";
 
+const CLAUDE_INPUT_WAIT_ATTEMPTS = 60;
+
 function claudeNeedsSubmitNudge(captureOutput: string): boolean {
   return isTaskInstructionEcho(captureOutput)
-    && /\b0 tokens\b/.test(captureOutput)
+    && claudeHasFreshPromptCounter(captureOutput)
     && !captureOutput.includes("⏺");
 }
 
+function claudeHasFreshPromptCounter(captureOutput: string): boolean {
+  return /\b0 tokens\b/.test(captureOutput) || /\b0% ctx\b/.test(captureOutput);
+}
+
 function claudeIsReadyForInput(captureOutput: string): boolean {
-  return /\b0 tokens\b/.test(captureOutput)
-    && (captureOutput.includes("❯") || captureOutput.includes("bypass permissions"));
+  return claudeHasFreshPromptCounter(captureOutput)
+    && captureOutput.includes("❯");
+}
+
+function claudeNeedsTrustPromptNudge(captureOutput: string): boolean {
+  return /Quick safety check:/i.test(captureOutput)
+    && /Yes, I trust this folder/i.test(captureOutput)
+    && /Enter to confirm/i.test(captureOutput);
 }
 
 async function waitForInput(sessionId: string, runtime: DriverRuntime): Promise<void> {
-  for (let attempt = 0; attempt < 15; attempt++) {
+  let nudgedTrustPrompt = false;
+
+  for (let attempt = 0; attempt < CLAUDE_INPUT_WAIT_ATTEMPTS; attempt++) {
     await runtime.sleep(1000);
     const recentOutput = await runtime.capture(sessionId, 30);
     if (claudeIsReadyForInput(recentOutput)) {
       return;
     }
+    if (!nudgedTrustPrompt && claudeNeedsTrustPromptNudge(recentOutput)) {
+      await runtime.sendKeys(sessionId, "");
+      nudgedTrustPrompt = true;
+    }
   }
+  console.error(`claude prompt not detected after ${CLAUDE_INPUT_WAIT_ATTEMPTS}s, injecting anyway`);
 }
 
 async function sendSteps(sessionId: string, runtime: DriverRuntime, key: "Up" | "Down", count: number): Promise<void> {
@@ -123,7 +142,7 @@ export const claudeCodeDriver: AgentDriver = {
     // at the idle prompt after a turn completes, so they can't distinguish
     // "working" from "idle with history".
     if (captureOutput.includes("⏺")) return "working";
-    // Prompt visible with 0 tokens = just started, ready for task
+    // Prompt visible with a fresh context counter = just started, ready for task
     if (claudeIsReadyForInput(captureOutput)) return "booting";
     // Header/banner appearing = CLI still loading
     if (/Claude Code v/i.test(captureOutput)) return "booting";
