@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install ahelpa from GitHub Releases, then install the global hard-copy skill
-# for Codex and Claude Code through the existing `skills` CLI.
+# for Codex, Claude Code, and Kimi Code through the existing `skills` CLI.
 
 set -euo pipefail
 
@@ -54,7 +54,7 @@ else
   SKILL_SOURCE="https://github.com/$REPO/tree/$VERSION/skill"
 fi
 
-echo "== install global skills -> codex + claude-code =="
+echo "== install global skills -> codex + claude-code + kimi-code-cli =="
 "$BIN_DIR/ahelpa" install-skill --source "$SKILL_SOURCE"
 
 echo "== installed =="

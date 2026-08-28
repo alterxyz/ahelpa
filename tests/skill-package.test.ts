@@ -41,6 +41,7 @@ description: test skill
     );
     writeFileSync(join(skillDir, "bundle", "ahelpa-darwin-arm64.tar.gz"), "bundle");
     writeFileSync(join(skillDir, "references", "claude-code.md"), "reference");
+    writeFileSync(join(skillDir, "references", "kimi.md"), "reference");
     writeFileSync(join(skillDir, ".DS_Store"), "ignore me");
 
     const archivePath = await packageSkill(skillDir, outDir);
@@ -52,6 +53,7 @@ description: test skill
     expect(listing).toContain("ahelpa/SKILL.md");
     expect(listing).toContain("ahelpa/bundle/ahelpa-darwin-arm64.tar.gz");
     expect(listing).toContain("ahelpa/references/claude-code.md");
+    expect(listing).toContain("ahelpa/references/kimi.md");
     expect(listing).not.toContain("skill/SKILL.md");
     expect(listing).not.toContain("ahelpa/.DS_Store");
 

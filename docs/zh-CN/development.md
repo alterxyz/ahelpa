@@ -10,6 +10,8 @@
 
 `jq` 对 shell 示例有用，但 runtime 本身不依赖它。
 
+端到端 gate 还要求对应 driver 的 helper CLI 已完成认证。可用 `command -v claude`、`command -v codex` 和 `command -v kimi` 检查二进制；认证状态则应通过各 CLI 自己的状态命令或一次无害请求确认。
+
 ## 仓库布局
 
 ```text
@@ -106,7 +108,7 @@ bash scripts/deploy-local.sh
 ahelpa install-skill --source ./skill
 ```
 
-`install-skill` 会把安装交给 `npx skills@latest`，不重新实现 agent skill 安装逻辑。策略固定为：全局作用域、hard-copy 模式、显式安装 `codex` + `claude-code`。请确保 `~/.ahelpa/bin` 在 `PATH` 中。
+`install-skill` 会把安装交给 `npx skills@latest`，不重新实现 agent skill 安装逻辑。策略固定为：全局作用域、hard-copy 模式、显式安装 `codex` + `claude-code` + `kimi-code-cli`。请确保 `~/.ahelpa/bin` 在 `PATH` 中。
 
 公开安装使用 release installer：
 
@@ -124,9 +126,13 @@ curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/instal
 bun test
 ```
 
+Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，并在测试结束后删除这些目录。因此 unit/integration test 不会把 session 状态、archive、FIFO 或任务文件写进用户正在使用的 ahelpa runtime。
+
 ## Closure gate
 
-影响已安装 runtime 行为的改动，需要跑端到端 gate。它会覆盖两个 supported driver 的 launch → wait → capture → kill 链路。
+影响已安装 runtime 行为的改动，需要跑端到端 gate。它会覆盖三个 supported driver 的 launch → wait → capture → kill 链路。
+
+脚本会为 gate 单独设置 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，因此它的 SQLite 状态、daemon、archive、FIFO 和任务文件不会干扰用户正在运行的 ahelpa session。helper CLI 仍使用正常的 OS home 和既有认证状态。
 
 ```bash
 bun run closure:gate
@@ -139,7 +145,7 @@ bun run closure:gate
 - `capture` 能看到任务进入 prompt flow
 - `kill` 能正常回收 session
 
-**前置条件**：`claude` 和 `codex` 两个 helper CLI 都需要在本机完成登录。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
+**前置条件**：`claude`、`codex` 和 `kimi` 三个 helper CLI 都需要在本机完成登录。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
 
 ## 添加 driver
 

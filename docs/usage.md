@@ -18,6 +18,13 @@ Use `--project` to pin the helper to a specific working directory:
 ahelpa launch codex --project /path/to/project --task "Add tests for the CLI parser"
 ```
 
+Kimi Code uses the `kimi` helper type and the `kimi` binary:
+
+```bash
+command -v kimi
+ahelpa launch kimi --project /path/to/project --task "Review the CLI parser"
+```
+
 Use `--label` to tag sessions for easier identification:
 
 ```bash
@@ -36,7 +43,9 @@ Use `--safe` to omit or bound the default danger flags:
 ahelpa launch codex --safe --project /path/to/project --task "Review this change"
 ```
 
-Safe mode is a lower-permission launch posture, not a separate OS user or VM. See [Security](security.md) for the exact driver behavior.
+Safe mode is a lower-permission launch posture, not a separate OS user or VM. ahelpa records this posture and preserves it across `resume`; passing `resume --safe` can upgrade a default-posture record, but omission never downgrades an already-safe session. See [Security](security.md) for the exact driver behavior.
+
+Kimi launches as `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` by default. The canonical update flag prevents a CLI self-update from interrupting the persistent tmux session. On the first launch in a directory, ahelpa automatically selects **Trust this folder**. Kimi persists that trust and may then start project MCP servers from the directory. This automatic trust step also runs with `--safe`: Kimi safe mode only omits `--yolo` and restores native approvals; it is not a sandbox.
 
 ## Choose a Model at Launch
 
@@ -47,7 +56,7 @@ ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
 
-`models [agent]` prints the static model catalog known to this ahelpa release. `--model` starts the helper with the selected model. `--effort` is passed through when the selected agent supports launch-time effort settings. `resume` reuses the recorded launch model and effort automatically.
+`models [agent]` prints the model catalog known to this ahelpa release. For Kimi, omit `--model` by default so the CLI uses the default from its `config.toml`. If you pass `--model`, the value must exactly match a complete alias already configured in that file; a display name alone may fail. `--effort` is passed through when the selected agent supports launch-time effort settings; Kimi rejects `--effort`. `resume` reuses a launch-time model alias when one was explicitly supplied.
 
 ## Switch a Running Helper Model
 
@@ -57,6 +66,8 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 ```
 
 The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. Add `--persist` when you want Codex's new model to remain the default.
+
+Runtime `ahelpa model` switching is not supported for Kimi. Choose the model at launch instead.
 
 ## Wait for Completion
 
@@ -146,11 +157,18 @@ ahelpa logs "$session_id" --token "$token"
 
 ## Resume a Completed Helper
 
-If `check` shows an `agentResumeId`, resume the agent conversation into a new helper session:
+If `check` shows an `agentResumeId`, the agent conversation can be reconnected in a new helper session. For Kimi, the `session_*` ID does not exist at initial startup; ahelpa captures it after submitting the first task message, then reconnects with `kimi --session <id>`.
+
+With the current settle/drain lifecycle, `resume` is rejected while the old Kimi helper is still draining. Either wait until `ahelpa check` reports it as `dead`, or reclaim it explicitly for the quickest path:
 
 ```bash
+ahelpa kill "$session_id" --token "$token"
 ahelpa resume "$session_id" --token "$token"
 ```
+
+If launch included a configured `--model` alias, the resumed helper reuses it; otherwise Kimi continues to use its configured default. A launch-time `--safe` posture is also inherited; `resume --safe` can upgrade an older default-posture record. The conversation persists through Kimi's native session ID in a new tmux session; `[AHELPA:DONE]` does not keep the original tmux session alive forever.
+
+`resume` waits until the new driver reaches an input prompt, then returns a new helper in `needs_attention`. Send the next turn to the new session ID with `send` or `task`, then call `wait`. ahelpa waits for evidence that the new turn was accepted, recreates the FIFO, and resumes daemon monitoring; this prevents an old DONE/NEED_HELP marker from settling the follow-up.
 
 ## Reclaim Sessions
 
@@ -166,7 +184,7 @@ Clean up dead records and orphan runtime files (pipes, task files):
 ahelpa clean
 ```
 
-`clean` does not remove archives or terminate live sessions.
+`clean` deletes dead session records, including their resume metadata, so an old ID cannot be resumed afterward. It does not remove archives or terminate live or draining sessions.
 
 ## Daemon Management
 
@@ -185,7 +203,7 @@ If the runtime is installed but the agent skill is missing or stale:
 ahelpa install-skill
 ```
 
-This delegates to `npx skills@latest` and installs global hard-copy skill files for Codex and Claude Code.
+This delegates to `npx skills@latest` and installs global hard-copy skill files with explicit `codex`, `claude-code`, and `kimi-code-cli` targets.
 
 ## Timing Expectations
 
@@ -195,20 +213,13 @@ Helpers are full coding agents — they boot, read the task, explore the codebas
 - **`still_running` is normal.** Re-wait. The helper is working.
 - **Don't capture in the first few minutes.** It adds no information early on.
 - **Polling every 30 seconds is an anti-pattern.** One `wait`, then one re-wait if needed.
-- **Escalate after 8–10 minutes of silence on a simple task.** Use `capture` once to see what's happening, then `send` to nudge or `kill` and retry.
+- **Complex or max-effort reviews can take much longer than 10 minutes.** Keep re-waiting while there is evidence of progress. Intervene only on a concrete stalled prompt, failed tool, or explicit help request; use `capture` once, then prefer `send` before `kill`.
 
-## Messenger Pattern
+## Long-running Helpers
 
-For long-running tasks or multiple parallel helpers, spawn a cheap background subagent to poll and report instead of blocking your main conversation with `wait`.
+Use `ahelpa wait` itself for long-running work. Its FIFO is the efficient persistent wait surface, so do not replace it with a one-shot process or a polling messenger. Re-wait after `still_running`; for parallel helpers, pass all session IDs to one wait and add `--all` when every result is required.
 
-| Situation | Approach |
-| --- | --- |
-| Short task, single helper | `ahelpa wait` inline |
-| Long task or multiple helpers | Spawn a messenger subagent |
-
-The messenger's job is narrow: periodically run `ahelpa check`, inspect result directories when sessions complete, and report back. It should never do work itself.
-
-See `skill/references/claude-code.md` and `skill/references/codex.md` for platform-specific messenger setup.
+See `skill/references/claude-code.md`, `skill/references/codex.md`, and `skill/references/kimi.md` for platform-specific setup.
 
 ## Troubleshooting
 
@@ -222,6 +233,7 @@ tmux capture-pane -t "$session_id" -p  # dump pane content without attaching
 
 Common situations:
 
+- **Kimi shows a moon or `Retrying`.** The cycling moon and provider backoff countdown are active work signals, even though Kimi keeps its boxed input visible. Re-run `wait`; a 120-second provider retry is not a local CLI or tmux failure.
 - **Helper seems stuck.** Attach to the tmux session to see the full screen. A prompt or confirmation dialog may have appeared that the driver didn't auto-handle. Manually dismiss it — the sentinel protocol still works afterward.
 - **`wait` returned but no summary.md.** The helper may have completed without writing results. Check `capture` or `logs` to see what happened.
 - **Session shows `error`.** The helper printed `[AHELPA:NEED_HELP]`. Use `capture` or `logs` to see what it needs, then `send` to intervene.

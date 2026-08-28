@@ -8,11 +8,13 @@ ahelpa launches helper agents with the same local user permissions as the host p
 
 This is a deliberate design choice for local development. The tradeoff: maximum helper capability in exchange for the responsibility of scoping tasks carefully.
 
-`ahelpa launch --safe` omits or bounds the default danger flags. Claude Code launches as `claude --verbose`; Codex launches as `codex -s workspace-write -a never`. This is a lower-permission posture, not a separate OS user, VM, or hard security boundary.
+`ahelpa launch --safe` omits or bounds the default danger flags. Claude Code launches as `claude --verbose`; Codex launches as `codex -s workspace-write -a never`; Kimi omits `--yolo`, restoring Kimi's native approval flow. ahelpa persists this posture and carries it into every resumed record, so an omitted resume flag cannot silently restore danger flags; `resume --safe` may upgrade a default-posture record. This is a lower-permission posture, not a separate OS user, VM, or hard security boundary. In particular, Kimi's native approvals are not a sandbox.
+
+By default, Kimi launches as `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo`. The canonical update flag prevents a CLI self-update from interrupting the persistent tmux session. On the first launch in a directory, ahelpa automatically selects **Trust this folder** so task delivery can continue unattended. Kimi persists that directory trust, and trusted projects can supply MCP servers that Kimi may start. This automatic trust happens in both default and `--safe` modes. Therefore `--safe` only restores per-action native approvals by omitting `--yolo`; it does not make an untrusted project safe to run.
 
 ## Practical Mitigations
 
-- **Scope with `--project`.** Point helpers at the smallest useful working directory. A helper that only needs to review one module doesn't need access to the entire home directory.
+- **Scope with `--project`.** Point helpers at the smallest useful working directory. This sets cwd and the intended task boundary; it is not a filesystem sandbox. In review prompts, explicitly forbid unrelated home directories, global `~/.ahelpa/archive`, and other projects unless the task truly requires them.
 - **Use git worktrees.** For risky or experimental tasks, launch helpers into throwaway worktree copies. This limits blast radius without restricting helper capability.
 - **Keep secrets out of task prompts.** Task files are written to `/tmp/ahelpa/` and are readable by the local user. Don't embed credentials, API keys, or sensitive data in task descriptions.
 - **Keep secrets out of result artifacts.** Helpers write to `.ahelpa/<session-id>/` in the project directory. Review results before committing or sharing.

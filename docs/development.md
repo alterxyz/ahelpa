@@ -10,6 +10,8 @@
 
 `jq` is useful for shell examples but is not required by the runtime itself.
 
+The end-to-end gate also requires authenticated helper CLIs for the drivers being exercised. Verify the binaries with `command -v claude`, `command -v codex`, and `command -v kimi`; verify authentication with each CLI's own status or a harmless request.
+
 ## Repository Layout
 
 ```
@@ -105,7 +107,7 @@ This copies the binary to `~/.ahelpa/bin/ahelpa`, then runs:
 ahelpa install-skill --source ./skill
 ```
 
-`install-skill` delegates to `npx skills@latest` instead of reimplementing agent skill installation. The policy is fixed: global scope, hard-copy mode, and explicit `codex` + `claude-code` targets. Ensure `~/.ahelpa/bin` is on your `PATH`.
+`install-skill` delegates to `npx skills@latest` instead of reimplementing agent skill installation. The policy is fixed: global scope, hard-copy mode, and explicit `codex` + `claude-code` + `kimi-code-cli` targets. Ensure `~/.ahelpa/bin` is on your `PATH`.
 
 Public installs use the release installer:
 
@@ -123,9 +125,13 @@ For ordinary code changes:
 bun test
 ```
 
+The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots when the caller has not supplied them, then removes those roots after the suite. Unit and integration tests therefore do not write session state, archives, FIFOs, or task files into the user's active ahelpa runtime.
+
 ## Closure Gate
 
-The closure gate is the end-to-end verification step for changes that affect installed runtime behavior. It tests the full launch → wait → capture → kill cycle across both supported drivers.
+The closure gate is the end-to-end verification step for changes that affect installed runtime behavior. It tests the full launch → wait → capture → kill cycle across all three supported drivers.
+
+The script gives the gate its own `AHELPA_HOME` and `AHELPA_TMP_DIR`, so its SQLite state, daemon, archives, FIFOs, and task files cannot interfere with the user's active ahelpa sessions. Helper CLIs still use the normal OS home for their existing authentication.
 
 ```bash
 bun run closure:gate
@@ -138,7 +144,7 @@ For each driver, verify that:
 - `capture` shows the task entered the prompt flow
 - `kill` reclaims the session cleanly
 
-**Prerequisite:** Both helper CLIs (`claude` and `codex`) must be authenticated locally. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
+**Prerequisite:** All three helper CLIs (`claude`, `codex`, and `kimi`) must be authenticated locally. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
 
 ## Adding a Driver
 

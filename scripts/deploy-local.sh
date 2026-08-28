@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build the runtime, refresh the skill bundle, and install both on this
 # machine: the runtime binary into ~/.ahelpa/bin and hard-copy global skills
-# for Codex and Claude Code. Safe to re-run; a running daemon keeps its old
+# for Codex, Claude Code, and Kimi Code. Safe to re-run; a running daemon keeps its old
 # inode and picks up the new binary on next start.
 
 set -euo pipefail
@@ -21,7 +21,7 @@ if [ -d "$HOME/.local/bin" ]; then
   ln -sf "$BIN_DST/ahelpa" "$HOME/.local/bin/ahelpa"
 fi
 
-echo "== install global skills -> codex + claude-code =="
+echo "== install global skills -> codex + claude-code + kimi-code-cli =="
 "$BIN_DST/ahelpa" install-skill --source "$PROJECT_ROOT/skill"
 
 echo "== deployed =="

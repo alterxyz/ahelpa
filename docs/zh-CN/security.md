@@ -8,11 +8,13 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 这是本地开发场景下的刻意取舍：最大化 helper 能力，同时要求使用者认真收窄任务范围。
 
-`ahelpa launch --safe` 会省略或收窄默认 danger flags。Claude Code 会以 `claude --verbose` 启动；Codex 会以 `codex -s workspace-write -a never` 启动。这是更低权限的姿态，但不是独立 OS user、VM 或强安全边界。
+`ahelpa launch --safe` 会省略或收窄默认 danger flags。Claude Code 会以 `claude --verbose` 启动；Codex 会以 `codex -s workspace-write -a never` 启动；Kimi 会省略 `--yolo`，恢复 Kimi 原生审批流程。ahelpa 会持久记录该姿态并带入每个 resume 记录，因此省略 resume 参数不会悄悄恢复 danger flags；`resume --safe` 可以升级默认姿态记录。这是更低权限的姿态，但不是独立 OS user、VM 或强安全边界。尤其要注意，Kimi 的原生审批不是 sandbox。
+
+默认情况下，Kimi 以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` 启动。这个 canonical 更新开关用于避免 CLI 自更新中断持久 tmux session。首次在某个目录启动时，ahelpa 会自动选择 **Trust this folder**，让任务能够无人值守地继续投递。Kimi 会持久保存该目录信任；可信项目可以提供 Kimi 随后可能启动的 MCP server。默认模式和 `--safe` 模式都会自动信任目录。因此，`--safe` 只是通过省略 `--yolo` 恢复逐项原生审批，并不能让不可信项目变得安全。
 
 ## 实用防护
 
-- **用 `--project` 收窄范围。** 把 helper 指向最小可用工作目录。只需要 review 某个模块时，不要给它整个 home directory。
+- **用 `--project` 收窄范围。** 把 helper 指向最小可用工作目录。它设置 cwd 和任务意图边界，但不是 filesystem sandbox。做 review 时，应在 prompt 中明确禁止读取无关 home 目录、全局 `~/.ahelpa/archive` 和其他项目，除非任务确实需要。
 - **使用 git worktree。** 风险任务或实验任务放进临时 worktree，降低误改主工作区的影响。
 - **不要把 secret 放进任务 prompt。** 任务文件会写到 `/tmp/ahelpa/`，本地用户可读。不要在任务描述中嵌入 credential、API key 或敏感数据。
 - **不要把 secret 留在结果 artifact。** Helper 会把结果写到项目内 `.ahelpa/<session-id>/`。commit 或分享前先检查。

@@ -29,26 +29,31 @@ ahelpa CLI ──────────► tmux session
 
 ## Session Lifecycle
 
-A session moves through four states: `running` → `idle` | `error` | `dead`.
+A session normally starts as `running`, may require host input as `needs_attention`, settles through `draining`, and ends as `dead`. `idle` and `error` are settlement results; `wait` reports a draining successful session as `idle`.
 
-1. **Launch.** `launch` generates a session ID (`{driver-prefix}-{uuid8}`) and an owner token. It writes the task to a temp file, creates a tmux session through the selected driver, prepares a FIFO pipe, records the session in SQLite, and starts the daemon if it isn't running.
+1. **Launch.** `launch` generates a session ID (`{driver-prefix}-{uuid12}`) and an owner token, claims a new tmux session, prepares the file handoff, and submits and confirms the first turn through the selected driver. Only then does it record the session in SQLite, prepare its FIFO pipe, and start the daemon if needed.
 
 2. **Task delivery.** The driver's `prepareForTask` handles agent-specific startup (readiness checks, trust prompts). Then the task instruction is sent via `tmux send-keys` — it tells the helper to read the task file and where to write results.
 
-3. **Execution.** The helper reads the task file, works in the target project directory, writes results to `.ahelpa/<session-id>/summary.md` (with supporting files under `artifacts/`), and prints a sentinel string when done.
+3. **Post-submission setup.** The driver's `afterTaskSubmitted` hook handles any agent-specific confirmation after the first message. Kimi creates its native `session_*` ID only after this message, so the launch path captures the resume token here.
 
-4. **Settlement.** The daemon (or inline refresh) captures tmux output, runs sentinel detection through the driver, and transitions the session. Settlement is a one-time atomic operation: update SQLite, save an archive snapshot, notify the FIFO, and clean up the pipe.
+4. **Execution.** The helper reads the task file, works in the target project directory, writes results to `.ahelpa/<session-id>/summary.md` (with supporting files under `artifacts/`), and prints a sentinel string when done.
 
-5. **Wakeup.** `wait` unblocks when the FIFO receives the settlement event. The caller reads results from the file handoff directory.
+5. **Settlement.** The daemon (or inline refresh) captures tmux output, runs sentinel detection through the driver, and transitions the session. Settlement is a one-time atomic operation: update SQLite, save an archive snapshot, notify the FIFO, and clean up the pipe.
+
+6. **Wakeup.** `wait` unblocks when the FIFO receives the settlement event. The caller reads results from the file handoff directory.
 
 ### State Transitions
 
 ```
 launch ──► running
               │
-              ├── [AHELPA:DONE] detected ──────► idle
+              ├── [AHELPA:DONE] detected ──────► idle ─► draining ─► dead
               ├── [AHELPA:NEED_HELP] detected ──► error
+              ├── sustained unknown idle ───────► needs_attention ── send/task ─► running
               └── tmux session gone ───────────► dead
+
+dead + native resume token ── resume ─► needs_attention ── send/task ─► running
 ```
 
 `still_running` is a wait-specific return value, not a session state — it means the timeout expired before settlement.
@@ -98,15 +103,19 @@ Drivers encapsulate agent-specific terminal behavior so that launch orchestratio
 
 | Responsibility | Example |
 | --- | --- |
-| Session prefix | `claude`, `codex` |
-| Launch command | `claude --dangerously-skip-permissions --verbose`, `codex --dangerously-bypass-approvals-and-sandbox` |
+| Session prefix | `claude`, `codex`, `kimi` |
+| Launch command | `claude --dangerously-skip-permissions --verbose`, `codex --dangerously-bypass-approvals-and-sandbox`, `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` |
 | Pre-task readiness | Wait for CLI to be ready, handle trust prompts |
-| Post-submission nudge | Press Enter if the prompt queued but didn't submit |
+| Post-submission handling | Press Enter if needed; capture a newly created native session ID |
 | Sentinel detection | Delegates to shared sentinel matching in `src/drivers/sentinels.ts` |
 
-The supported drivers are `claude-code` and `codex`. Both share the same sentinel protocol and file handoff paths — they differ only in startup commands and interactive prompt handling.
+The supported drivers are `claude-code`, `codex`, and `kimi`. All three share the same sentinel protocol and file handoff paths — they differ only in startup commands and interactive prompt handling. On Kimi's first launch in a directory, its driver automatically selects **Trust this folder**. Kimi persists that trust and may then start project MCP servers from the directory. Kimi initially shows no native session ID; after the first task message creates a `session_*` ID, ahelpa records it and resumes with `kimi --session <id>`.
 
-`launch --safe` passes a safe-mode hint into the selected driver. Claude Code omits `--dangerously-skip-permissions`; Codex uses `-s workspace-write -a never` instead of `--dangerously-bypass-approvals-and-sandbox`.
+`launch --safe` passes a safe-mode hint into the selected driver and stores it with the session. Native resume inherits that posture; `resume --safe` can upgrade a default-posture record, but an omitted flag cannot downgrade a safe one. Claude Code omits `--dangerously-skip-permissions`; Codex uses `-s workspace-write -a never` instead of `--dangerously-bypass-approvals-and-sandbox`; Kimi omits `--yolo` and therefore restores its native approval flow. Kimi still automatically trusts the project directory in safe mode, so its safe mode is not a sandbox.
+
+Kimi sets the canonical `KIMI_CODE_NO_AUTO_UPDATE=1` flag so a CLI self-update cannot interrupt its persistent tmux session. It starts without a model flag by default and uses the default from its `config.toml`. A launch-time `--model` value must exactly match a complete alias already configured there; resume reuses it when present. Kimi does not support `--effort` or runtime `ahelpa model` switching.
+
+After Kimi prints `[AHELPA:DONE]`, `resume` is rejected while the old helper is draining. The host can wait for daemon reclamation until `check` reports `dead`, or explicitly `kill` the helper, then resume. Dead records with an `agentResumeId` are retained until `clean`; records without a token can be reaped automatically. `clean` deletes dead records and their resume metadata but does not terminate live or draining sessions. Persistence means reconnecting the native Kimi session in a new tmux session, not preserving the original tmux process indefinitely.
 
 ## Nesting
 
@@ -141,3 +150,4 @@ When a session settles, a final snapshot is saved under `~/.ahelpa/archive/<sess
 | `drivers/registry.ts` | Driver lookup by agent type |
 | `drivers/claude-code.ts` | Claude Code driver |
 | `drivers/codex.ts` | Codex driver |
+| `drivers/kimi.ts` | Kimi Code driver |
