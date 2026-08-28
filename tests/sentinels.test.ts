@@ -17,9 +17,10 @@ describe("sentinel protocol", () => {
     expect(hasNeedHelpSentinel(output)).toBe(false);
   });
 
-  test("standalone matching accepts sentinels on their own line, with bullets", () => {
+  test("standalone matching accepts sentinels on their own line, with agent bullets", () => {
     expect(hasDoneSentinel(`work done\n${SENTINEL.Done}\n`)).toBe(true);
     expect(hasDoneSentinel(`work done\n⏺ ${SENTINEL.Done}`)).toBe(true);
+    expect(hasDoneSentinel(`work done\n● ${SENTINEL.Done}`)).toBe(true);
     expect(hasNeedHelpSentinel(`oops\n${SENTINEL.NeedHelp}\n`)).toBe(true);
   });
 

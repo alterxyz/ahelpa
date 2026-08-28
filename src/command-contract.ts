@@ -234,7 +234,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "resume",
     usage: "resume <id> --token <token> [--safe]",
-    description: "Resume a completed helper from its agent session",
+    description: "Resume a dead helper (preserving its safe posture)",
     minPositionals: 1,
     flags: { token: { kind: "string", required: true }, safe: { kind: "boolean" } },
     async run(ctx) {
@@ -259,7 +259,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "install-skill",
     usage: "install-skill [--source <repo-or-path>]",
-    description: "Install the ahelpa skill globally for Codex and Claude Code",
+    description: "Install the ahelpa skill globally for supported agents",
     flags: { source: { kind: "string" } },
     async run(ctx) {
       const result = await installSkill({ source: ctx.flags.strings.source });

@@ -1,10 +1,12 @@
 import type { AgentDriver } from "./types";
 import { claudeCodeDriver } from "./claude-code";
 import { codexDriver } from "./codex";
+import { kimiDriver } from "./kimi";
 
 const registry = new Map<string, AgentDriver>([
   ["claude-code", claudeCodeDriver],
   ["codex", codexDriver],
+  ["kimi", kimiDriver],
 ]);
 
 export function getDriver(name: string): AgentDriver {

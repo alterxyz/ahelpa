@@ -2,14 +2,15 @@ import { StateDB } from "../state";
 import { Tmux } from "../tmux";
 import { defaultWakeup } from "../wakeup";
 import { getDriver } from "../drivers/registry";
-import type { AgentDriver, DriverRuntime } from "../drivers/types";
+import type { AgentDriver, DriverRuntime, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
 import { getPendingLaunchNestingInfo, getMaxNestingDepth } from "../nesting";
-import { mkdirSync, existsSync } from "fs";
+import { mkdirSync, existsSync, rmSync, unlinkSync } from "fs";
 import { defaultRuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff, type FileHandoffPlan } from "../file-handoff";
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
+import { shellEscape } from "../shell";
 
 export interface LaunchInput {
   db: StateDB;
@@ -41,10 +42,38 @@ export interface LaunchPlan {
   input: LaunchInput;
 }
 
+function generateAvailableSessionId(db: StateDB, prefix: string): string {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const random = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    const candidate = `${prefix}-${random}`;
+    if (!db.getSession(candidate)) return candidate;
+  }
+  throw new Error(`Could not allocate a unique ${prefix} session ID`);
+}
+
+function assertFileHandoffAvailable(fileHandoff: FileHandoffPlan): void {
+  if (existsSync(fileHandoff.taskFilePath) || existsSync(fileHandoff.sessionDeliveryDir)) {
+    throw new Error(
+      `Refusing to overwrite existing handoff resources for ${fileHandoff.sessionDeliveryDir}`,
+    );
+  }
+}
+
+function helperEnvironmentPrefix(sessionId: string, maxDepth: number): string {
+  const assignments = [
+    `AHELPA_PARENT_ID=${sessionId}`,
+    `AHELPA_MAX_NESTING_DEPTH=${maxDepth}`,
+  ];
+  const ahelpaHome = process.env.AHELPA_HOME?.trim();
+  const ahelpaTmpDir = process.env.AHELPA_TMP_DIR?.trim();
+  if (ahelpaHome) assignments.push(`AHELPA_HOME=${shellEscape(ahelpaHome)}`);
+  if (ahelpaTmpDir) assignments.push(`AHELPA_TMP_DIR=${shellEscape(ahelpaTmpDir)}`);
+  return `export ${assignments.join(" ")};`;
+}
+
 export function planLaunch(input: LaunchInput): LaunchPlan {
   const driver = getDriver(input.agentType);
-  const uuid = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
-  const sessionId = `${driver.sessionPrefix}-${uuid}`;
+  const sessionId = generateAvailableSessionId(input.db, driver.sessionPrefix);
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
   const maxDepth = getMaxNestingDepth();
   const nesting = getPendingLaunchNestingInfo(input.db, input.parentId);
@@ -65,7 +94,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     model: input.model,
     effort: input.effort,
   });
-  const launchCmd = `export AHELPA_PARENT_ID=${sessionId} AHELPA_MAX_NESTING_DEPTH=${maxDepth}; ${baseLaunchCmd}`;
+  const launchCmd = `${helperEnvironmentPrefix(sessionId, maxDepth)} ${baseLaunchCmd}`;
 
   return {
     sessionId,
@@ -90,30 +119,86 @@ const driverRuntime: DriverRuntime = {
 export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
 
-  prepareFileHandoff(plan.fileHandoff, plan.input.task);
-  await Tmux.create(plan.sessionId, plan.launchCmd);
+  let tmuxCreated = false;
+  let handoffOwned = false;
+  let dbCreated = false;
+  let wakeupOwned = false;
+  try {
+    if (plan.input.db.getSession(plan.sessionId)) {
+      throw new Error(`Session ID already exists: ${plan.sessionId}`);
+    }
+    assertFileHandoffAvailable(plan.fileHandoff);
+    await Tmux.create(plan.sessionId, plan.launchCmd);
+    tmuxCreated = true;
+    // Re-check after tmux creation so a concurrent/stale handoff is never
+    // overwritten by this launch. We own the tmux, but not those files.
+    assertFileHandoffAvailable(plan.fileHandoff);
+    handoffOwned = true;
+    prepareFileHandoff(plan.fileHandoff, plan.input.task);
+    await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
+    const submissionContext: TaskSubmissionContext = {};
+    try {
+      submissionContext.beforeOutput = await driverRuntime.capture(plan.sessionId, 80);
+    } catch {
+      // The snapshot only helps history-aware drivers reject stale sentinels.
+    }
+    await driverRuntime.sendKeys(plan.sessionId, plan.fileHandoff.taskInstruction);
+    const submitted = await plan.driver.afterTaskSubmitted(
+      plan.sessionId,
+      driverRuntime,
+      submissionContext,
+    );
+    if (!submitted) {
+      throw new Error(`${plan.driver.name} did not expose the submitted task as a new turn`);
+    }
 
-  await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
-  await driverRuntime.sendKeys(plan.sessionId, plan.fileHandoff.taskInstruction);
-  await plan.driver.afterTaskSubmitted(plan.sessionId, driverRuntime);
+    let initialResumeId: string | null = null;
+    if (plan.driver.resumeTokenAvailableAfterSubmit) {
+      try {
+        const startupOutput = await driverRuntime.capture(plan.sessionId, 80);
+        initialResumeId = plan.driver.extractResumeToken(startupOutput);
+      } catch {
+        // Post-submit capture is best-effort. The daemon still extracts tokens during drain.
+      }
+    }
 
-  await defaultWakeup.prepare(plan.sessionId);
+    plan.input.db.createSession({
+      id: plan.sessionId,
+      parentId: plan.input.parentId,
+      agentType: plan.input.agentType,
+      task: plan.input.task,
+      ownerToken: plan.ownerToken,
+      projectPath: plan.input.projectPath,
+      label: plan.input.label,
+      depth: plan.depth,
+      model: plan.input.model,
+      effort: plan.input.effort,
+      safe: plan.input.safe,
+    });
+    dbCreated = true;
+    if (initialResumeId) {
+      plan.input.db.updateResumeId(plan.sessionId, initialResumeId);
+    }
 
-  plan.input.db.createSession({
-    id: plan.sessionId,
-    parentId: plan.input.parentId,
-    agentType: plan.input.agentType,
-    task: plan.input.task,
-    ownerToken: plan.ownerToken,
-    projectPath: plan.input.projectPath,
-    label: plan.input.label,
-    depth: plan.depth,
-    model: plan.input.model,
-    effort: plan.input.effort,
-  });
+    wakeupOwned = true;
+    await defaultWakeup.prepare(plan.sessionId);
 
-  if (!daemon.isDaemonRunning()) {
-    daemon.startDaemon();
+    if (!daemon.isDaemonRunning()) {
+      daemon.startDaemon();
+    }
+  } catch (error) {
+    if (tmuxCreated) {
+      try { await Tmux.kill(plan.sessionId); } catch {}
+    }
+    if (wakeupOwned) defaultWakeup.cleanup(plan.sessionId);
+    if (dbCreated) {
+      try { plan.input.db.deleteSession(plan.sessionId); } catch {}
+    }
+    if (handoffOwned) {
+      try { unlinkSync(plan.fileHandoff.taskFilePath); } catch {}
+      try { rmSync(plan.fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
+    }
+    throw error;
   }
 
   return { sessionId: plan.sessionId, ownerToken: plan.ownerToken, tmuxSession: plan.sessionId };
@@ -140,51 +225,81 @@ export interface ResumeResult {
 export async function resume(input: ResumeInput): Promise<ResumeResult> {
   const oldSession = requireAuthorizedSession(input.db, input.sessionId, input.ownerToken);
 
-  if (oldSession.status === SESSION_STATUS.Running || oldSession.status === SESSION_STATUS.Draining) {
-    throw new Error(`Cannot resume: session ${input.sessionId} is still ${oldSession.status}`);
+  if (oldSession.status !== SESSION_STATUS.Dead) {
+    throw new Error(
+      `Cannot resume: session ${input.sessionId} must be dead (current status: ${oldSession.status})`,
+    );
   }
   if (!oldSession.agentResumeId) {
     throw new Error(`Session ${input.sessionId} has no resume token`);
   }
 
   const driver = getDriver(oldSession.agentType);
-  const uuid = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
-  const sessionId = `${driver.sessionPrefix}-${uuid}`;
+  const sessionId = generateAvailableSessionId(input.db, driver.sessionPrefix);
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
   const maxDepth = getMaxNestingDepth();
+  // Safe posture is sticky across native resumes. `--safe` may upgrade an
+  // older/default session, but omission must never silently remove safety.
+  const safe = oldSession.safe || input.safe === true;
 
   const resumeCmd = driver.buildResumeCommand({
     cwd: oldSession.projectPath,
     resumeId: oldSession.agentResumeId,
-    safe: input.safe,
+    safe,
     model: oldSession.model ?? undefined,
     effort: oldSession.effort ?? undefined,
   });
-  const launchCmd = `export AHELPA_PARENT_ID=${sessionId} AHELPA_MAX_NESTING_DEPTH=${maxDepth}; ${resumeCmd}`;
+  const launchCmd = `${helperEnvironmentPrefix(sessionId, maxDepth)} ${resumeCmd}`;
 
   if (!existsSync(defaultRuntimeLayout.tmpDir)) {
     mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
   }
 
-  await Tmux.create(sessionId, launchCmd);
-  await defaultWakeup.prepare(sessionId);
+  let tmuxCreated = false;
+  let dbCreated = false;
+  let wakeupOwned = false;
+  try {
+    await Tmux.create(sessionId, launchCmd);
+    tmuxCreated = true;
+    // Do not hand the new tmux session back until the driver's startup/trust
+    // flow has had a chance to reach an input prompt. Otherwise an immediate
+    // `send` can be typed into a loading or confirmation screen.
+    await driver.prepareForResume(sessionId, driverRuntime);
+    input.db.createSession({
+      id: sessionId,
+      parentId: oldSession.parentId,
+      agentType: oldSession.agentType,
+      task: `(resumed from ${oldSession.id})`,
+      ownerToken,
+      projectPath: oldSession.projectPath,
+      label: oldSession.label,
+      depth: oldSession.depth,
+      resumedFrom: oldSession.id,
+      model: oldSession.model,
+      effort: oldSession.effort,
+      safe,
+    });
+    dbCreated = true;
+    input.db.updateResumeId(sessionId, oldSession.agentResumeId);
+    // A resumed native conversation has no new ahelpa task yet. Keep its tmux
+    // alive without daemon settlement until the host sends the next turn.
+    input.db.updateStatus(sessionId, SESSION_STATUS.NeedsAttention);
 
-  input.db.createSession({
-    id: sessionId,
-    parentId: oldSession.parentId,
-    agentType: oldSession.agentType,
-    task: `(resumed from ${oldSession.id})`,
-    ownerToken,
-    projectPath: oldSession.projectPath,
-    label: oldSession.label,
-    depth: oldSession.depth,
-    resumedFrom: oldSession.id,
-    model: oldSession.model,
-    effort: oldSession.effort,
-  });
+    wakeupOwned = true;
+    await defaultWakeup.prepare(sessionId);
 
-  if (!daemon.isDaemonRunning()) {
-    daemon.startDaemon();
+    if (!daemon.isDaemonRunning()) {
+      daemon.startDaemon();
+    }
+  } catch (error) {
+    if (tmuxCreated) {
+      try { await Tmux.kill(sessionId); } catch {}
+    }
+    if (wakeupOwned) defaultWakeup.cleanup(sessionId);
+    if (dbCreated) {
+      try { input.db.deleteSession(sessionId); } catch {}
+    }
+    throw error;
   }
 
   return { sessionId, ownerToken, tmuxSession: sessionId, resumedFrom: oldSession.id };

@@ -16,13 +16,22 @@ const PID_FILE = defaultRuntimeLayout.daemonPidPath();
 const LOG_FILE = defaultRuntimeLayout.daemonLogPath();
 export const DAEMON_SUBCOMMAND = "__daemon";
 
-// ponytail: auto-reap dead sessions so `clean` isn't needed manually.
-// summary.md in the project dir is the receipt; DB row is disposable.
-function reapSession(db: StateDB, sessionId: string): void {
+// Reclaim terminal-side resources automatically. A resumable DB record is not
+// disposable: resume needs its owner token, project, driver, and launch model.
+// Keep those records until the user explicitly runs `clean`.
+function reapSession(db: StateDB, sessionId: string): "retained" | "reaped" {
   const wakeup = new Wakeup();
   wakeup.cleanup(sessionId);
   try { unlinkSync(defaultRuntimeLayout.taskFilePath(sessionId)); } catch {}
+  // Re-read here because the draining branch may have captured the token in
+  // this same refresh pass.
+  const latest = db.getSession(sessionId);
+  if (latest?.agentResumeId) {
+    db.updateStatus(sessionId, SESSION_STATUS.Dead);
+    return "retained";
+  }
   db.deleteSession(sessionId);
+  return "reaped";
 }
 
 // ponytail: 15s is generous for /exit or Escape; bump if a driver needs longer cleanup
@@ -50,7 +59,11 @@ function log(message: string): void {
   }
 }
 
-export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[]): Promise<void> {
+export async function refreshSessionStatuses(
+  db: StateDB,
+  sessionIds?: string[],
+  nowMs: number = Date.now(),
+): Promise<void> {
   const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const targetIds = sessionIds ? new Set(sessionIds) : null;
   const sessions = db.listSessions()
@@ -67,8 +80,8 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
         });
       }
       drainingAt.delete(session.id);
-      reapSession(db, session.id);
-      log(`${session.id}: reaped`);
+      const outcome = reapSession(db, session.id);
+      log(`${session.id}: terminal reclaimed, record ${outcome}`);
       continue;
     }
 
@@ -86,12 +99,15 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
         } catch {}
       }
 
-      const startedAt = drainingAt.get(session.id) ?? 0;
-      if (!startedAt || Date.now() - startedAt > DRAIN_TIMEOUT_MS) {
+      const persistedStartedAt = Date.parse(session.updatedAt);
+      const startedAt = drainingAt.get(session.id)
+        ?? (Number.isFinite(persistedStartedAt) ? persistedStartedAt : nowMs);
+      drainingAt.set(session.id, startedAt);
+      if (nowMs - startedAt > DRAIN_TIMEOUT_MS) {
         await Tmux.kill(session.id);
         drainingAt.delete(session.id);
-        reapSession(db, session.id);
-        log(`${session.id}: drain timeout, killed & reaped`);
+        const outcome = reapSession(db, session.id);
+        log(`${session.id}: drain timeout, terminal killed, record ${outcome}`);
       }
       continue;
     }
@@ -110,7 +126,7 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
       if (newStatus === SESSION_STATUS.Idle) {
         try { await driver.gracefulExit(session.id, driverRuntime); } catch {}
         db.updateStatus(session.id, SESSION_STATUS.Draining);
-        drainingAt.set(session.id, Date.now());
+        drainingAt.set(session.id, nowMs);
         log(`${session.id}: sent graceful exit, draining`);
       }
     } else if (driver.detectActivity(output) !== "idle") {

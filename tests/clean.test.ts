@@ -39,6 +39,18 @@ describe("clean", () => {
     expect(existsSync(layout.taskFilePath("dead-1"))).toBe(false);
   });
 
+  test("does not delete a draining record that still owns a tmux lifecycle", () => {
+    db.createSession({ id: "draining-1", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    db.updateStatus("draining-1", "draining");
+    writeFileSync(layout.taskFilePath("draining-1"), "active task");
+
+    const result = clean(db, layout);
+
+    expect(result.removed).toBe(0);
+    expect(db.getSession("draining-1")?.status).toBe("draining");
+    expect(existsSync(layout.taskFilePath("draining-1"))).toBe(true);
+  });
+
   test("sweeps orphan pipes and task files, keeps live sessions' files", () => {
     db.createSession({ id: "live-2", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
     writeFileSync(`${TEST_TMP}/ahelpa-task-orphan-1.md`, "stale");

@@ -28,6 +28,52 @@ describe("refreshSessionStatuses", () => {
     expect(db.getSession("stale-idle")).toBeNull();
   });
 
+  test("retains a dead record when its native agent session can be resumed", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "resumable-idle", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    db.updateResumeId("resumable-idle", "session_abc-123");
+    db.updateStatus("resumable-idle", "draining");
+    spyOn(Tmux, "hasSession").mockResolvedValue(false);
+
+    await refreshSessionStatuses(db);
+
+    expect(db.getSession("resumable-idle")?.status).toBe("dead");
+    expect(db.getSession("resumable-idle")?.agentResumeId).toBe("session_abc-123");
+  });
+
+  test("retains a token captured in the same draining refresh that reclaims tmux", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "fresh-token", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    db.updateStatus("fresh-token", "draining");
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue(
+      "To resume this session: kimi -r session_fresh-123",
+    );
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    const drainStartedAt = Date.parse(db.getSession("fresh-token")!.updatedAt);
+
+    await refreshSessionStatuses(db, ["fresh-token"], drainStartedAt + 16_000);
+
+    expect(killSpy).toHaveBeenCalledWith("fresh-token");
+    expect(db.getSession("fresh-token")?.status).toBe("dead");
+    expect(db.getSession("fresh-token")?.agentResumeId).toBe("session_fresh-123");
+  });
+
+  test("does not reclaim a recent draining session after daemon restart", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "recent-drain", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    db.updateStatus("recent-drain", "draining");
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue("Exiting…");
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    const drainStartedAt = Date.parse(db.getSession("recent-drain")!.updatedAt);
+
+    await refreshSessionStatuses(db, ["recent-drain"], drainStartedAt + 1_000);
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(db.getSession("recent-drain")?.status).toBe("draining");
+  });
+
   test("leaves settled sessions alone while their tmux session lives", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "live-idle", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
