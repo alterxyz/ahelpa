@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { Tmux } from "../src/tmux";
+import { isMissingTmuxSessionError, Tmux } from "../src/tmux";
 
 const TEST_SESSION = "ahelpa-test-tmux";
 
@@ -44,6 +44,19 @@ describe("Tmux", () => {
     await Tmux.kill(TEST_SESSION);
     const exists = await Tmux.hasSession(TEST_SESSION);
     expect(exists).toBe(false);
+  });
+
+  test("treats an already missing session as successfully killed", async () => {
+    try { await Tmux.kill(TEST_SESSION); } catch {}
+    await expect(Tmux.kill(TEST_SESSION)).resolves.toBeUndefined();
+  });
+
+  test("only classifies explicit missing-session errors as idempotent", () => {
+    expect(isMissingTmuxSessionError({ stderr: "can't find session: missing\n" })).toBe(true);
+    expect(isMissingTmuxSessionError({ stderr: new TextEncoder().encode("no server running on /tmp/tmux.sock\n") })).toBe(true);
+    expect(isMissingTmuxSessionError({ stderr: "no sessions\n" })).toBe(true);
+    expect(isMissingTmuxSessionError({ stderr: "permission denied\n" })).toBe(false);
+    expect(isMissingTmuxSessionError(new Error("Failed with exit code 1"))).toBe(false);
   });
 
   test("lists sessions", async () => {
