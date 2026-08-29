@@ -239,6 +239,28 @@ describe("driver launch protocol", () => {
     expect(runtime.captures).toHaveLength(1);
   });
 
+  test("codex accepts an unsupported-model response as new turn evidence", async () => {
+    const driver = getDriver("codex");
+    const before = "› Implement {feature}";
+    const failed = [
+      before,
+      "› Please read and complete the task described in /tmp/ahelpa/task.md.",
+      "■ {\"type\":\"error\",\"status\":400,\"error\":{\"message\":\"The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.\"}}",
+      "› Explain this codebase",
+    ].join("\n");
+    const runtime = probeRuntime([failed]);
+
+    const submitted = await driver.afterTaskSubmitted(
+      "codex-test",
+      runtime,
+      { beforeOutput: before },
+    );
+
+    expect(submitted).toBe(true);
+    expect(runtime.captures).toHaveLength(1);
+    expect(runtime.sent).toEqual([]);
+  });
+
   test("claude-code switches model with cursor navigation and session-only select", async () => {
     const driver = getDriver("claude-code");
     const runtime = probeRuntime([
@@ -285,6 +307,35 @@ describe("driver launch protocol", () => {
     });
 
     expect(result).toContain("Model changed to gpt-5.4 xhigh");
+    expect(runtime.sent).toEqual(["/model"]);
+    expect(runtime.keys).toEqual(["2", "4"]);
+  });
+
+  test("codex routes the gpt-5.6 alias to sol when switching models", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      [
+        "Select Model and Effort",
+        "❯ 1. gpt-5.6-terra (current)",
+        "  2. gpt-5.6-sol",
+      ].join("\n"),
+      [
+        "Select Reasoning Level for gpt-5.6-sol",
+        "  1. Low",
+        "  2. Medium (default)",
+        "  3. High",
+        "  4. Extra high",
+      ].join("\n"),
+      "Model changed to gpt-5.6-sol xhigh",
+    ]);
+
+    const result = await driver.switchModel("codex-test", runtime, {
+      model: "gpt-5.6",
+      effort: "xhigh",
+      persist: true,
+    });
+
+    expect(result).toContain("Model changed to gpt-5.6-sol xhigh");
     expect(runtime.sent).toEqual(["/model"]);
     expect(runtime.keys).toEqual(["2", "4"]);
   });

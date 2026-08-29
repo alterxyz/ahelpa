@@ -153,6 +153,39 @@ describe("launch", () => {
     expect(existsSync(`${TEST_PROJECT}/.ahelpa/${result.sessionId}/artifacts`)).toBe(true);
   });
 
+  test("keeps an unsupported Codex model turn for daemon error settlement", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(Tmux, "create").mockResolvedValue();
+    let taskSent = false;
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    spyOn(Tmux, "capture").mockImplementation(async () => taskSent
+      ? [
+          "› Please read and complete the task described in /tmp/ahelpa/task.md.",
+          "ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"message\":\"The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "› Explain this codebase",
+        ].join("\n")
+      : "› Implement {feature}");
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+
+    const result = await launch({
+      db,
+      agentType: "codex",
+      task: "review with requested model",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+      model: "gpt-5.6",
+    });
+    sessionId = result.sessionId;
+
+    expect(db.getSession(result.sessionId)?.status).toBe("running");
+  });
+
   test("planLaunch returns a data object without side effects", () => {
     db = new StateDB(TEST_DB);
 

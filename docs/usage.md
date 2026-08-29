@@ -52,11 +52,11 @@ Kimi launches as `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` by default. The canoni
 ```bash
 ahelpa models
 ahelpa models codex
-ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
+ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
 
-`models [agent]` prints the model catalog known to this ahelpa release. For Kimi, omit `--model` by default so the CLI uses the default from its `config.toml`. If you pass `--model`, the value must exactly match a complete alias already configured in that file; a display name alone may fail. `--effort` is passed through when the selected agent supports launch-time effort settings; Kimi rejects `--effort`. `resume` reuses a launch-time model alias when one was explicitly supplied.
+`models [agent]` prints the model catalog known to this ahelpa release. For Codex, `gpt-5.6` is a stable convenience alias that launches `gpt-5.6-sol`; use `gpt-5.6-terra` or `gpt-5.6-luna` explicitly when you want those variants. For Kimi, omit `--model` by default so the CLI uses the default from its `config.toml`. If you pass `--model`, the value must exactly match a complete alias already configured in that file; a display name alone may fail. `--effort` is passed through when the selected agent supports launch-time effort settings; Kimi rejects `--effort`. `resume` reuses a launch-time model alias when one was explicitly supplied.
 
 ## Switch a Running Helper Model
 

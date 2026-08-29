@@ -125,6 +125,21 @@ describe("refreshSessionStatuses", () => {
     expect(db.getSession("stuck-codex")?.status).toBe("needs_attention");
   });
 
+  test("settles a current-turn unsupported Codex model request as error", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "bad-model", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue([
+      "› Please read and complete the task described in /tmp/ahelpa/task.md.",
+      "ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"message\":\"The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.\"}}",
+      "› Explain this codebase",
+    ].join("\n"));
+
+    await refreshSessionStatuses(db, ["bad-model"]);
+
+    expect(db.getSession("bad-model")?.status).toBe("error");
+  });
+
   test("idle counter resets when agent resumes working", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "flaky", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });

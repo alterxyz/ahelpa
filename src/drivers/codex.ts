@@ -40,6 +40,12 @@ function codexHasStartedTask(captureOutput: string): boolean {
     || /\n\s*• (Reading|Explored|Using|Ran|Updated|Edited|Searching|Checked|Inspecting|Analyzing|Planning|Summarizing|Opened)\b/.test(captureOutput);
 }
 
+function codexHasUnsupportedModelError(captureOutput: string): boolean {
+  return isTaskInstructionEcho(captureOutput)
+    && !codexHasStartedTask(captureOutput)
+    && /(?:^|\n)\s*(?:■|ERROR:)[\s\S]{0,1000}?model\s+is\s+not\s+supported\s+when\s+using\s+Codex\s+with\s+a\s+ChatGPT\s+account/i.test(captureOutput);
+}
+
 function userTurnMatches(captureOutput: string) {
   return [...captureOutput.matchAll(/^\s*›\s+\S.*$/gmu)];
 }
@@ -47,6 +53,7 @@ function userTurnMatches(captureOutput: string) {
 function codexTurnEvidence(segment: string): "working" | "idle" | "error" | null {
   const settled = detectSentinelStatus(segment);
   if (settled !== "running") return settled;
+  if (codexHasUnsupportedModelError(segment)) return "error";
   return codexHasStartedTask(segment) ? "working" : null;
 }
 
@@ -120,6 +127,13 @@ async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Pro
 }
 
 const CODEX_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+const CODEX_MODEL_ALIASES: Readonly<Record<string, string>> = {
+  "gpt-5.6": "gpt-5.6-sol",
+};
+
+function resolveCodexModel(model: string): string {
+  return CODEX_MODEL_ALIASES[model] ?? model;
+}
 
 function postureArgs(safe?: boolean): string[] {
   return safe
@@ -129,7 +143,8 @@ function postureArgs(safe?: boolean): string[] {
 
 function modelArgs(opts: { model?: string; effort?: string }): string[] {
   const args: string[] = [];
-  if (opts.model) args.push("--model", shellEscape(opts.model));
+  const model = opts.model ? resolveCodexModel(opts.model) : undefined;
+  if (model) args.push("--model", shellEscape(model));
   if (opts.effort) args.push("-c", shellEscape(`model_reasoning_effort=${JSON.stringify(opts.effort)}`));
   return args;
 }
@@ -168,10 +183,14 @@ export const codexDriver: AgentDriver = {
   resumeTokenAvailableAfterSubmit: false,
   modelCatalog: {
     models: [
+      { name: "gpt-5.6", efforts: CODEX_EFFORTS, defaultEffort: "low" },
+      { name: "gpt-5.6-sol", efforts: CODEX_EFFORTS, defaultEffort: "low" },
+      { name: "gpt-5.6-terra", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
+      { name: "gpt-5.6-luna", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
       { name: "gpt-5.5", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
       { name: "gpt-5.4", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
       { name: "gpt-5.4-mini", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
-      { name: "gpt-5.3-codex-spark", efforts: CODEX_EFFORTS, defaultEffort: "high" },
+      { name: "gpt-5.2", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
       { name: "codex-auto-review", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
     ],
   },
@@ -222,7 +241,7 @@ export const codexDriver: AgentDriver = {
         continue;
       }
       const current = currentTurnOutput(recentOutput);
-      if (codexHasStartedTask(current) || detectSentinelStatus(current) !== "running") {
+      if (codexTurnEvidence(current)) {
         return true;
       }
     }
@@ -231,6 +250,7 @@ export const codexDriver: AgentDriver = {
 
   async switchModel(sessionId: string, runtime: DriverRuntime, opts: ModelSwitchOptions): Promise<string> {
     const configSnapshot = opts.persist ? null : snapshotCodexConfig();
+    const model = resolveCodexModel(opts.model);
     try {
       await runtime.sendKeys(sessionId, "/model");
       const menu = await waitForOutput(
@@ -239,7 +259,7 @@ export const codexDriver: AgentDriver = {
         (output) => output.includes("Select Model and Effort"),
         "Codex model menu",
       );
-      const target = findModelChoice(menu, opts.model);
+      const target = findModelChoice(menu, model);
       await runtime.sendKey(sessionId, target.number);
 
       const next = await waitForOutput(
@@ -259,14 +279,15 @@ export const codexDriver: AgentDriver = {
         "Codex model switch confirmation",
       );
       return result.split("\n").find((line) => /Model changed to/i.test(line))?.trim()
-        ?? `Model changed to ${opts.model}`;
+        ?? `Model changed to ${model}`;
     } finally {
       if (configSnapshot) writeFileSync(configSnapshot.path, configSnapshot.content);
     }
   },
 
   detectStatus(captureOutput: string): DetectedStatus {
-    return detectSentinelStatus(currentTurnOutput(captureOutput));
+    const evidence = codexTurnEvidence(currentTurnOutput(captureOutput));
+    return evidence === "idle" || evidence === "error" ? evidence : "running";
   },
 
   detectActivity(captureOutput: string): "working" | "booting" | "idle" {

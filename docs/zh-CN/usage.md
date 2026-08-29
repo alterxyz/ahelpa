@@ -52,11 +52,11 @@ Kimi 默认以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` 启动。这个 canonica
 ```bash
 ahelpa models
 ahelpa models codex
-ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
+ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
 
-`models [agent]` 会打印当前 ahelpa 版本已知的模型目录。Kimi 默认应省略 `--model`，让 CLI 使用其 `config.toml` 中的默认模型；如果传入 `--model`，值必须与该文件中已经配置的完整 alias 精确匹配，只有显示名称可能会失败。所选 agent 支持启动时设置 effort 时，`--effort` 会一并透传；Kimi 会拒绝 `--effort`。如果 launch 时显式传入了模型 alias，`resume` 会沿用它。
+`models [agent]` 会打印当前 ahelpa 版本已知的模型目录。对 Codex 而言，`gpt-5.6` 是稳定便捷别名，实际启动 `gpt-5.6-sol`；需要其他变体时请显式使用 `gpt-5.6-terra` 或 `gpt-5.6-luna`。Kimi 默认应省略 `--model`，让 CLI 使用其 `config.toml` 中的默认模型；如果传入 `--model`，值必须与该文件中已经配置的完整 alias 精确匹配，只有显示名称可能会失败。所选 agent 支持启动时设置 effort 时，`--effort` 会一并透传；Kimi 会拒绝 `--effort`。如果 launch 时显式传入了模型 alias，`resume` 会沿用它。
 
 ## 切换运行中 helper 的模型
 
