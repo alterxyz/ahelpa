@@ -13,6 +13,15 @@ import { detectSentinelStatus } from "./sentinels";
 const KIMI_BOXED_PROMPT = /^\s*│\s*>\s*│\s*$/gmu;
 const KIMI_SESSION = /^\s*│\s*Session:\s+(session_[A-Za-z0-9._-]+)\s*│\s*$/m;
 const KIMI_RESUME_HINT = /To resume this session:\s+kimi\s+-r\s+(session_[A-Za-z0-9._-]+)/m;
+// Kimi defers model-alias resolution until it creates the session on the first
+// message, then reports the real cause on the pane. Without this the host only
+// sees a generic "no new turn" timeout and the launch rollback kills the pane
+// that held the explanation.
+const KIMI_SESSION_START_ERROR = /^\s*Error:\s*Failed to start a session:\s*(.+?)\s*$/m;
+
+function sessionStartError(captureOutput: string): string | null {
+  return captureOutput.match(KIMI_SESSION_START_ERROR)?.[1] ?? null;
+}
 
 function postureArgs(safe?: boolean): string[] {
   return safe ? [] : ["--yolo"];
@@ -258,6 +267,10 @@ export const kimiDriver: AgentDriver = {
     for (let attempt = 0; attempt < 10; attempt++) {
       await runtime.sleep(500);
       const recentOutput = await runtime.capture(sessionId, 80);
+      const startError = sessionStartError(recentOutput);
+      if (startError) {
+        throw new Error(`Kimi could not start a session: ${startError}`);
+      }
       if (!extractSessionId(recentOutput)) continue;
 
       if (beforeOutput !== undefined) {
