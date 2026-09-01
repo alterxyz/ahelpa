@@ -78,6 +78,51 @@ describe("driver launch protocol", () => {
     expect(runtime.captures.length).toBe(2);
   });
 
+  test("codex treats a slow MCP startup as booting, not as no response", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      ...Array.from({ length: 30 }, () => "Starting MCP servers"),
+      "› Implement {feature}",
+    ]);
+
+    await driver.prepareForTask("codex-test", runtime);
+
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.captures.length).toBe(31);
+  });
+
+  test("codex accepts the in-turn MCP spinner as turn evidence without an extra Enter", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      [
+        "› Please read and complete the task described in /tmp/ahelpa/x.md",
+        "• Starting MCP servers (2/3): codex_apps (5s • esc to interrupt)",
+      ].join("\n"),
+    ]);
+
+    const submitted = await driver.afterTaskSubmitted("codex-test", runtime, {
+      beforeOutput: "› Improve documentation in @filename",
+    });
+
+    expect(submitted).toBe(true);
+    expect(runtime.sent).toEqual([]);
+  });
+
+  test("codex does not nudge Enter on the MCP spinner when no pre-submit snapshot exists", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      [
+        "› Please read and complete the task described in /tmp/ahelpa/x.md",
+        "• Starting MCP servers (2/3): codex_apps (5s • esc to interrupt)",
+      ].join("\n"),
+    ]);
+
+    const submitted = await driver.afterTaskSubmitted("codex-test", runtime, {});
+
+    expect(submitted).toBe(true);
+    expect(runtime.sent).toEqual([]);
+  });
+
   test("codex skips update prompt instead of accepting update", async () => {
     const driver = getDriver("codex");
     const runtime = probeRuntime([

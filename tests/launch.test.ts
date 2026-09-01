@@ -449,6 +449,39 @@ describe("launch", () => {
     expect(db.listSessions()).toHaveLength(0);
   });
 
+  test("keeps a delivered-but-unconfirmed task alive as needs_attention", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(Tmux, "create").mockResolvedValue();
+    let taskSent = false;
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    // Echo visible, no turn evidence: afterTaskSubmitted returns false.
+    spyOn(Tmux, "capture").mockImplementation(async () => taskSent
+      ? "› Please read and complete the task described in /tmp/ahelpa/task.md."
+      : "› Implement {feature}");
+    spyOn(FIFO, "create").mockResolvedValue();
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+
+    const result = await launch({
+      db,
+      agentType: "codex",
+      task: "echo hello",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    });
+    sessionId = result.sessionId;
+
+    expect(result.warning).toContain("needs_attention");
+    expect(db.getSession(result.sessionId)?.status).toBe("needs_attention");
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(existsSync(`${TEST_PROJECT}/.ahelpa/${result.sessionId}/artifacts`)).toBe(true);
+  });
+
   test("planLaunch rejects beyond max nesting depth without side effects", () => {
     db = new StateDB(TEST_DB);
     mkdirSync(TEST_PROJECT, { recursive: true });

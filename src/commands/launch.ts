@@ -7,7 +7,7 @@ import * as daemon from "../daemon";
 import { getPendingLaunchNestingInfo, getMaxNestingDepth } from "../nesting";
 import { mkdirSync, existsSync, rmSync, unlinkSync } from "fs";
 import { defaultRuntimeLayout } from "../runtime-layout";
-import { planFileHandoff, prepareFileHandoff, type FileHandoffPlan } from "../file-handoff";
+import { isTaskInstructionEcho, planFileHandoff, prepareFileHandoff, type FileHandoffPlan } from "../file-handoff";
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
@@ -28,6 +28,10 @@ export interface LaunchResult {
   sessionId: string;
   ownerToken: string;
   tmuxSession: string;
+  // Set when the task was delivered to the agent but the driver could not
+  // confirm it started a new turn. The session is kept alive as
+  // needs_attention instead of being killed.
+  warning?: string;
 }
 
 export interface LaunchPlan {
@@ -123,6 +127,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   let handoffOwned = false;
   let dbCreated = false;
   let wakeupOwned = false;
+  let submissionUnconfirmed = false;
   try {
     if (plan.input.db.getSession(plan.sessionId)) {
       throw new Error(`Session ID already exists: ${plan.sessionId}`);
@@ -149,7 +154,19 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       submissionContext,
     );
     if (!submitted) {
-      throw new Error(`${plan.driver.name} did not expose the submitted task as a new turn`);
+      // If the task instruction is visibly on the pane, the agent has it: do not
+      // kill a healthy session just because turn evidence is late (Codex 0.145
+      // slow MCP startup). Only an undelivered task is a launch failure.
+      let pane = "";
+      try {
+        pane = await driverRuntime.capture(plan.sessionId, 80);
+      } catch {
+        // No pane: fall through to the delivery failure below.
+      }
+      if (!isTaskInstructionEcho(pane)) {
+        throw new Error(`${plan.driver.name} did not expose the submitted task as a new turn`);
+      }
+      submissionUnconfirmed = true;
     }
 
     let initialResumeId: string | null = null;
@@ -179,6 +196,10 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     if (initialResumeId) {
       plan.input.db.updateResumeId(plan.sessionId, initialResumeId);
     }
+    if (submissionUnconfirmed) {
+      // Keep the tmux alive without daemon settlement; the host decides.
+      plan.input.db.updateStatus(plan.sessionId, SESSION_STATUS.NeedsAttention);
+    }
 
     wakeupOwned = true;
     await defaultWakeup.prepare(plan.sessionId);
@@ -201,7 +222,11 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     throw error;
   }
 
-  return { sessionId: plan.sessionId, ownerToken: plan.ownerToken, tmuxSession: plan.sessionId };
+  const result: LaunchResult = { sessionId: plan.sessionId, ownerToken: plan.ownerToken, tmuxSession: plan.sessionId };
+  if (submissionUnconfirmed) {
+    result.warning = `${plan.driver.name} received the task but did not confirm a new turn; session marked needs_attention`;
+  }
+  return result;
 }
 
 export async function launch(input: LaunchInput): Promise<LaunchResult> {

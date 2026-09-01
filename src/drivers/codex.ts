@@ -9,7 +9,7 @@ import { findModelChoice, waitForOutput } from "./model-menu";
 
 function codexNeedsSubmitNudge(captureOutput: string): boolean {
   return isTaskInstructionEcho(captureOutput)
-    && !captureOutput.includes("Working (");
+    && !codexHasStartedTask(captureOutput);
 }
 
 function codexNeedsPromptNudge(captureOutput: string): boolean {
@@ -37,6 +37,8 @@ function codexIsStarting(captureOutput: string): boolean {
 
 function codexHasStartedTask(captureOutput: string): boolean {
   return captureOutput.includes("Working (")
+    // Codex >=0.145 in-turn spinner, e.g. "Starting MCP servers (2/3): codex_apps (5s • esc to interrupt)".
+    || /\(\d+[hms](?:\s+\d+[ms])?\s*•\s*esc to interrupt\)/i.test(captureOutput)
     || /\n\s*• (Reading|Explored|Using|Ran|Updated|Edited|Searching|Checked|Inspecting|Analyzing|Planning|Summarizing|Opened)\b/.test(captureOutput);
 }
 
@@ -91,6 +93,13 @@ function hasNewUserTurn(beforeOutput: string, captureOutput: string): boolean {
   return currentLatest !== undefined && currentLatest !== beforeTurns.at(-1);
 }
 
+// Input-prompt budget: 2s grace + CODEX_INPUT_POLLS x 1s once Codex is past MCP
+// startup. While "Starting MCP servers" is visible, up to CODEX_STARTING_POLLS
+// extra 1s polls are granted so a slow MCP boot (Codex 0.145 under load) does
+// not read as "no response". Worst case ~2 + 20 + 60 = 82s (launch ≈ 88s, 30s under a 120s host timeout).
+const CODEX_INPUT_POLLS = 20;
+const CODEX_STARTING_POLLS = 60;
+
 function codexHasInputPrompt(captureOutput: string): boolean {
   const prompts = [...captureOutput.matchAll(/^\s*›(?:\s+.*)?$/gmu)];
   const latest = prompts.at(-1);
@@ -100,12 +109,18 @@ function codexHasInputPrompt(captureOutput: string): boolean {
 
 async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Promise<void> {
   let nudged = false;
+  let startingPolls = 0;
 
   await runtime.sleep(2000);
-  for (let attempt = 0; attempt < 20; attempt++) {
+  for (let attempt = 0; attempt < CODEX_INPUT_POLLS; attempt++) {
     await runtime.sleep(1000);
     const recentOutput = await runtime.capture(sessionId, 20);
-    if (codexIsStarting(recentOutput)) continue;
+    if (codexIsStarting(recentOutput)) {
+      // MCP startup must not consume the "no response" budget: refund the
+      // poll while the startup banner is visible, up to CODEX_STARTING_POLLS.
+      if (++startingPolls <= CODEX_STARTING_POLLS) attempt--;
+      continue;
+    }
     // Not gated on `nudged`: the trust flow can need one Escape per screen.
     if (codexNeedsHooksTrustEscape(recentOutput)) {
       await runtime.sendKey(sessionId, "Escape");
@@ -123,7 +138,8 @@ async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Pro
     }
     if (codexHasInputPrompt(recentOutput)) return;
   }
-  throw new Error(`Codex session ${sessionId} did not reach its input prompt`);
+  const startupNote = startingPolls > 0 ? ` (waited ${startingPolls}s in MCP startup)` : "";
+  throw new Error(`Codex session ${sessionId} did not reach its input prompt${startupNote}`);
 }
 
 const CODEX_EFFORTS = ["low", "medium", "high", "xhigh"] as const;

@@ -80,6 +80,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | Command | Description |
 |---------|-------------|
 | `launch <type> --task "..." [--label] [--project] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
+- `warning`（可选）：任务已投递但 driver 未确认新回合时出现，此时会话为 `needs_attention`、`wait` 立即返回、daemon 不监控它——先 `capture` 看面板，指令还留在输入框就 `send ""`（回车），否则等回合结束再 `send`；**不要见到就 kill**。
 | `wait <id...> [--all] [--timeout <seconds>]` | Block until sessions complete or timeout (default 500s). |
 | `check [--parent <id>]` | Non-blocking status poll. |
 | `models [agent]` | List launch-time model options. |
