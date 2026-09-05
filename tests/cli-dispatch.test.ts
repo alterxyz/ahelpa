@@ -86,6 +86,52 @@ describe("cli dispatch", () => {
     expect(captured.err[0]).toBe("--timeout must be a number");
   });
 
+  test("wait --all before IDs includes every requested session", async () => {
+    db = new StateDB(TEST_DB);
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    const captured: Captured = { out: [], err: [] };
+    expect(await runCli(db, ["wait", "--all", "missing-1", "missing-2", "--timeout", "0"], io(captured))).toBe(0);
+    expect(JSON.parse(captured.out[0])).toEqual([
+      { sessionId: "missing-1", status: "dead" },
+      { sessionId: "missing-2", status: "dead" },
+    ]);
+  });
+
+  test.each(["1oops", "Infinity", "NaN"])("rejects malformed timeout %s", async (timeout) => {
+    db = new StateDB(TEST_DB);
+    const captured: Captured = { out: [], err: [] };
+    expect(await runCli(db, ["wait", "some-id", "--timeout", timeout], io(captured))).toBe(1);
+    expect(captured.err[0]).toBe("--timeout must be a number");
+  });
+
+  test("required string flag without a value fails before launching", async () => {
+    db = new StateDB(TEST_DB);
+    const captured: Captured = { out: [], err: [] };
+    expect(await runCli(db, ["launch", "codex", "--task"], io(captured))).toBe(1);
+    expect(captured.err[0]).toBe("--task is required");
+  });
+
+  test("invalid boolean spelling fails instead of silently disabling the flag", async () => {
+    db = new StateDB(TEST_DB);
+    const captured: Captured = { out: [], err: [] };
+    expect(await runCli(db, ["wait", "some-id", "--all=flase"], io(captured))).toBe(1);
+    expect(captured.err[0]).toBe("--all must be true or false");
+  });
+
+  test("timeout conversion cannot overflow into an unbounded wait", async () => {
+    db = new StateDB(TEST_DB);
+    const captured: Captured = { out: [], err: [] };
+    expect(await runCli(db, ["wait", "some-id", "--timeout", "1e308"], io(captured))).toBe(1);
+    expect(captured.err[0]).toBe("--timeout must be a finite duration");
+  });
+
+  test.each(["0", "-1", "10.5"])("rejects invalid capture line count %s", async (lines) => {
+    db = new StateDB(TEST_DB);
+    const captured: Captured = { out: [], err: [] };
+    expect(await runCli(db, ["capture", "some-id", "--token", "tok", "--lines", lines], io(captured))).toBe(1);
+    expect(captured.err[0]).toBe("--lines must be a positive integer");
+  });
+
   test("unknown flags fail instead of being silently dropped", async () => {
     db = new StateDB(TEST_DB);
     const captured: Captured = { out: [], err: [] };

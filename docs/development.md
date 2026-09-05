@@ -125,18 +125,20 @@ bun test
 
 ## Closure Gate
 
-The closure gate is the end-to-end verification step for changes that affect installed runtime behavior. It tests the full launch → wait → capture → kill cycle across both supported drivers.
+The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary across both supported drivers. Each helper works in its own temporary project.
 
 ```bash
 bun run closure:gate
 ```
 
-For each driver, verify that:
+For each driver, the gate requires:
 
 - `launch` starts a session and returns valid JSON
-- `wait` or `check` observes a terminal session state
-- `capture` shows the task entered the prompt flow
-- `kill` reclaims the session cleanly
+- `wait` reports successful completion and `check` confirms that state
+- The helper writes the exact requested content to its assigned `summary.md`
+- `kill` reclaims the tmux session and `check` confirms it is no longer active
+
+Timeouts, echoed task text, and account errors fail the gate. Logs are retained for diagnosis, including when the daemon has already reclaimed tmux. Failed checks also attempt to kill only the helper launched by that run. The printed evidence directory contains the summaries and command results.
 
 **Prerequisite:** Both helper CLIs (`claude` and `codex`) must be authenticated locally. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
 

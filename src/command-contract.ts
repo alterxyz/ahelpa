@@ -47,7 +47,9 @@ export interface CommandContract {
 export function resolveWaitTimeoutMs(timeoutSeconds?: number): number {
   if (timeoutSeconds === undefined) return DEFAULT_WAIT_TIMEOUT_MS;
   if (timeoutSeconds < 0) throw new UsageError("--timeout must be >= 0 seconds");
-  return timeoutSeconds * 1000;
+  const timeoutMs = timeoutSeconds * 1000;
+  if (!Number.isFinite(timeoutMs)) throw new UsageError("--timeout must be a finite duration");
+  return timeoutMs;
 }
 
 export function resolveParentId(
@@ -164,7 +166,9 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
     minPositionals: 1,
     flags: { token: { kind: "string", required: true }, lines: { kind: "number" } },
     async run(ctx) {
-      ctx.print(await capture(ctx.db, ctx.positionals[0], ctx.flags.strings.token!, ctx.flags.numbers.lines ?? 50));
+      const lines = ctx.flags.numbers.lines ?? 50;
+      if (!Number.isSafeInteger(lines) || lines <= 0) throw new UsageError("--lines must be a positive integer");
+      ctx.print(await capture(ctx.db, ctx.positionals[0], ctx.flags.strings.token!, lines));
     },
   },
   {
@@ -250,10 +254,10 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "clean",
     usage: "clean",
-    description: "Remove dead session records and leftovers",
+    description: "Remove settled session records and leftovers",
     async run(ctx) {
-      const result = clean(ctx.db);
-      ctx.print(`removed ${result.removed} dead session record(s), swept ${result.orphanFiles} orphan file(s)`);
+      const result = await clean(ctx.db);
+      ctx.print(`removed ${result.removed} settled session record(s), swept ${result.orphanFiles} orphan file(s)`);
     },
   },
   {
@@ -330,12 +334,15 @@ function resolveFlags(contract: CommandContract, raw: Record<string, string>): R
         resolved.strings[name] = value;
         break;
       case "number": {
-        const parsed = parseInt(value, 10);
-        if (Number.isNaN(parsed)) throw new UsageError(`--${name} must be a number`);
+        const parsed = Number(value);
+        if (!value.trim() || !Number.isFinite(parsed)) throw new UsageError(`--${name} must be a number`);
         resolved.numbers[name] = parsed;
         break;
       }
       case "boolean":
+        if (value !== "true" && value !== "false") {
+          throw new UsageError(`--${name} must be true or false`);
+        }
         resolved.booleans[name] = value === "true";
         break;
     }
@@ -363,7 +370,10 @@ export async function runCli(db: StateDB, argv: string[], io: CliIO): Promise<nu
   }
 
   try {
-    const { flags: rawFlags, positionals } = parseCliArgs(rest);
+    const booleanFlags = new Set(Object.entries(contract.flags ?? {})
+      .filter(([, spec]) => spec.kind === "boolean")
+      .map(([flag]) => flag));
+    const { flags: rawFlags, positionals } = parseCliArgs(rest, booleanFlags);
     if (positionals.length < (contract.minPositionals ?? 0)) {
       throw new UsageError(`Usage: ahelpa ${contract.usage}`);
     }

@@ -126,18 +126,20 @@ bun test
 
 ## Closure gate
 
-影响已安装 runtime 行为的改动，需要跑端到端 gate。它会覆盖两个 supported driver 的 launch → wait → capture → kill 链路。
+影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证两个 supported driver。每个 helper 使用独立的临时项目。
 
 ```bash
 bun run closure:gate
 ```
 
-每个 driver 应确认：
+每个 driver 必须满足：
 
 - `launch` 启动 session 并返回有效 JSON
-- `wait` 或 `check` 能看到终态
-- `capture` 能看到任务进入 prompt flow
-- `kill` 能正常回收 session
+- `wait` 报告成功完成，且 `check` 确认该状态
+- helper 将要求的精确内容写入指定的 `summary.md`
+- `kill` 回收 tmux session，且 `check` 确认 session 已不再活跃
+
+超时、任务文本回显和账号错误都会使 gate 失败。日志仅用于诊断，daemon 已回收 tmux 时也可以读取。检查失败时仍会尝试终止本轮启动的 helper，不处理其他 session。输出中的 evidence 目录保留 summary 和命令结果。
 
 **前置条件**：`claude` 和 `codex` 两个 helper CLI 都需要在本机完成登录。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
 

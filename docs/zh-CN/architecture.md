@@ -29,23 +29,27 @@ ahelpa CLI ──────────► tmux session
 
 ## Session 生命周期
 
-一个 session 会从 `running` 进入 `idle`、`error` 或 `dead`。
+一个 session 从 `running` 开始，可以结算为 `idle`、`error`、`needs_attention` 或 `dead`。成功完成后，在回收终端期间会经过 `draining` 状态。
 
 1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid8}`）和 owner token，写入任务文件，通过选定 driver 创建 tmux session，准备 FIFO，在 SQLite 记录 session，并在需要时启动 daemon。
 2. **任务投递**：driver 的 `prepareForTask` 处理 agent-specific 启动流程，例如 ready 检查和 trust prompt。随后通过 `tmux send-keys` 发送任务指令，告诉 helper 读取哪个任务文件、把结果写到哪里。
 3. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
 4. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、清理 pipe。
 5. **Wakeup**：`wait` 收到 FIFO 事件后返回，调用者从文件交接目录读取结果。
+6. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。
 
 ### 状态转换
 
 ```text
 launch ──► running
               │
-              ├── 检测到 [AHELPA:DONE] ──────► idle
+              ├── 检测到 [AHELPA:DONE] ──────► draining ──► idle
               ├── 检测到 [AHELPA:NEED_HELP] ──► error
+              ├── 持续无活动 ────────────────► needs_attention
               └── tmux session 消失 ─────────► dead
 ```
+
+向 `needs_attention` session 发送输入后，它会恢复为 `running` 并继续监控。如果终端消失，则转为 `dead`。
 
 `still_running` 是 `wait` 的返回值，不是 session 状态。它表示等待超时前 session 还没有 settle。
 
@@ -78,11 +82,12 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 
 **每 3 秒的 poll loop：**
 
-1. 遍历每个 `running` session，检查对应 tmux session 是否还活着。
-2. 如果 tmux session 消失，settle 为 `dead`。
-3. 如果还活着，capture 输出并运行 driver 暗号检测。
-4. 如果检测到暗号，settle 为 `idle` 或 `error`。
-5. 如果没有 active session，daemon 退出。
+1. 检查被监控的 tmux session 是否仍存活。
+2. running 或 attention session 消失时结算为 `dead`；draining session 消失时保留成功结果，恢复为 `idle`。
+3. 对 running session 捕获输出，运行 driver 暗号和活动检测。
+4. 成功后请求正常退出、捕获 resume token，并在 draining 超时后回收终端。重启后的 monitor 仍遵守已记录的等待窗口。
+5. 某个 session 的 capture 或 kill 失败会记录到日志。如果终端已消失，则补齐终态；否则留待之后重试。其他 session 的刷新继续执行。
+6. 没有 running、draining 或 attention session 后，daemon 退出。
 
 **Inline refresh**：daemon 未运行时，`wait`、`check`、`status` 会在返回前执行同样的刷新逻辑。短任务不依赖常驻 daemon。
 
@@ -109,6 +114,8 @@ Helper 可以继续启动自己的 helper，形成 session lineage。`launch` �
 ## Archives
 
 Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`。这样 tmux session 清理后，`logs` 仍能读取输出。Archive 由 daemon 或 inline refresh 在 settlement 中写入，不会自动裁剪。
+
+保留的 SQLite 记录提供 owner 校验和 resume 设置。运行 `clean` 删除记录后，该 session 的带 token 的 `logs`、`resume` 调用不再可用；archive 和项目交接文件仍留在磁盘上。
 
 ## 模块地图
 

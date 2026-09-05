@@ -2,6 +2,12 @@ export interface LaunchOptions { cwd: string; safe?: boolean; model?: string; ef
 export interface ResumeOptions { cwd: string; resumeId: string; safe?: boolean; model?: string; effort?: string; }
 export interface ModelSwitchOptions { model: string; effort?: string; persist?: boolean; }
 
+// The helper accepted the new model, but restoring the CLI defaults failed.
+// Callers must retain the applied choice while still reporting the failure.
+export class ModelSwitchAppliedError extends Error {
+  override name = "ModelSwitchAppliedError";
+}
+
 export interface ModelCatalogEntry {
   name: string;
   efforts?: readonly string[];

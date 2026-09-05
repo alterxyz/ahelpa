@@ -89,7 +89,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `logs <id> --token <tok>` | Read session output (live or archived). |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper from its agent session. |
 | `status` | Show all sessions and daemon state. |
-| `clean` | Remove dead records and orphan runtime files. |
+| `clean` | Remove settled records whose terminals have exited, and orphan runtime files. |
 | `install-skill [--source <repo-or-path>]` | Install global hard-copy skill files for Codex and Claude Code. |
 | `version` | Show installed runtime version. |
 | `daemon start\|stop` | Manage the background session monitor. |
@@ -101,15 +101,18 @@ Use `ahelpa models` or `ahelpa models codex` to inspect the static model catalog
 Examples:
 
 ```bash
+ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
 
 ## Switching a Running Helper's Model
 
-Use `ahelpa model <id> --to <model> --token <tok>` when a helper is idle at its input prompt. Claude Code switches the current session only. Codex switches the running session and ahelpa restores the previous Codex config by default; add `--persist` to keep the new Codex default. For Codex reasoning level, pass `--effort low|medium|high|xhigh`.
+Use `ahelpa model <id> --to <model> --token <tok>` when a helper is idle at its input prompt. Claude Code switches the current session only. Codex switches the running session and ahelpa restores the previous Codex config by default; unrelated concurrent config changes are preserved and reported instead of overwritten. Add `--persist` to keep the new Codex default. Codex effort levels include `low|medium|high|xhigh|max|ultra`, subject to the selected model's actual menu. Successful switches update the model and explicit effort reused by `resume`.
 
 ## Resume and Identity
+
+Terminal cleanup retains completed session records and resume metadata. Read the results and resume as needed before explicitly removing the records with `clean`. During cleanup, `check` can briefly report `draining`; wait for `idle` before resuming.
 
 Helpers' agent sessions can be resumed after completion. When a helper exits, ahelpa captures its resume token (e.g., `claude --resume <id>`) automatically. Use `ahelpa check` to see which sessions have resume tokens (`agentResumeId` field), then `ahelpa resume <id> --token <tok>` to reconnect.
 

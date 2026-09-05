@@ -66,7 +66,7 @@ Helpers run in their own tmux sessions with fresh context. They receive a task f
 | **tmux sessions** | Persistent helper terminals that outlive the launching process |
 | **File handoff** | Tasks and results are exchanged through files, not terminal output |
 | **Sentinel protocol** | Helpers print `[AHELPA:DONE]` or `[AHELPA:NEED_HELP]` to declare their state |
-| **FIFO wakeup** | `wait` blocks on a named pipe — zero polling, zero CPU while sleeping |
+| **FIFO wakeup** | Bounded waits with pipe notifications and periodic state checks |
 | **Owner token** | Mutating commands require the token returned by `launch` |
 | **Driver adapters** | Agent-specific startup and prompt behavior lives behind pluggable drivers |
 | **On-demand daemon** | Watches running sessions and settles them; starts automatically on `launch` |
@@ -85,7 +85,7 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 | Command | Purpose |
 | --- | --- |
 | `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code` or `codex`) |
-| `wait <id...> [--timeout <s>]` | Block until helpers settle or timeout |
+| `wait <id...> [--all] [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>]` | Non-blocking status poll with inline refresh |
 | `models [agent]` | List launch-time model options |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
@@ -96,12 +96,14 @@ Verify prerequisites with `command -v claude` or `command -v codex` — the help
 | `logs <id> --token <tok>` | Read live or archived session output |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper from its agent session |
 | `status` | Show all sessions and daemon state |
-| `clean` | Remove dead records and orphan runtime files |
+| `clean` | Remove settled records whose terminals have exited, and orphan runtime files |
 | `daemon start\|stop` | Manage the background session monitor |
 | `install-skill [--source <repo-or-path>]` | Hard-copy the global skill for Codex and Claude Code |
 | `version` | Print the installed runtime version |
 
 ## Runtime Layout
+
+Completed sessions keep their status, logs, and resume metadata after the helper terminal is reclaimed. Use `clean` when you no longer need those session records. With `wait --all`, a timeout reports `still_running` only for unfinished helpers and preserves the results of helpers that already settled.
 
 | Path | Purpose |
 | --- | --- |

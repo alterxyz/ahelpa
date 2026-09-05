@@ -1,6 +1,6 @@
 import { existsSync, appendFileSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
 import { join } from "path";
-import { StateDB } from "./state";
+import { StateDB, type SessionRecord } from "./state";
 import { Tmux } from "./tmux";
 import { Archive } from "./archive";
 import { Wakeup, defaultWakeup } from "./wakeup";
@@ -16,13 +16,12 @@ const PID_FILE = defaultRuntimeLayout.daemonPidPath();
 const LOG_FILE = defaultRuntimeLayout.daemonLogPath();
 export const DAEMON_SUBCOMMAND = "__daemon";
 
-// ponytail: auto-reap dead sessions so `clean` isn't needed manually.
-// summary.md in the project dir is the receipt; DB row is disposable.
-function reapSession(db: StateDB, sessionId: string): void {
+// Runtime files are disposable; the session record retains the result,
+// ownership, and resume token until the caller explicitly runs `clean`.
+function cleanupSessionFiles(sessionId: string): void {
   const wakeup = new Wakeup();
   wakeup.cleanup(sessionId);
   try { unlinkSync(defaultRuntimeLayout.taskFilePath(sessionId)); } catch {}
-  db.deleteSession(sessionId);
 }
 
 // ponytail: 15s is generous for /exit or Escape; bump if a driver needs longer cleanup
@@ -44,10 +43,25 @@ const driverRuntime: DriverRuntime = {
 function log(message: string): void {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   try {
-    appendFileSync(LOG_FILE, line);
+    appendFileSync(defaultRuntimeLayout.daemonLogPath(), line);
   } catch {
     // ignore log errors
   }
+}
+
+async function finishMissingSession(db: StateDB, archive: Archive, session: SessionRecord): Promise<void> {
+  if (session.status === SESSION_STATUS.Running || session.status === SESSION_STATUS.NeedsAttention) {
+    await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.Dead, {
+      status: SESSION_STATUS.Dead,
+      reason: "tmux session gone",
+    });
+  } else if (session.status === SESSION_STATUS.Draining) {
+    // Draining is cleanup after successful settlement, not a new result.
+    db.updateStatus(session.id, SESSION_STATUS.Idle);
+  }
+  drainingAt.delete(session.id);
+  idleCount.delete(session.id);
+  cleanupSessionFiles(session.id);
 }
 
 export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[]): Promise<void> {
@@ -58,73 +72,83 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
     .filter((session) => !targetIds || targetIds.has(session.id));
 
   for (const session of sessions) {
-    const alive = await Tmux.hasSession(session.id);
-    if (!alive) {
-      if (session.status === SESSION_STATUS.Running) {
-        await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.Dead, {
-          status: SESSION_STATUS.Dead,
-          reason: "tmux session gone",
-        });
+    try {
+      const alive = await Tmux.hasSession(session.id);
+      if (!alive) {
+        await finishMissingSession(db, archive, session);
+        continue;
       }
-      drainingAt.delete(session.id);
-      reapSession(db, session.id);
-      log(`${session.id}: reaped`);
-      continue;
-    }
 
-    if (session.status === SESSION_STATUS.Draining) {
-      // Capture agent resume token while session is still alive
-      if (!session.agentResumeId) {
-        try {
-          const output = await Tmux.capture(session.id, 50);
-          const driver = getDriver(session.agentType);
-          const resumeId = driver.extractResumeToken(output);
-          if (resumeId) {
-            db.updateResumeId(session.id, resumeId);
-            log(`${session.id}: captured resume token`);
+      if (session.status === SESSION_STATUS.Draining) {
+        // Capture agent resume token while session is still alive
+        if (!session.agentResumeId) {
+          try {
+            const output = await Tmux.capture(session.id, 50);
+            const driver = getDriver(session.agentType);
+            const resumeId = driver.extractResumeToken(output);
+            if (resumeId) {
+              db.updateResumeId(session.id, resumeId);
+              log(`${session.id}: captured resume token`);
+            }
+          } catch (error) {
+            log(`${session.id}: resume token capture failed: ${error instanceof Error ? error.message : String(error)}`);
           }
-        } catch {}
+        }
+
+        // Inline refresh and restarted daemons must honor the existing drain
+        // window instead of killing immediately because their map is empty.
+        const startedAt = drainingAt.get(session.id) ?? Date.parse(session.updatedAt);
+        drainingAt.set(session.id, startedAt);
+        if (Date.now() - startedAt > DRAIN_TIMEOUT_MS) {
+          await Tmux.kill(session.id);
+          await finishMissingSession(db, archive, session);
+          log(`${session.id}: drain complete, runtime cleaned up`);
+        }
+        continue;
       }
 
-      const startedAt = drainingAt.get(session.id) ?? 0;
-      if (!startedAt || Date.now() - startedAt > DRAIN_TIMEOUT_MS) {
-        await Tmux.kill(session.id);
-        drainingAt.delete(session.id);
-        reapSession(db, session.id);
-        log(`${session.id}: drain timeout, killed & reaped`);
-      }
-      continue;
-    }
+      if (session.status !== SESSION_STATUS.Running) continue;
 
-    if (session.status !== SESSION_STATUS.Running) continue;
-
-    const output = await Tmux.capture(session.id, 30);
-    const driver = getDriver(session.agentType);
-    const newStatus = statusFromCapture(output, driver);
-    if (newStatus !== SESSION_STATUS.Running) {
-      idleCount.delete(session.id);
-      await settle(db, archive, defaultWakeup, session.id, newStatus, {
-        status: newStatus,
-        lastOutput: output.slice(-500),
-      });
-      if (newStatus === SESSION_STATUS.Idle) {
-        try { await driver.gracefulExit(session.id, driverRuntime); } catch {}
-        db.updateStatus(session.id, SESSION_STATUS.Draining);
-        drainingAt.set(session.id, Date.now());
-        log(`${session.id}: sent graceful exit, draining`);
-      }
-    } else if (driver.detectActivity(output) !== "idle") {
-      idleCount.delete(session.id);
-    } else {
-      const count = (idleCount.get(session.id) ?? 0) + 1;
-      idleCount.set(session.id, count);
-      if (count >= IDLE_DEBOUNCE) {
+      const output = await Tmux.capture(session.id, 30);
+      const driver = getDriver(session.agentType);
+      const newStatus = statusFromCapture(output, driver);
+      if (newStatus !== SESSION_STATUS.Running) {
         idleCount.delete(session.id);
-        await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
-          status: SESSION_STATUS.NeedsAttention,
+        await settle(db, archive, defaultWakeup, session.id, newStatus, {
+          status: newStatus,
           lastOutput: output.slice(-500),
         });
-        log(`${session.id}: needs attention (idle ${count} polls)`);
+        if (newStatus === SESSION_STATUS.Idle) {
+          try { await driver.gracefulExit(session.id, driverRuntime); } catch {}
+          db.updateStatus(session.id, SESSION_STATUS.Draining);
+          drainingAt.set(session.id, Date.now());
+          log(`${session.id}: sent graceful exit, draining`);
+        }
+      } else if (driver.detectActivity(output) !== "idle") {
+        idleCount.delete(session.id);
+      } else {
+        const count = (idleCount.get(session.id) ?? 0) + 1;
+        idleCount.set(session.id, count);
+        if (count >= IDLE_DEBOUNCE) {
+          idleCount.delete(session.id);
+          await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
+            status: SESSION_STATUS.NeedsAttention,
+            lastOutput: output.slice(-500),
+          });
+          log(`${session.id}: needs attention (idle ${count} polls)`);
+        }
+      }
+    } catch (error) {
+      log(`${session.id}: refresh failed: ${error instanceof Error ? error.message : String(error)}`);
+      // tmux can disappear between has-session and capture/kill. Reconcile
+      // that race immediately; other failures stay eligible for the next poll.
+      try {
+        if (!await Tmux.hasSession(session.id)) {
+          const current = db.getSession(session.id);
+          if (current) await finishMissingSession(db, archive, current);
+        }
+      } catch (recoveryError) {
+        log(`${session.id}: recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
       }
     }
   }

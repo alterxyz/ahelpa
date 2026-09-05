@@ -9,12 +9,13 @@ export interface ModelMenuChoice {
 }
 
 function normalize(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9.]+/g, " ").trim();
+  // Hyphens are part of model IDs: gpt-5.4 and gpt-5.4-mini are different models.
+  return value.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
 export function parseModelMenuChoices(output: string): ModelMenuChoice[] {
   return output.split("\n").flatMap((line, lineIndex) => {
-    const match = line.match(/(❯)?\s*(\d+)\.\s+(.+?)(?:\s{2,}| ✔|$)/);
+    const match = line.match(/^\s*(❯|›|>)?\s*(\d+)\.\s+(.+?)(?:\s{2,}| ✔|$)/);
     if (!match) return [];
     return [{
       number: match[2],
@@ -29,10 +30,15 @@ export function parseModelMenuChoices(output: string): ModelMenuChoice[] {
 export function findModelChoice(output: string, model: string): ModelMenuChoice {
   const wanted = normalize(model);
   const choices = parseModelMenuChoices(output);
-  const choice = choices.find((candidate) => {
+  const exact = choices.find((candidate) => normalize(candidate.label) === wanted);
+  // Keep display labels such as "Opus 4.6" and "gpt-5.5 (current)" usable,
+  // without accepting a substring of another model ID or its description.
+  const matches = exact ? [exact] : choices.filter((candidate) => {
     const label = normalize(candidate.label);
-    return label === wanted || label.startsWith(`${wanted} `) || label.includes(wanted);
+    return label.startsWith(`${wanted} `);
   });
+  if (matches.length > 1) throw new Error(`Model "${model}" matches multiple model menu entries; use a more specific name`);
+  const choice = matches[0];
   if (!choice) throw new Error(`Model "${model}" is not available in the model menu`);
   if (choice.disabled) throw new Error(`Model "${model}" is disabled in the model menu`);
   return choice;

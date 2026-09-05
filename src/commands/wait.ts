@@ -9,7 +9,7 @@ interface WaitResult { sessionId: string; status: WaitStatus; }
 // returns still_running at the deadline instead of being killed mid-call.
 export const DEFAULT_WAIT_TIMEOUT_MS = 500000;
 
-// A missing session also stops the wait: callers get still_running back
+// A missing session also stops the wait: callers get dead back
 // immediately instead of blocking on an id that will never complete.
 function stopsWaiting(status: WaitStatus): boolean {
   return status !== SESSION_STATUS.Running;
@@ -54,7 +54,9 @@ export async function wait(
 
     const remaining = deadline - Date.now();
     if (remaining <= 0) {
-      const timedOut = sessionIds.map((id) => ({ sessionId: id, status: WAIT_STATUS.StillRunning }));
+      const timedOut = results.map((result): WaitResult => stopsWaiting(result.status)
+        ? result
+        : { sessionId: result.sessionId, status: WAIT_STATUS.StillRunning });
       return all ? timedOut : timedOut[0];
     }
 

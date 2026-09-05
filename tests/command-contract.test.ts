@@ -48,10 +48,11 @@ describe("command contract", () => {
 
     expect(text).toContain("Available models");
     expect(text).toContain("codex");
-    expect(text).toContain("gpt-5.6 (effort: low, medium, high, xhigh; default: low)");
-    expect(text).toContain("gpt-5.6-sol (effort: low, medium, high, xhigh; default: low)");
-    expect(text).toContain("gpt-5.6-terra (effort: low, medium, high, xhigh; default: medium)");
-    expect(text).toContain("gpt-5.6-luna (effort: low, medium, high, xhigh; default: medium)");
+    expect(text).toContain("gpt-6-astra (effort: low, medium, high, xhigh, max, ultra; default: medium)");
+    expect(text).toContain("gpt-5.6 (effort: low, medium, high, xhigh, max, ultra; default: low)");
+    expect(text).toContain("gpt-5.6-sol (effort: low, medium, high, xhigh, max, ultra; default: low)");
+    expect(text).toContain("gpt-5.6-terra (effort: low, medium, high, xhigh, max, ultra; default: medium)");
+    expect(text).toContain("gpt-5.6-luna (effort: low, medium, high, xhigh, max; default: medium)");
     expect(text).toContain("gpt-5.5 (effort: low, medium, high, xhigh; default: medium)");
     expect(text).toContain("claude-code");
     expect(text).toContain("sonnet");

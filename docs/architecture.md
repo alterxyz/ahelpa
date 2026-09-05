@@ -29,7 +29,7 @@ ahelpa CLI ──────────► tmux session
 
 ## Session Lifecycle
 
-A session moves through four states: `running` → `idle` | `error` | `dead`.
+A session starts as `running` and can settle as `idle`, `error`, `needs_attention`, or `dead`. Successful sessions pass through `draining` while their terminal is being reclaimed.
 
 1. **Launch.** `launch` generates a session ID (`{driver-prefix}-{uuid8}`) and an owner token. It writes the task to a temp file, creates a tmux session through the selected driver, prepares a FIFO pipe, records the session in SQLite, and starts the daemon if it isn't running.
 
@@ -41,15 +41,20 @@ A session moves through four states: `running` → `idle` | `error` | `dead`.
 
 5. **Wakeup.** `wait` unblocks when the FIFO receives the settlement event. The caller reads results from the file handoff directory.
 
+6. **Runtime cleanup.** After success, the driver requests a graceful exit and the daemon records any resume token during `draining`. It allows up to 15 seconds before reclaiming the tmux session, then leaves the session `idle`. `wait` also reports `idle` during draining. Cleanup removes temporary runtime files while retaining the SQLite result, owner token, and resume metadata so later `wait`, `logs`, and `resume` calls still work. `clean` explicitly removes settled records only when their tmux sessions are gone; it leaves draining and attention states alone.
+
 ### State Transitions
 
 ```
 launch ──► running
               │
-              ├── [AHELPA:DONE] detected ──────► idle
+              ├── [AHELPA:DONE] detected ──────► draining ──► idle
               ├── [AHELPA:NEED_HELP] detected ──► error
+              ├── sustained inactivity ────────► needs_attention
               └── tmux session gone ───────────► dead
 ```
+
+Sending input to a `needs_attention` session resumes monitoring as `running`. If its terminal disappears instead, it becomes `dead`.
 
 `still_running` is a wait-specific return value, not a session state — it means the timeout expired before settlement.
 
@@ -82,11 +87,12 @@ The daemon is an optional background process that watches running sessions. It s
 
 **Poll loop (every 3 seconds):**
 
-1. For each `running` session, check if the tmux session is still alive.
-2. If gone → settle as `dead`.
-3. If alive → capture output, run driver sentinel detection.
-4. If sentinel found → settle as `idle` or `error`.
-5. If no active sessions remain → daemon exits.
+1. Check whether each monitored tmux session is still alive.
+2. If a running or attention session disappears, settle as `dead`. If a draining session disappears, preserve its successful result as `idle`.
+3. For running sessions, capture output and run driver sentinel and activity detection.
+4. On success, request graceful exit, capture the resume token, and reclaim the terminal after the drain timeout. Restarted monitors honor the recorded drain window.
+5. A capture or kill failure is logged for that session. If its terminal disappeared, reconcile the final state; otherwise retry on a later poll. Other sessions continue refreshing.
+6. When no running, draining, or attention sessions remain, the daemon exits.
 
 **Inline refresh.** When the daemon is not running, `wait`, `check`, and `status` perform the same refresh logic inline before reporting state. Short-lived tasks work fine without a persistent daemon.
 
@@ -115,6 +121,8 @@ Helpers can launch their own helpers, creating a session lineage. Launch validat
 ## Archives
 
 When a session settles, a final snapshot is saved under `~/.ahelpa/archive/<session-id>/`. This keeps `logs` useful after the tmux session has been cleaned up. Archives are managed by the daemon (or inline refresh) during settlement and are not automatically pruned.
+
+The retained SQLite record supplies ownership checks and resume settings. Running `clean` removes that record, so subsequent token-gated `logs` and `resume` calls for that session are no longer available; archive and project handoff files remain on disk.
 
 ## Module Map
 

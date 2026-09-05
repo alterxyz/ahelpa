@@ -43,6 +43,7 @@ Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。各 dri
 ```bash
 ahelpa models
 ahelpa models codex
+ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
@@ -51,12 +52,14 @@ ahelpa launch claude-code --model sonnet --task "Review this change"
 
 ## 切换运行中 helper 的模型
 
+模型目录包含 `gpt-6-astra`，支持到 `ultra` 的 effort。不同模型及本机 Codex CLI 支持的级别可能不同；运行中会话以实际 reasoning 菜单为准。
+
 ```bash
 ahelpa model "$session_id" --to sonnet --token "$token"
 ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 ```
 
-Helper 必须停在可输入的 idle prompt。Claude Code 只切当前 session。Codex 会走自己的 `/model` TUI，而该 TUI 会写入 Codex config；ahelpa 默认在当前 session 切换后恢复原 config。需要保留 Codex 新默认模型时，加 `--persist`。
+Helper 必须停在可输入的 idle prompt。Claude Code 只切当前 session。Codex 会走自己的 `/model` TUI，而该 TUI 会写入 Codex config；ahelpa 默认在当前 session 切换后恢复原 config。检测到无关配置变化时，会保留当前文件并报告未能恢复默认值。需要保留 Codex 新默认模型时，加 `--persist`。成功切换会更新 `resume` 沿用的模型和显式 effort；省略 effort 时，恢复的 CLI 自行选择默认值。
 
 ## 等待完成
 
@@ -160,13 +163,13 @@ ahelpa resume "$session_id" --token "$token"
 ahelpa kill "$session_id" --token "$token"
 ```
 
-清理 dead 记录和孤儿运行时文件（pipe、task file）：
+清理 tmux 已退出的已结算记录和孤儿运行时文件（pipe、task file）：
 
 ```bash
 ahelpa clean
 ```
 
-`clean` 不会删除 archive，也不会终止 live session。
+终端回收后，已完成记录仍供 `wait`、`logs` 和 `resume` 使用，直到显式运行 `clean`。`clean` 不会删除 archive，也不会终止 live session，并保留仍在 draining 或需要介入的会话。
 
 ## Daemon 管理
 

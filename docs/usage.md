@@ -43,6 +43,7 @@ Safe mode is a lower-permission launch posture, not a separate OS user or VM. Se
 ```bash
 ahelpa models
 ahelpa models codex
+ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
@@ -51,12 +52,14 @@ ahelpa launch claude-code --model sonnet --task "Review this change"
 
 ## Switch a Running Helper Model
 
+The catalog includes `gpt-6-astra`, with effort levels through `ultra`. Supported levels vary by model and the installed Codex CLI; a running session's reasoning menu determines which levels can be selected.
+
 ```bash
 ahelpa model "$session_id" --to sonnet --token "$token"
 ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 ```
 
-The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. Add `--persist` when you want Codex's new model to remain the default.
+The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. If unrelated config changes are detected, it preserves the current file and reports that defaults could not be restored. Add `--persist` when you want Codex's new model to remain the default. Successful switches update the model and explicit effort that `resume` reuses; omitting effort lets the resumed CLI choose its default.
 
 ## Wait for Completion
 
@@ -160,13 +163,13 @@ Terminate a specific session:
 ahelpa kill "$session_id" --token "$token"
 ```
 
-Clean up dead records and orphan runtime files (pipes, task files):
+Clean up settled records whose tmux sessions have exited, and orphan runtime files (pipes, task files):
 
 ```bash
 ahelpa clean
 ```
 
-`clean` does not remove archives or terminate live sessions.
+Completed records remain available for `wait`, `logs`, and `resume` after terminal cleanup, until you explicitly run `clean`. `clean` does not remove archives or terminate live sessions, and preserves sessions that are still draining or need attention.
 
 ## Daemon Management
 

@@ -2,6 +2,24 @@ import { describe, test, expect } from "bun:test";
 import { parseCliArgs } from "../src/cli-args";
 
 describe("cli arg parsing", () => {
+  test("boolean flags before positionals do not consume session IDs", () => {
+    const parsed = parseCliArgs(["--all", "id-1", "id-2"], new Set(["all"]));
+    expect(parsed.positionals).toEqual(["id-1", "id-2"]);
+    expect(parsed.flags.all).toBe("true");
+  });
+
+  test("boolean flags still accept explicit space-separated false", () => {
+    const parsed = parseCliArgs(["--all", "false", "id-1"], new Set(["all"]));
+    expect(parsed.positionals).toEqual(["id-1"]);
+    expect(parsed.flags.all).toBe("false");
+  });
+
+  test("double dash preserves flag-like message contents", () => {
+    const parsed = parseCliArgs(["id-1", "--token", "tok", "--", "--help"]);
+    expect(parsed.positionals).toEqual(["id-1", "--help"]);
+    expect(parsed.flags).toEqual({ token: "tok" });
+  });
+
   test("keeps flag values out of positional arguments", () => {
     const parsed = parseCliArgs(["codex-123", "--timeout", "120000"]);
 

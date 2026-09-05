@@ -1,11 +1,10 @@
-import { existsSync, readFileSync, writeFileSync } from "fs";
-import { homedir } from "os";
-import { join } from "path";
 import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions } from "./types";
+import { ModelSwitchAppliedError } from "./types";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus } from "./sentinels";
-import { findModelChoice, waitForOutput } from "./model-menu";
+import { findModelChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
+import { restoreCodexConfig, snapshotCodexConfig } from "./codex-config";
 
 function codexNeedsSubmitNudge(captureOutput: string): boolean {
   return isTaskInstructionEcho(captureOutput)
@@ -41,6 +40,8 @@ function codexHasStartedTask(captureOutput: string): boolean {
 }
 
 const CODEX_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
+const CODEX_MAX_EFFORTS = [...CODEX_EFFORTS, "max"] as const;
+const CODEX_ULTRA_EFFORTS = [...CODEX_MAX_EFFORTS, "ultra"] as const;
 const CODEX_MODEL_ALIASES: Readonly<Record<string, string>> = {
   "gpt-5.6": "gpt-5.6-sol",
 };
@@ -69,32 +70,56 @@ function codexHasUnsupportedModelError(captureOutput: string): boolean {
     && /(?:^|\n)\s*(?:■|ERROR:)[\s\S]{0,1000}?model\s+is\s+not\s+supported\s+when\s+using\s+Codex\s+with\s+a\s+ChatGPT\s+account/i.test(captureOutput);
 }
 
-function codexConfigPath(): string {
-  return join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml");
+function normalizeEffort(effort: string): string {
+  const normalized = effort.toLowerCase().replace(/[-_\s]+/g, "");
+  if (normalized === "extrahigh") return "xhigh";
+  if (normalized === "maximum") return "max";
+  return normalized;
 }
 
-function snapshotCodexConfig(): { path: string; content: string } | null {
-  const path = codexConfigPath();
-  return existsSync(path) ? { path, content: readFileSync(path, "utf-8") } : null;
+function reasoningKey(output: string, effort?: string): string {
+  if (!effort) return "Enter";
+  const wanted = normalizeEffort(effort);
+  const choices = parseModelMenuChoices(output);
+  const choice = choices.find((candidate) => wanted === "default"
+    ? /\(default\)/i.test(candidate.label)
+    : normalizeEffort(candidate.label.replace(/\s*\(.*$/, "")) === wanted);
+  if (!choice) throw new Error(`Codex effort "${effort}" is not available in the reasoning menu`);
+  if (choice.disabled) throw new Error(`Codex effort "${effort}" is disabled in the reasoning menu`);
+  return choice.number;
 }
 
-function reasoningKey(effort?: string): string {
-  switch ((effort || "").toLowerCase().replace(/[-_\s]+/g, "")) {
-    case "":
-      return "Enter";
-    case "low":
-      return "1";
-    case "medium":
-    case "default":
-      return "2";
-    case "high":
-      return "3";
-    case "xhigh":
-    case "extrahigh":
-      return "4";
-    default:
-      throw new Error(`Unsupported Codex effort: ${effort}`);
-  }
+type ModelEvent =
+  | { kind: "model" | "reasoning"; line: number }
+  | { kind: "confirmation"; line: number; model: string; text: string };
+
+function modelEvents(output: string): ModelEvent[] {
+  return output.split("\n").flatMap((text, line): ModelEvent[] => {
+    if (text.includes("Select Model and Effort")) return [{ kind: "model", line }];
+    if (text.includes("Select Reasoning Level")) return [{ kind: "reasoning", line }];
+    const match = text.match(/\bModel changed to ([a-z0-9][a-z0-9.-]*)(?=\s|$)/i);
+    return match ? [{ kind: "confirmation", line, model: match[1], text: text.trim() }] : [];
+  });
+}
+
+function currentMenu(output: string, kind: "model" | "reasoning"): string | undefined {
+  const event = modelEvents(output).at(-1);
+  return event?.kind === kind ? output.split("\n").slice(event.line).join("\n") : undefined;
+}
+
+function freshModelConfirmation(output: string, model: string, baseline: ModelEvent[]): string | undefined {
+  const events = modelEvents(output);
+  const latest = events.at(-1);
+  if (latest?.kind !== "confirmation" || latest.model !== model) return undefined;
+
+  // Only the latest event can confirm the switch, even when older pickers
+  // remain in scrollback. Require a new line or occurrence relative to the
+  // menu snapshot so a disappearing picker cannot expose an old confirmation
+  // for the same model and make it appear to have just completed.
+  const occurrences = (items: ModelEvent[]) => items.filter((event) =>
+    event.kind === "confirmation" && event.text === latest.text,
+  ).length;
+  return occurrences(events) > occurrences(baseline) ? latest.text : undefined;
 }
 
 export const codexDriver: AgentDriver = {
@@ -102,10 +127,11 @@ export const codexDriver: AgentDriver = {
   sessionPrefix: "codex",
   modelCatalog: {
     models: [
-      { name: "gpt-5.6", efforts: CODEX_EFFORTS, defaultEffort: "low" },
-      { name: "gpt-5.6-sol", efforts: CODEX_EFFORTS, defaultEffort: "low" },
-      { name: "gpt-5.6-terra", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
-      { name: "gpt-5.6-luna", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
+      { name: "gpt-6-astra", efforts: CODEX_ULTRA_EFFORTS, defaultEffort: "medium" },
+      { name: "gpt-5.6", efforts: CODEX_ULTRA_EFFORTS, defaultEffort: "low" },
+      { name: "gpt-5.6-sol", efforts: CODEX_ULTRA_EFFORTS, defaultEffort: "low" },
+      { name: "gpt-5.6-terra", efforts: CODEX_ULTRA_EFFORTS, defaultEffort: "medium" },
+      { name: "gpt-5.6-luna", efforts: CODEX_MAX_EFFORTS, defaultEffort: "medium" },
       { name: "gpt-5.5", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
       { name: "gpt-5.4", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
       { name: "gpt-5.4-mini", efforts: CODEX_EFFORTS, defaultEffort: "medium" },
@@ -168,37 +194,59 @@ export const codexDriver: AgentDriver = {
   async switchModel(sessionId: string, runtime: DriverRuntime, opts: ModelSwitchOptions): Promise<string> {
     const configSnapshot = opts.persist ? null : snapshotCodexConfig();
     const model = resolveCodexModel(opts.model);
+    let menuOpen = false;
+    let switchError: unknown;
     try {
       await runtime.sendKeys(sessionId, "/model");
+      menuOpen = true;
       const menu = await waitForOutput(
         sessionId,
         runtime,
-        (output) => output.includes("Select Model and Effort"),
+        (output) => currentMenu(output, "model") !== undefined,
         "Codex model menu",
       );
-      const target = findModelChoice(menu, model);
+      const baseline = modelEvents(menu);
+      const target = findModelChoice(currentMenu(menu, "model")!, model);
       await runtime.sendKey(sessionId, target.number);
 
       const next = await waitForOutput(
         sessionId,
         runtime,
-        (output) => output.includes("Select Reasoning Level") || /Model changed to/i.test(output),
+        (output) => currentMenu(output, "reasoning") !== undefined
+          || freshModelConfirmation(output, model, baseline) !== undefined,
         "Codex reasoning menu",
       );
-      if (next.includes("Select Reasoning Level")) {
-        await runtime.sendKey(sessionId, reasoningKey(opts.effort));
+      const reasoningMenu = currentMenu(next, "reasoning");
+      if (reasoningMenu !== undefined) {
+        await runtime.sendKey(sessionId, reasoningKey(reasoningMenu, opts.effort));
       }
 
       const result = await waitForOutput(
         sessionId,
         runtime,
-        (output) => /Model changed to/i.test(output),
+        (output) => freshModelConfirmation(output, model, baseline) !== undefined,
         "Codex model switch confirmation",
       );
-      return result.split("\n").find((line) => /Model changed to/i.test(line))?.trim()
-        ?? `Model changed to ${model}`;
+      menuOpen = false;
+      return freshModelConfirmation(result, model, baseline)!;
+    } catch (error) {
+      switchError = error;
+      // An unavailable model/effort must not strand the helper in a picker.
+      if (menuOpen) await runtime.sendKey(sessionId, "Escape").catch(() => {});
+      throw error;
     } finally {
-      if (configSnapshot) writeFileSync(configSnapshot.path, configSnapshot.content);
+      if (configSnapshot) {
+        try {
+          restoreCodexConfig(configSnapshot);
+        } catch (restoreError) {
+          const message = restoreError instanceof Error ? restoreError.message : String(restoreError);
+          if (switchError !== undefined) {
+            const switchMessage = switchError instanceof Error ? switchError.message : String(switchError);
+            throw new AggregateError([switchError, restoreError], `${switchMessage}; ${message}`);
+          }
+          throw new ModelSwitchAppliedError(`Model changed to ${model}, but ${message}`);
+        }
+      }
     }
   },
 
@@ -217,6 +265,7 @@ export const codexDriver: AgentDriver = {
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
-    await runtime.sendKey(sessionId, "Escape");
+    // Exiting prints the resume command; Escape only dismisses UI elements.
+    await runtime.sendKeys(sessionId, "/exit");
   },
 };

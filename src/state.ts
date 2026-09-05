@@ -175,6 +175,11 @@ export class StateDB {
     this.db.prepare("UPDATE sessions SET agent_resume_id = ?, updated_at = ? WHERE id = ?").run(agentResumeId, now, id);
   }
 
+  updateModel(id: string, model: string, effort: string | null): void {
+    this.db.prepare("UPDATE sessions SET model = ?, effort = ?, updated_at = ? WHERE id = ?")
+      .run(model, effort, new Date().toISOString(), id);
+  }
+
   listSessions(parentId?: string): SessionRecord[] {
     if (parentId !== undefined) {
       const rows = this.db.prepare("SELECT * FROM sessions WHERE parent_id = ? ORDER BY updated_at DESC").all(parentId) as SessionRow[];

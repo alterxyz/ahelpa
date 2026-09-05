@@ -66,7 +66,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | **tmux session** | 持久 helper 终端，不依赖启动命令继续存活 |
 | **文件交接** | 任务和结果通过文件交换，而不是终端输出解析 |
 | **暗号协议** | helper 打印 `[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP]` 声明状态 |
-| **FIFO 唤醒** | `wait` 阻塞在命名管道上，睡眠时零轮询、零 CPU |
+| **FIFO 唤醒** | 有界等待，通过管道通知并定期检查状态 |
 | **Owner token** | 写操作必须带上 `launch` 返回的 token |
 | **Driver adapter** | agent-specific 启动和交互细节封装在 driver 后面 |
 | **按需 daemon** | 监控运行中的 session 并做 settle；`launch` 时自动启动 |
@@ -85,7 +85,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | 命令 | 用途 |
 | --- | --- |
 | `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code` 或 `codex`） |
-| `wait <id...> [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
+| `wait <id...> [--all] [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>]` | 非阻塞状态查询，并做 inline refresh |
 | `models [agent]` | 列出启动时可选的模型 |
 | `send <id> "msg" --token <tok>` | 给运行中的 helper 发送短消息 |
@@ -96,12 +96,14 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `logs <id> --token <tok>` | 读取 live 或 archived session output |
 | `resume <id> --token <tok> [--safe]` | 从 agent session 恢复已完成的 helper |
 | `status` | 显示所有 session 和 daemon 状态 |
-| `clean` | 清理 dead 记录和孤儿运行时文件 |
+| `clean` | 清理终端已退出的已结算记录和孤儿运行时文件 |
 | `daemon start\|stop` | 管理后台 session monitor |
 | `install-skill [--source <repo-or-path>]` | 全局 hard-copy 安装 Codex 和 Claude Code 的 skill |
 | `version` | 显示已安装 runtime 版本 |
 
 ## 运行时布局
+
+Helper 终端回收后，已完成会话仍保留状态、日志和恢复信息。不再需要这些会话记录时再运行 `clean`。`wait --all` 超时时，只对尚未结束的 helper 返回 `still_running`，已结算的结果保持不变。
 
 | 路径 | 用途 |
 | --- | --- |

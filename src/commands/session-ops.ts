@@ -13,6 +13,7 @@ import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff } from "../file-handoff";
 import { getDriver } from "../drivers/registry";
 import type { DriverRuntime, ModelSwitchOptions } from "../drivers/types";
+import { ModelSwitchAppliedError } from "../drivers/types";
 import { readFileSync, unlinkSync, readdirSync } from "fs";
 import { join } from "path";
 
@@ -53,13 +54,30 @@ const driverRuntime: DriverRuntime = {
   sendKey: (sessionId, key) => Tmux.sendKey(sessionId, key),
 };
 
-export const switchModel = withAuth(async ({ session }, opts: ModelSwitchOptions) => {
+export const switchModel = withAuth(async ({ db, session }, opts: ModelSwitchOptions) => {
   const driver = getDriver(session.agentType);
-  return driver.switchModel(session.id, driverRuntime, opts);
+  let result: string;
+  try {
+    result = await driver.switchModel(session.id, driverRuntime, opts);
+  } catch (error) {
+    if (error instanceof ModelSwitchAppliedError) {
+      db.updateModel(session.id, opts.model, opts.effort ?? null);
+    }
+    throw error;
+  }
+  // Resume should reuse the latest successful choice. An omitted effort lets
+  // the driver choose its default rather than forcing the old model's effort.
+  db.updateModel(session.id, opts.model, opts.effort ?? null);
+  return result;
 });
 
 export const kill = withAuth(async ({ db, session }) => {
-  await Tmux.kill(session.id);
+  try {
+    await Tmux.kill(session.id);
+  } catch (error) {
+    // Successful tasks may already have had their terminal reclaimed.
+    if (await Tmux.hasSession(session.id)) throw error;
+  }
   defaultWakeup.cleanup(session.id);
   db.updateStatus(session.id, SESSION_STATUS.Dead);
 });
@@ -101,19 +119,23 @@ export function status(db: StateDB, daemonRunning: boolean): string {
 
 export interface CleanResult { removed: number; orphanFiles: number; }
 
-// Dead sessions keep their archive copy; clean only drops the DB record and
-// any leftover pipe or task file. Live sessions go through kill instead.
-export function clean(db: StateDB, layout: RuntimeLayout = defaultRuntimeLayout): CleanResult {
+// Settled sessions keep their archive copy. Only remove records whose tmux
+// session is gone; draining and attention states still need monitoring.
+export async function clean(db: StateDB, layout: RuntimeLayout = defaultRuntimeLayout): Promise<CleanResult> {
   const wakeup = new Wakeup(layout);
   const cleanable = db.listSessions().filter((session) =>
-    session.status === SESSION_STATUS.Dead || session.status === SESSION_STATUS.Draining,
+    session.status === SESSION_STATUS.Dead
+      || session.status === SESSION_STATUS.Idle
+      || session.status === SESSION_STATUS.Error,
   );
+  let removed = 0;
   for (const session of cleanable) {
+    if (await Tmux.hasSession(session.id)) continue;
     wakeup.cleanup(session.id);
     try { unlinkSync(layout.taskFilePath(session.id)); } catch {}
+    db.deleteSession(session.id);
+    removed++;
   }
-  const removed = db.deleteSessionsByStatus(SESSION_STATUS.Dead)
-    + db.deleteSessionsByStatus(SESSION_STATUS.Draining);
   return { removed, orphanFiles: sweepOrphanFiles(db, layout) };
 }
 
