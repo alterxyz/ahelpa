@@ -1,6 +1,6 @@
 export const DEFAULT_SKILL_SOURCE = "alterxyz/ahelpa";
 export const AHELPA_SKILL_NAME = "ahelpa";
-export const DEFAULT_SKILL_AGENTS = ["codex", "claude-code"] as const;
+export const DEFAULT_SKILL_AGENTS = ["codex", "claude-code", "kimi-code-cli"] as const;
 
 export interface SkillInstallRunner {
   run(command: string, args: string[]): Promise<number>;

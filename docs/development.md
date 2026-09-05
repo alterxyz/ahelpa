@@ -10,6 +10,8 @@
 
 `jq` is useful for shell examples but is not required by the runtime itself.
 
+The end-to-end gate also requires authenticated helper CLIs for the drivers being exercised. Verify the binaries with `command -v claude`, `command -v codex`, and `command -v kimi`; verify authentication with each CLI's own status or a harmless request.
+
 ## Repository Layout
 
 ```
@@ -105,7 +107,7 @@ This copies the binary to `~/.ahelpa/bin/ahelpa`, then runs:
 ahelpa install-skill --source ./skill
 ```
 
-`install-skill` delegates to `npx skills@latest` instead of reimplementing agent skill installation. The policy is fixed: global scope, hard-copy mode, and explicit `codex` + `claude-code` targets. Ensure `~/.ahelpa/bin` is on your `PATH`.
+`install-skill` delegates to `npx skills@latest` instead of reimplementing agent skill installation. The policy is fixed: global scope, hard-copy mode, and explicit `codex` + `claude-code` + `kimi-code-cli` targets. Ensure `~/.ahelpa/bin` is on your `PATH`.
 
 Public installs use the release installer:
 
@@ -123,9 +125,13 @@ For ordinary code changes:
 bun test
 ```
 
+The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots when the caller has not supplied them, then removes those roots after the suite. Unit and integration tests therefore do not write session state, archives, FIFOs, or task files into the user's active ahelpa runtime.
+
 ## Closure Gate
 
-The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary across both supported drivers. Each helper works in its own temporary project.
+The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary across all three supported drivers. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
+
+The gate assigns private `AHELPA_HOME` and `AHELPA_TMP_DIR` roots, so its SQLite state, daemon, archives, FIFOs, and task files do not interfere with active ahelpa sessions. Helper CLIs retain their normal OS home and authentication.
 
 ```bash
 bun run closure:gate
@@ -138,9 +144,17 @@ For each driver, the gate requires:
 - The helper writes the exact requested content to its assigned `summary.md`
 - `kill` reclaims the tmux session and `check` confirms it is no longer active
 
-Timeouts, echoed task text, and account errors fail the gate. Logs are retained for diagnosis, including when the daemon has already reclaimed tmux. Failed checks also attempt to kill only the helper launched by that run. The printed evidence directory contains the summaries and command results.
+Timeouts, echoed task text, and account errors fail the gate. Logs are retained for diagnosis, including when the daemon has already reclaimed tmux. Failed checks also attempt to kill only the helper launched by that run. The printed evidence directory contains the summaries and command results. The gate copies its result directories into that evidence directory before removing its own fixture handoff files, and stops only its isolated daemon.
 
-**Prerequisite:** Both helper CLIs (`claude` and `codex`) must be authenticated locally. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
+Kimi also completes a second task after `kill` and `resume`. The gate requires a retained native session ID, a resumed helper waiting in `needs_attention`, and a new summary containing the context marker remembered from the first turn.
+
+To verify an installed binary with the same checks, set an absolute executable path:
+
+```bash
+AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
+```
+
+**Prerequisite:** All three helper CLIs (`claude`, `codex`, and `kimi`) must be authenticated locally. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
 
 ## Adding a Driver
 

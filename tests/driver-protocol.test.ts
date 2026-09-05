@@ -52,7 +52,7 @@ describe("driver launch protocol", () => {
         "Do you trust the contents of this directory?",
         "Press enter to continue",
       ].join("\n"),
-      "Working (1s)",
+      "› Implement {feature}",
     ]);
 
     await driver.prepareForTask("codex-test", runtime);
@@ -69,13 +69,83 @@ describe("driver launch protocol", () => {
     const driver = getDriver("codex");
     const runtime = probeRuntime([
       "Starting MCP servers",
-      "Working (1s)",
+      "› Implement {feature}",
     ]);
 
     await driver.prepareForTask("codex-test", runtime);
 
     expect(runtime.sent).toEqual([]);
     expect(runtime.captures.length).toBe(2);
+  });
+
+  test("codex treats a slow MCP startup as booting, not as no response", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      ...Array.from({ length: 30 }, () => "Starting MCP servers"),
+      "› Implement {feature}",
+    ]);
+
+    await driver.prepareForTask("codex-test", runtime);
+
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.captures.length).toBe(31);
+  });
+
+  test.each(["prepareForTask", "prepareForResume"] as const)("codex %s grants the full slow-MCP budget", async (prepare) => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      ...Array.from({ length: 60 }, () => "Starting MCP servers"),
+      "› Implement {feature}",
+    ]);
+
+    await driver[prepare]("codex-test", runtime);
+
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.captures).toHaveLength(61);
+    expect(runtime.sleeps.reduce((sum, ms) => sum + ms, 0)).toBe(63_000);
+  });
+
+  test("codex bounds a startup that never exposes its input prompt", async () => {
+    const runtime = probeRuntime(["Starting MCP servers"]);
+
+    await expect(getDriver("codex").prepareForTask("codex-test", runtime))
+      .rejects.toThrow("did not reach its input prompt");
+
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.captures).toHaveLength(80);
+    expect(runtime.sleeps.reduce((sum, ms) => sum + ms, 0)).toBe(82_000);
+  });
+
+  test("codex accepts the in-turn MCP spinner as turn evidence without an extra Enter", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      [
+        "› Please read and complete the task described in /tmp/ahelpa/x.md",
+        "• Starting MCP servers (2/3): codex_apps (5s • esc to interrupt)",
+      ].join("\n"),
+    ]);
+
+    const submitted = await driver.afterTaskSubmitted("codex-test", runtime, {
+      beforeOutput: "› Improve documentation in @filename",
+    });
+
+    expect(submitted).toBe(true);
+    expect(runtime.sent).toEqual([]);
+  });
+
+  test("codex does not nudge Enter on the MCP spinner when no pre-submit snapshot exists", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      [
+        "› Please read and complete the task described in /tmp/ahelpa/x.md",
+        "• Starting MCP servers (2/3): codex_apps (5s • esc to interrupt)",
+      ].join("\n"),
+    ]);
+
+    const submitted = await driver.afterTaskSubmitted("codex-test", runtime, {});
+
+    expect(submitted).toBe(true);
+    expect(runtime.sent).toEqual([]);
   });
 
   test("codex skips update prompt instead of accepting update", async () => {
@@ -88,7 +158,7 @@ describe("driver launch protocol", () => {
         "3. Skip until next version",
         "Press enter to continue",
       ].join("\n"),
-      "Working (1s)",
+      "› Implement {feature}",
     ]);
 
     await driver.prepareForTask("codex-test", runtime);
@@ -115,6 +185,24 @@ describe("driver launch protocol", () => {
     expect(runtime.sleeps).toEqual([2000, 1000, 1000, 1000]);
   });
 
+  test("claude-code does not mistake workspace trust for the chat prompt", async () => {
+    const driver = getDriver("claude-code");
+    const runtime = probeRuntime([
+      [
+        "Do you trust the files in this folder?",
+        "❯ 1. Yes, proceed",
+        "  2. No, exit",
+      ].join("\n"),
+    ]);
+
+    await expect(driver.prepareForTask("claude-test", runtime)).rejects.toThrow(
+      "did not reach its input prompt",
+    );
+
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.captures).toHaveLength(15);
+  });
+
   test("claude-code nudges when the submitted task remains queued", async () => {
     const driver = getDriver("claude-code");
     const runtime = probeRuntime([
@@ -131,6 +219,116 @@ describe("driver launch protocol", () => {
     expect(runtime.sent).toEqual([""]);
     expect(runtime.captures).toEqual([{ sessionId: "claude-test", lines: 30 }]);
     expect(runtime.sleeps).toEqual([1000]);
+  });
+
+  test("claude-code waits past a stale DONE until a new user turn appears", async () => {
+    const driver = getDriver("claude-code");
+    const previous = "❯ First task\n[AHELPA:DONE]\n❯";
+    const runtime = probeRuntime([
+      previous,
+      `${previous}\n❯ Follow-up task\n✢ Working…`,
+    ]);
+
+    const submitted = await driver.afterTaskSubmitted(
+      "claude-test",
+      runtime,
+      { beforeOutput: previous },
+    );
+
+    expect(submitted).toBe(true);
+    expect(runtime.captures).toHaveLength(2);
+  });
+
+  test("claude-code does not treat inline handoff sentinel text as a submitted turn", async () => {
+    const driver = getDriver("claude-code");
+    const before = "0 tokens\n❯ Try asking about this codebase";
+    const queued = [
+      before,
+      "❯ Please read and complete the task described in /tmp/task.md; output [AHELPA:DONE] when finished.",
+      "0 tokens",
+    ].join("\n");
+    const runtime = probeRuntime([
+      queued,
+      `${queued}\n✢ Working…`,
+    ]);
+
+    const submitted = await driver.afterTaskSubmitted(
+      "claude-test",
+      runtime,
+      { beforeOutput: before },
+    );
+
+    expect(submitted).toBe(true);
+    expect(runtime.captures).toHaveLength(2);
+    expect(runtime.sent).toEqual([""]);
+  });
+
+  test("codex waits past stale NEED_HELP until a new user turn appears", async () => {
+    const driver = getDriver("codex");
+    const previous = "› First task\n[AHELPA:NEED_HELP]\n›";
+    const runtime = probeRuntime([
+      previous,
+      `${previous}\n› Follow-up task\nWorking (1s)`,
+    ]);
+
+    const submitted = await driver.afterTaskSubmitted(
+      "codex-test",
+      runtime,
+      { beforeOutput: previous },
+    );
+
+    expect(submitted).toBe(true);
+    expect(runtime.captures).toHaveLength(2);
+  });
+
+  test("claude-code accepts a repeated prompt when its new evidence is working", async () => {
+    const driver = getDriver("claude-code");
+    const runtime = probeRuntime(["❯ Repeat this task\n✢ Working…"]);
+
+    const submitted = await driver.afterTaskSubmitted(
+      "claude-test",
+      runtime,
+      { beforeOutput: "❯ Repeat this task\n[AHELPA:DONE]" },
+    );
+
+    expect(submitted).toBe(true);
+    expect(runtime.captures).toHaveLength(1);
+  });
+
+  test("codex accepts a repeated prompt when its new evidence is working", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime(["› Repeat this task\nWorking (1s)"]);
+
+    const submitted = await driver.afterTaskSubmitted(
+      "codex-test",
+      runtime,
+      { beforeOutput: "› Repeat this task\n[AHELPA:DONE]" },
+    );
+
+    expect(submitted).toBe(true);
+    expect(runtime.captures).toHaveLength(1);
+  });
+
+  test("codex accepts an unsupported-model response as new turn evidence", async () => {
+    const driver = getDriver("codex");
+    const before = "› Implement {feature}";
+    const failed = [
+      before,
+      "› Please read and complete the task described in /tmp/ahelpa/task.md.",
+      "■ {\"type\":\"error\",\"status\":400,\"error\":{\"message\":\"The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.\"}}",
+      "› Explain this codebase",
+    ].join("\n");
+    const runtime = probeRuntime([failed]);
+
+    const submitted = await driver.afterTaskSubmitted(
+      "codex-test",
+      runtime,
+      { beforeOutput: before },
+    );
+
+    expect(submitted).toBe(true);
+    expect(runtime.captures).toHaveLength(1);
+    expect(runtime.sent).toEqual([]);
   });
 
   test("claude-code switches model with cursor navigation and session-only select", async () => {
@@ -217,6 +415,7 @@ describe("detectActivity", () => {
   test("claude-code: ⏺ = working", () => {
     const driver = getDriver("claude-code");
     expect(driver.detectActivity("⏺ Reading file src/cli.ts\n0 tokens")).toBe("working");
+    expect(driver.detectActivity("✢ Gitifying… (2m 7s · ↓ 7.8k tokens)\n❯")).toBe("working");
   });
 
   test("claude-code: non-zero token counter without ⏺ = idle (persists after turn)", () => {
@@ -233,7 +432,7 @@ describe("detectActivity", () => {
   test("claude-code: unrecognized output = idle", () => {
     const driver = getDriver("claude-code");
     expect(driver.detectActivity("Press enter to view hooks; esc to close")).toBe("idle");
-    expect(driver.detectActivity("Do you trust the files in this folder?")).toBe("idle");
+    expect(driver.detectActivity("Do you trust the files in this folder?")).toBe("booting");
   });
 
   test("codex: active task = working", () => {
@@ -251,5 +450,35 @@ describe("detectActivity", () => {
     const driver = getDriver("codex");
     expect(driver.detectActivity("Press enter to view hooks; esc to close")).toBe("idle");
     expect(driver.detectActivity("Select Model and Effort\n❯ 1. gpt-5.5")).toBe("idle");
+  });
+});
+
+describe("resumed turn status", () => {
+  test("claude-code ignores a DONE sentinel from an earlier turn", () => {
+    const driver = getDriver("claude-code");
+    expect(driver.detectStatus(
+      "❯ First task\n[AHELPA:DONE]\n❯ Follow-up task\n✢ Working…",
+    )).toBe("running");
+  });
+
+  test("codex ignores NEED_HELP from an earlier turn", () => {
+    const driver = getDriver("codex");
+    expect(driver.detectStatus(
+      "› First task\n[AHELPA:NEED_HELP]\n› Follow-up task\nWorking (1s)",
+    )).toBe("running");
+  });
+
+  test("claude-code still settles when a non-empty idle placeholder trails DONE", () => {
+    const driver = getDriver("claude-code");
+    expect(driver.detectStatus(
+      "❯ Task\n⏺ [AHELPA:DONE]\n❯ Try asking about this codebase",
+    )).toBe("idle");
+  });
+
+  test("codex still settles when its idle placeholder trails DONE", () => {
+    const driver = getDriver("codex");
+    expect(driver.detectStatus(
+      "› Task\n• [AHELPA:DONE]\n› Implement {feature}\n  gpt-5.5 high",
+    )).toBe("idle");
   });
 });

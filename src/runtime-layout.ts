@@ -3,20 +3,27 @@ import { join } from "path";
 
 export interface RuntimeLayoutOptions {
   homeDir?: string;
+  ahelpaDir?: string;
   tmpDir?: string;
 }
 
 export class RuntimeLayout {
   readonly homeDir: string;
+  readonly ahelpaDir: string;
   readonly tmpDir: string;
 
   constructor(options: RuntimeLayoutOptions = {}) {
+    const envAhelpaHome = process.env.AHELPA_HOME?.trim() || undefined;
+    const envTmpDir = process.env.AHELPA_TMP_DIR?.trim() || undefined;
     this.homeDir = options.homeDir ?? homedir();
-    this.tmpDir = options.tmpDir ?? "/tmp/ahelpa";
+    this.ahelpaDir = options.ahelpaDir
+      ?? (options.homeDir ? join(options.homeDir, ".ahelpa") : envAhelpaHome)
+      ?? join(this.homeDir, ".ahelpa");
+    this.tmpDir = options.tmpDir ?? envTmpDir ?? "/tmp/ahelpa";
   }
 
   ahelpaHomeDir(): string {
-    return join(this.homeDir, ".ahelpa");
+    return this.ahelpaDir;
   }
 
   stateDbPath(): string {

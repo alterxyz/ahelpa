@@ -32,14 +32,27 @@ describe("daemon recovery", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  function createSession() {
+  function createSession(agentType = "claude-code", safe = false) {
     const id = `recovery-${crypto.randomUUID()}`;
-    db.createSession({ id, parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: root });
+    db.createSession({ id, parentId: "p", agentType, task: "t", ownerToken: "tok", projectPath: root, safe });
     return id;
   }
 
-  test("completed sessions retain their result, logs, and authorized resume after runtime cleanup", async () => {
-    const id = createSession();
+  test.each(["claude-code", "codex", "kimi"])("%s retains its result, logs, safe posture, and authorized resume after runtime cleanup", async (agentType) => {
+    const id = createSession(agentType, true);
+    const resumeId = agentType === "kimi"
+      ? "session_12345678-1234-1234-1234-123456789abc"
+      : "12345678-1234-1234-1234-123456789abc";
+    const exitOutput = agentType === "claude-code"
+      ? `Resume this session with:\nclaude --resume ${resumeId}`
+      : agentType === "codex"
+        ? `To continue this session, run codex resume ${resumeId}`
+        : `To resume this session: kimi -r ${resumeId}`;
+    const readyOutput = agentType === "claude-code"
+      ? "❯ Earlier task\n[AHELPA:DONE]\n0 tokens\n❯"
+      : agentType === "codex"
+        ? "› Earlier task\n[AHELPA:DONE]\n› Explain this codebase"
+        : `│ Session: ${resumeId} │\n✨ Earlier task\n● [AHELPA:DONE]\n│ > │`;
     let alive = true;
     spyOn(Tmux, "hasSession").mockImplementation(async () => alive);
     spyOn(Tmux, "sendKeys").mockResolvedValue();
@@ -50,7 +63,7 @@ describe("daemon recovery", () => {
 
     await daemon.refreshSessionStatuses(db, [id]);
     expect(db.getSession(id)?.status).toBe("draining");
-    capture.mockResolvedValue("Resume this session with:\nclaude --resume 12345678-1234-1234-1234-123456789abc");
+    capture.mockResolvedValue(exitOutput);
     spyOn(Date, "now").mockReturnValue(Date.now() + 16_000);
     await daemon.refreshSessionStatuses(db, [id]);
 
@@ -64,11 +77,20 @@ describe("daemon recovery", () => {
     expect(await wait(db, [id], false, 50)).toEqual({ sessionId: id, status: "idle" });
     expect(await logs(db, id, "tok")).toBe("[AHELPA:DONE]");
 
-    const create = spyOn(Tmux, "create").mockResolvedValue();
+    const create = spyOn(Tmux, "create").mockImplementation(async () => { alive = true; });
+    capture.mockResolvedValue(readyOutput);
+    spyOn(Bun, "sleep").mockResolvedValue();
     spyOn(FIFO, "create").mockResolvedValue();
     const result = await resume({ db, sessionId: id, ownerToken: "tok" });
     expect(result.resumedFrom).toBe(id);
-    expect(create.mock.calls[0]?.[1]).toContain("12345678-1234-1234-1234-123456789abc");
+    expect(create.mock.calls[0]?.[1]).toContain(resumeId);
+    expect(db.getSession(result.sessionId)?.safe).toBe(true);
+    expect(db.getSession(result.sessionId)?.agentResumeId).toBe(resumeId);
+    expect(db.getSession(result.sessionId)?.status).toBe("needs_attention");
+    const capturesAfterResume = capture.mock.calls.length;
+    await daemon.refreshSessionStatuses(db, [result.sessionId]);
+    expect(capture.mock.calls).toHaveLength(capturesAfterResume);
+    expect(db.getSession(result.sessionId)?.status).toBe("needs_attention");
     await expect(resume({ db, sessionId: id, ownerToken: "wrong" })).rejects.toThrow("Invalid token");
   });
 

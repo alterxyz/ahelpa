@@ -31,12 +31,13 @@ ahelpa CLI ──────────► tmux session
 
 一个 session 从 `running` 开始，可以结算为 `idle`、`error`、`needs_attention` 或 `dead`。成功完成后，在回收终端期间会经过 `draining` 状态。
 
-1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid8}`）和 owner token，写入任务文件，通过选定 driver 创建 tmux session，准备 FIFO，在 SQLite 记录 session，并在需要时启动 daemon。
+1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid12}`）和 owner token，先取得新的 tmux session，再准备文件交接，并通过所选 driver 提交、确认第一轮任务。随后在 SQLite 记录 session、准备 FIFO，并在需要时启动 daemon。如果投递已可见、但尚未确认新回合，launch 会返回 warning，并把 helper 保留为 `needs_attention`，而非终止它。
 2. **任务投递**：driver 的 `prepareForTask` 处理 agent-specific 启动流程，例如 ready 检查和 trust prompt。随后通过 `tmux send-keys` 发送任务指令，告诉 helper 读取哪个任务文件、把结果写到哪里。
-3. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
-4. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、清理 pipe。
-5. **Wakeup**：`wait` 收到 FIFO 事件后返回，调用者从文件交接目录读取结果。
-6. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。
+3. **提交后准备**：driver 的 `afterTaskSubmitted` hook 处理第一条消息后的 agent-specific 确认。Kimi 只有在收到该消息后才会创建原生 `session_*` ID，因此 launch 流程会在这里捕获 resume token。
+4. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
+5. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、清理 pipe。
+6. **Wakeup**：`wait` 收到 FIFO 事件后返回，调用者从文件交接目录读取结果。
+7. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。
 
 ### 状态转换
 
@@ -47,9 +48,11 @@ launch ──► running
               ├── 检测到 [AHELPA:NEED_HELP] ──► error
               ├── 持续无活动 ────────────────► needs_attention
               └── tmux session 消失 ─────────► dead
+
+idle/dead + 原生 resume token ── resume ─► needs_attention ── send/task ─► running
 ```
 
-向 `needs_attention` session 发送输入后，它会恢复为 `running` 并继续监控。如果终端消失，则转为 `dead`。
+向 `needs_attention` session 发送输入后，driver 确认新用户回合已开始，才会恢复为 `running` 并继续监控。如果终端消失，则转为 `dead`。
 
 `still_running` 是 `wait` 的返回值，不是 session 状态。它表示等待超时前 session 还没有 settle。
 
@@ -97,15 +100,19 @@ Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration �
 
 | 职责 | 示例 |
 | --- | --- |
-| Session prefix | `claude`、`codex` |
-| Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox` |
+| Session prefix | `claude`、`codex`、`kimi` |
+| Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
-| 提交后 nudge | 如果输入排队但没提交，补 Enter |
+| 提交后处理 | 必要时补 Enter；捕获新创建的原生 session ID |
 | 状态检测 | 委托 `src/drivers/sentinels.ts` 的暗号匹配 |
 
-当前支持 `claude-code` 和 `codex`。二者共享暗号协议和文件交接路径，只在启动命令和交互细节上不同。
+当前支持 `claude-code`、`codex` 和 `kimi`。三者共享暗号协议和文件交接路径，只在启动命令和交互细节上不同。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust this folder**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
 
-`launch --safe` 会把 safe-mode hint 传给选定 driver。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`。
+`launch --safe` 会把 safe-mode hint 传给选定 driver，并把它写入 session 状态。原生 resume 会继承该姿态；`resume --safe` 可以升级默认姿态记录，但省略参数不会把 safe 记录降级。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`；Kimi 会省略 `--yolo`，从而恢复自身原生审批流程。Kimi 在 safe mode 下仍会自动信任项目目录，因此它的 safe mode 不是 sandbox。
+
+Kimi 会设置 canonical `KIMI_CODE_NO_AUTO_UPDATE=1`，避免 CLI 自更新中断持久 tmux session。它默认不带模型参数启动，使用其 `config.toml` 中的默认模型。launch 时传入的 `--model` 必须与该文件中已配置的完整 alias 精确匹配；如果存在，resume 会沿用它。Kimi 不支持 `--effort`，也不支持运行中的 `ahelpa model` 切换。
+
+Kimi 打印 `[AHELPA:DONE]` 后，旧 helper 仍在 draining 时 `resume` 会被拒绝。host 可以等待 daemon 回收终端且 `check` 显示 `idle`，也可以显式 `kill` 后再恢复。所有已结算记录都会保留到 `clean`；已完成及旧版 dead 记录只要带有 `agentResumeId` 就可以恢复。`clean` 仅在终端已回收后删除已结算记录及其 resume 元数据；live、draining 和 attention session 会保留。持久性指通过原生 Kimi session 在新 tmux session 中重新连接，而不是无限保留原 tmux process。
 
 ## Nesting
 
@@ -142,3 +149,4 @@ Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`�
 | `drivers/registry.ts` | 按 agent type 查找 driver |
 | `drivers/claude-code.ts` | Claude Code driver |
 | `drivers/codex.ts` | Codex driver |
+| `drivers/kimi.ts` | Kimi Code driver |

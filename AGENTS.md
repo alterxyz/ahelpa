@@ -26,7 +26,7 @@ Instructions for agents working on the ahelpa codebase.
 - `src/cli.ts` — process entry point
 - `src/command-contract.ts` — command registry (single source of truth for CLI surface)
 - `src/commands/` — launch, wait, session-ops
-- `src/drivers/` — agent-specific adapters (claude-code, codex)
+- `src/drivers/` — agent-specific adapters (claude-code, codex, kimi)
 - `tests/` — Bun test suite
 - `scripts/` — build, deploy, packaging, closure gate
 - `skill/` — skill package source (docs + generated bundle during local packaging)
@@ -67,7 +67,7 @@ Before closing local runtime work:
 bun run closure:gate
 ```
 
-The gate runs tests, typechecks, builds, and launches both drivers. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
+The gate runs tests, typechecks, builds, and launches all three drivers. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
 
 ## Guardrails
 

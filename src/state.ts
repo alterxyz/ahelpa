@@ -18,6 +18,7 @@ export interface SessionRecord {
   resumedFrom?: string | null;
   model?: string | null;
   effort?: string | null;
+  safe: boolean;
 }
 
 export interface CreateSessionInput {
@@ -32,6 +33,7 @@ export interface CreateSessionInput {
   resumedFrom?: string;
   model?: string | null;
   effort?: string | null;
+  safe?: boolean;
 }
 
 interface SessionRow {
@@ -50,6 +52,7 @@ interface SessionRow {
   resumed_from: string | null;
   model: string | null;
   effort: string | null;
+  safe: number;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -69,6 +72,7 @@ function rowToRecord(row: SessionRow): SessionRecord {
     resumedFrom: row.resumed_from,
     model: row.model,
     effort: row.effort,
+    safe: row.safe === 1,
   };
 }
 
@@ -107,7 +111,8 @@ export class StateDB {
         updated_at TEXT NOT NULL,
         label TEXT,
         model TEXT,
-        effort TEXT
+        effort TEXT,
+        safe INTEGER NOT NULL DEFAULT 0
       )
     `);
     const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
@@ -133,14 +138,18 @@ export class StateDB {
     if (!columns.some((column) => column.name === "effort")) {
       this.db.exec("ALTER TABLE sessions ADD COLUMN effort TEXT");
     }
+    // Migration: preserve the launch permission posture across native resume.
+    if (!columns.some((column) => column.name === "safe")) {
+      this.db.exec("ALTER TABLE sessions ADD COLUMN safe INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   createSession(input: CreateSessionInput): SessionRecord {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -156,6 +165,7 @@ export class StateDB {
       input.resumedFrom ?? null,
       input.model ?? null,
       input.effort ?? null,
+      input.safe ? 1 : 0,
     );
     return this.getSession(input.id) as SessionRecord;
   }

@@ -5,6 +5,7 @@ import { runCli } from "../src/command-contract";
 import { Tmux } from "../src/tmux";
 import * as daemon from "../src/daemon";
 import { FIFO } from "../src/fifo";
+import { defaultRuntimeLayout } from "../src/runtime-layout";
 
 const TEST_DB = "/tmp/ahelpa-dispatch-test.db";
 const TEST_PROJECT = "/tmp/ahelpa-dispatch-project";
@@ -32,7 +33,10 @@ describe("cli dispatch", () => {
       try { if (existsSync(path)) unlinkSync(path); } catch {}
     }
     try { if (existsSync(TEST_TASK_FILE)) unlinkSync(TEST_TASK_FILE); } catch {}
-    try { if (existsSync("/tmp/ahelpa/ahelpa-task-task-cli-1.md")) unlinkSync("/tmp/ahelpa/ahelpa-task-task-cli-1.md"); } catch {}
+    try {
+      const taskPath = defaultRuntimeLayout.taskFilePath("task-cli-1");
+      if (existsSync(taskPath)) unlinkSync(taskPath);
+    } catch {}
     rmSync(TEST_PROJECT, { recursive: true, force: true });
   });
 
@@ -244,7 +248,10 @@ describe("cli dispatch", () => {
     mkdirSync(TEST_PROJECT, { recursive: true });
     spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
     spyOn(Tmux, "create").mockResolvedValue();
-    spyOn(Tmux, "capture").mockResolvedValue("Working (1s)");
+    spyOn(Tmux, "capture")
+      .mockResolvedValueOnce("› Implement {feature}")
+      .mockResolvedValueOnce("› Implement {feature}")
+      .mockResolvedValue("› t\nWorking (1s)");
     spyOn(Tmux, "sendKeys").mockResolvedValue();
     spyOn(FIFO, "create").mockResolvedValue();
     spyOn(Bun, "sleep").mockResolvedValue();
@@ -293,7 +300,8 @@ describe("cli dispatch", () => {
 
     expect(code).toBe(0);
     expect(captured.out[0]).toBe("task sent");
-    expect(readFileSync("/tmp/ahelpa/ahelpa-task-task-cli-1.md", "utf-8")).toBe("new task body");
+    expect(readFileSync(defaultRuntimeLayout.taskFilePath("task-cli-1"), "utf-8"))
+      .toBe("new task body");
     expect(existsSync(`${TEST_PROJECT}/.ahelpa/task-cli-1/artifacts`)).toBe(true);
     expect(sendKeysSpy).toHaveBeenCalledTimes(1);
     const instruction = sendKeysSpy.mock.calls[0]?.[1];

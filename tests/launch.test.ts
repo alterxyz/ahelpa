@@ -1,10 +1,11 @@
 import { describe, test, expect, afterEach, spyOn, mock } from "bun:test";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
-import { launch, planLaunch } from "../src/commands/launch";
+import { executeLaunch, launch, planLaunch } from "../src/commands/launch";
 import { FIFO } from "../src/fifo";
 import * as daemon from "../src/daemon";
-import { unlinkSync, existsSync, rmSync, mkdirSync } from "fs";
+import { unlinkSync, existsSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { defaultRuntimeLayout } from "../src/runtime-layout";
 
 const TEST_DB = "/tmp/ahelpa-launch-test.db";
 const TEST_PROJECT = "/tmp/ahelpa-launch-test-project";
@@ -27,13 +28,14 @@ describe("launch", () => {
   });
 
   test("creates session with correct shape and records in SQLite", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
 
     const result = await launch({
       db,
       agentType: "claude-code",
       task: "echo hello",
-      projectPath: "/tmp",
+      projectPath: TEST_PROJECT,
       parentId: "test-parent",
       label: "test-launch",
     });
@@ -56,7 +58,7 @@ describe("launch", () => {
     expect(record!.status).toBe("running");
     expect(record!.agentType).toBe("claude-code");
     expect(record!.task).toBe("echo hello");
-    expect(record!.projectPath).toBe("/tmp");
+    expect(record!.projectPath).toBe(TEST_PROJECT);
     expect(record!.ownerToken).toBe(result.ownerToken);
     expect(record!.label).toBe("test-launch");
 
@@ -79,8 +81,13 @@ describe("launch", () => {
       callOrder.push("daemon");
     });
     spyOn(Tmux, "create").mockResolvedValue();
-    spyOn(Tmux, "sendKeys").mockResolvedValue();
-    spyOn(Tmux, "capture").mockResolvedValue("[AHELPA:DONE]");
+    let taskSent = false;
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    spyOn(Tmux, "capture").mockImplementation(async () => taskSent
+      ? "❯ Please read and complete the task described in a file.\n⏺ Working"
+      : "❯\n0 tokens");
     spyOn(FIFO, "create").mockResolvedValue();
     spyOn(Bun, "sleep").mockResolvedValue();
 
@@ -105,14 +112,19 @@ describe("launch", () => {
 
     spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
     const tmuxCreateSpy = spyOn(Tmux, "create").mockResolvedValue();
-    const sendKeysSpy = spyOn(Tmux, "sendKeys").mockResolvedValue();
-    spyOn(Tmux, "capture")
-      .mockResolvedValueOnce([
-        "Tip: New For a limited time, Codex is included in your plan for free - let's build together.",
-        "",
-        "• Starting MCP servers (0/2): codex_apps, vercel",
-      ].join("\n"))
-      .mockResolvedValue("Working (1s)");
+    let taskSent = false;
+    const sendKeysSpy = spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    let captures = 0;
+    spyOn(Tmux, "capture").mockImplementation(async () => {
+      captures++;
+      if (captures === 1) {
+        return "• Starting MCP servers (0/2): codex_apps, vercel";
+      }
+      if (!taskSent) return "› Implement {feature}";
+      return "› Please read and complete the task described in a file.\nWorking (1s)";
+    });
     spyOn(FIFO, "create").mockResolvedValue();
     spyOn(Bun, "sleep").mockResolvedValue();
 
@@ -134,11 +146,44 @@ describe("launch", () => {
     expect(sendKeysSpy).toHaveBeenCalledTimes(1);
     const instruction = sendKeysSpy.mock.calls[0]?.[1];
     expect(instruction).toContain("Please read and complete the task described in");
-    expect(instruction).toContain("/tmp/ahelpa/ahelpa-task-");
+    expect(instruction).toContain(`${defaultRuntimeLayout.tmpDir}/ahelpa-task-`);
     expect(instruction).toContain(`${TEST_PROJECT}/.ahelpa/${result.sessionId}`);
     expect(instruction).toContain(`${TEST_PROJECT}/.ahelpa/${result.sessionId}/summary.md`);
     expect(instruction).toContain(`${TEST_PROJECT}/.ahelpa/${result.sessionId}/artifacts`);
     expect(existsSync(`${TEST_PROJECT}/.ahelpa/${result.sessionId}/artifacts`)).toBe(true);
+  });
+
+  test("keeps an unsupported Codex model turn for daemon error settlement", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(Tmux, "create").mockResolvedValue();
+    let taskSent = false;
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    spyOn(Tmux, "capture").mockImplementation(async () => taskSent
+      ? [
+          "› Please read and complete the task described in /tmp/ahelpa/task.md.",
+          "ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"message\":\"The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.\"}}",
+          "› Explain this codebase",
+        ].join("\n")
+      : "› Implement {feature}");
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+
+    const result = await launch({
+      db,
+      agentType: "codex",
+      task: "review with requested model",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+      model: "gpt-5.6",
+    });
+    sessionId = result.sessionId;
+
+    expect(db.getSession(result.sessionId)?.status).toBe("running");
   });
 
   test("planLaunch returns a data object without side effects", () => {
@@ -196,6 +241,245 @@ describe("launch", () => {
     expect(plan.launchCmd).toContain("-c 'model_reasoning_effort=\"high\"'");
     expect(plan.input.model).toBe("gpt-5.5");
     expect(plan.input.effort).toBe("high");
+  });
+
+  test("isolated runtime roots are inherited by nested helper launches", () => {
+    db = new StateDB(TEST_DB);
+    const previousHome = process.env.AHELPA_HOME;
+    const previousTmp = process.env.AHELPA_TMP_DIR;
+    try {
+      process.env.AHELPA_HOME = "/tmp/ahelpa nested/state";
+      process.env.AHELPA_TMP_DIR = "/tmp/ahelpa nested/runtime";
+
+      const plan = planLaunch({
+        db,
+        agentType: "codex",
+        task: "nested isolation",
+        projectPath: "/tmp/nonexistent",
+        parentId: "test-parent",
+      });
+
+      expect(plan.launchCmd).toContain("AHELPA_HOME='/tmp/ahelpa nested/state'");
+      expect(plan.launchCmd).toContain("AHELPA_TMP_DIR='/tmp/ahelpa nested/runtime'");
+    } finally {
+      if (previousHome === undefined) delete process.env.AHELPA_HOME;
+      else process.env.AHELPA_HOME = previousHome;
+      if (previousTmp === undefined) delete process.env.AHELPA_TMP_DIR;
+      else process.env.AHELPA_TMP_DIR = previousTmp;
+    }
+  });
+
+  test("captures a Kimi resume token after the first task creates it", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(Tmux, "create").mockResolvedValue();
+    let taskSent = false;
+    const sendKeysSpy = spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    spyOn(Tmux, "capture").mockImplementation(async () => taskSent
+      ? [
+          "Welcome to Kimi Code!",
+          "│  Session:   session_bce9aed7-8ee0-42ba-8ee8-5326e673db72  │",
+          "✨ Please read and complete the task described in /tmp/task.md.",
+        ].join("\n")
+      : [
+          "Welcome to Kimi Code!",
+          "│  Session:   │",
+          "│ >   │",
+          "context: 0% (0/977k)",
+        ].join("\n"));
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+
+    const result = await launch({
+      db,
+      agentType: "kimi",
+      task: "echo hello",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    });
+    sessionId = result.sessionId;
+
+    expect(result.sessionId).toMatch(/^kimi-/);
+    expect(db.getSession(result.sessionId)?.agentResumeId)
+      .toBe("session_bce9aed7-8ee0-42ba-8ee8-5326e673db72");
+    expect(sendKeysSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not fail launch when post-submit resume-token capture fails", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(Tmux, "create").mockResolvedValue();
+    let taskSent = false;
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    let captures = 0;
+    spyOn(Tmux, "capture").mockImplementation(async () => {
+      captures++;
+      if (!taskSent) {
+        return "Welcome to Kimi Code!\n│  Session:   │\n│ >   │";
+      }
+      if (captures === 3) {
+        return "Welcome to Kimi Code!\n│  Session:   session_early-token  │\n✨ task";
+      }
+      throw new Error("capture failed");
+    });
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+
+    const result = await launch({
+      db,
+      agentType: "kimi",
+      task: "echo hello",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    });
+    sessionId = result.sessionId;
+
+    expect(db.getSession(result.sessionId)?.agentResumeId).toBeNull();
+  });
+
+  test("cleans up a new tmux session when Kimi never becomes ready", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(Tmux, "capture").mockResolvedValue(
+      "Trust this folder?\n   Trust this folder\n ❯ Don't trust",
+    );
+    spyOn(Tmux, "sendKey").mockResolvedValue();
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+
+    await expect(launch({
+      db,
+      agentType: "kimi",
+      task: "echo hello",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    })).rejects.toThrow("did not reach its input prompt");
+
+    expect(killSpy).toHaveBeenCalledTimes(1);
+    expect(db.listSessions()).toHaveLength(0);
+  });
+
+  test("does not reclaim unowned resources when tmux creation fails", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const plan = planLaunch({
+      db,
+      agentType: "kimi",
+      task: "echo hello",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    });
+
+    spyOn(Tmux, "create").mockRejectedValue(new Error("tmux create failed"));
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+
+    await expect(executeLaunch(plan)).rejects.toThrow("tmux create failed");
+
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(existsSync(plan.fileHandoff.taskFilePath)).toBe(false);
+    expect(existsSync(plan.fileHandoff.sessionDeliveryDir)).toBe(false);
+    expect(db.getSession(plan.sessionId)).toBeNull();
+  });
+
+  test("refuses to overwrite pre-existing handoff resources", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const plan = planLaunch({
+      db,
+      agentType: "kimi",
+      task: "new task",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    });
+    mkdirSync(plan.fileHandoff.sessionDeliveryDir, { recursive: true });
+    mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+    writeFileSync(plan.fileHandoff.taskFilePath, "existing task");
+    writeFileSync(plan.fileHandoff.summaryPath, "existing summary");
+    const createSpy = spyOn(Tmux, "create").mockResolvedValue();
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+
+    try {
+      await expect(executeLaunch(plan)).rejects.toThrow("Refusing to overwrite");
+
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(killSpy).not.toHaveBeenCalled();
+      expect(readFileSync(plan.fileHandoff.taskFilePath, "utf-8")).toBe("existing task");
+      expect(readFileSync(plan.fileHandoff.summaryPath, "utf-8")).toBe("existing summary");
+    } finally {
+      try { unlinkSync(plan.fileHandoff.taskFilePath); } catch {}
+      rmSync(plan.fileHandoff.sessionDeliveryDir, { recursive: true, force: true });
+    }
+  });
+
+  test("cleans up when the helper never acknowledges the submitted task", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    spyOn(Tmux, "create").mockResolvedValue();
+    let taskSent = false;
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    spyOn(Tmux, "capture").mockImplementation(async () => taskSent
+      ? "❯ queued task with inline [AHELPA:DONE] text\n123 tokens"
+      : "0 tokens\n❯ Try asking about this codebase");
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+
+    await expect(launch({
+      db,
+      agentType: "claude-code",
+      task: "echo hello",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    })).rejects.toThrow("did not expose the submitted task as a new turn");
+
+    expect(killSpy).toHaveBeenCalledTimes(1);
+    expect(db.listSessions()).toHaveLength(0);
+  });
+
+  test("keeps a delivered-but-unconfirmed task alive as needs_attention", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(Tmux, "create").mockResolvedValue();
+    let taskSent = false;
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    // Echo visible, no turn evidence: afterTaskSubmitted returns false.
+    spyOn(Tmux, "capture").mockImplementation(async () => taskSent
+      ? "› Please read and complete the task described in /tmp/ahelpa/task.md."
+      : "› Implement {feature}");
+    spyOn(FIFO, "create").mockResolvedValue();
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
+
+    const result = await launch({
+      db,
+      agentType: "codex",
+      task: "echo hello",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    });
+    sessionId = result.sessionId;
+
+    expect(result.warning).toContain("needs_attention");
+    expect(db.getSession(result.sessionId)?.status).toBe("needs_attention");
+    expect(killSpy).not.toHaveBeenCalled();
+    expect(existsSync(`${TEST_PROJECT}/.ahelpa/${result.sessionId}/artifacts`)).toBe(true);
   });
 
   test("planLaunch rejects beyond max nesting depth without side effects", () => {

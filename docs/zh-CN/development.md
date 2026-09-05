@@ -10,6 +10,8 @@
 
 `jq` 对 shell 示例有用，但 runtime 本身不依赖它。
 
+端到端 gate 还要求对应 driver 的 helper CLI 已完成认证。可用 `command -v claude`、`command -v codex` 和 `command -v kimi` 检查二进制；认证状态则应通过各 CLI 自己的状态命令或一次无害请求确认。
+
 ## 仓库布局
 
 ```text
@@ -106,7 +108,7 @@ bash scripts/deploy-local.sh
 ahelpa install-skill --source ./skill
 ```
 
-`install-skill` 会把安装交给 `npx skills@latest`，不重新实现 agent skill 安装逻辑。策略固定为：全局作用域、hard-copy 模式、显式安装 `codex` + `claude-code`。请确保 `~/.ahelpa/bin` 在 `PATH` 中。
+`install-skill` 会把安装交给 `npx skills@latest`，不重新实现 agent skill 安装逻辑。策略固定为：全局作用域、hard-copy 模式、显式安装 `codex` + `claude-code` + `kimi-code-cli`。请确保 `~/.ahelpa/bin` 在 `PATH` 中。
 
 公开安装使用 release installer：
 
@@ -124,9 +126,13 @@ curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/instal
 bun test
 ```
 
+Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，并在测试结束后删除这些目录。因此 unit/integration test 不会把 session 状态、archive、FIFO 或任务文件写进用户正在使用的 ahelpa runtime。
+
 ## Closure gate
 
-影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证两个 supported driver。每个 helper 使用独立的临时项目。
+影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证三个 supported driver。Codex 和 Kimi 使用稳定的 `tests/fixtures/closure` 工作区，Claude Code 使用仓库根目录；任务只允许访问指定任务文件和结果目录。
+
+脚本为 gate 单独设置 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，因此它的 SQLite 状态、daemon、archive、FIFO 和任务文件不会干扰用户正在运行的 ahelpa session。helper CLI 仍使用正常的 OS home 和既有认证状态。
 
 ```bash
 bun run closure:gate
@@ -139,9 +145,17 @@ bun run closure:gate
 - helper 将要求的精确内容写入指定的 `summary.md`
 - `kill` 回收 tmux session，且 `check` 确认 session 已不再活跃
 
-超时、任务文本回显和账号错误都会使 gate 失败。日志仅用于诊断，daemon 已回收 tmux 时也可以读取。检查失败时仍会尝试终止本轮启动的 helper，不处理其他 session。输出中的 evidence 目录保留 summary 和命令结果。
+超时、任务文本回显和账号错误都会使 gate 失败。日志仅用于诊断，daemon 已回收 tmux 时也可以读取。检查失败时仍会尝试终止本轮启动的 helper，不处理其他 session。输出中的 evidence 目录保留 summary 和命令结果。 gate 先将自己的结果目录复制到 evidence，再移除自己在 fixture 中创建的交接文件，最后只停止本轮隔离的 daemon。
 
-**前置条件**：`claude` 和 `codex` 两个 helper CLI 都需要在本机完成登录。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
+Kimi 还会在 `kill` 和 `resume` 后完成第二个任务。gate 要求保留原生 session ID、恢复后的 helper 处于等待新任务的 `needs_attention` 状态，并在新 summary 中准确写出第一轮记住的上下文标记。
+
+验证已安装 binary 时，可指定可执行文件的绝对路径，使用同一套检查：
+
+```bash
+AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
+```
+
+**前置条件**：`claude`、`codex` 和 `kimi` 三个 helper CLI 都需要在本机完成登录。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
 
 ## 添加 driver
 

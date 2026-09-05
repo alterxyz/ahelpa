@@ -12,7 +12,8 @@ import { getSessionNestingInfo } from "../nesting";
 import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff } from "../file-handoff";
 import { getDriver } from "../drivers/registry";
-import type { DriverRuntime, ModelSwitchOptions } from "../drivers/types";
+import type { DriverRuntime, ModelSwitchOptions, TaskSubmissionContext } from "../drivers/types";
+import * as daemon from "../daemon";
 import { ModelSwitchAppliedError } from "../drivers/types";
 import { readFileSync, unlinkSync, readdirSync } from "fs";
 import { join } from "path";
@@ -28,11 +29,44 @@ function withAuth<TArgs extends any[], TResult>(
   };
 }
 
+function canResumeMonitoring(session: SessionRecord): boolean {
+  return session.status === SESSION_STATUS.NeedsAttention
+    || session.status === SESSION_STATUS.Error;
+}
+
+async function captureSubmissionContext(sessionId: string): Promise<TaskSubmissionContext> {
+  try {
+    return { beforeOutput: await driverRuntime.capture(sessionId, 80) };
+  } catch {
+    return {};
+  }
+}
+
+async function resumeMonitoringAfterIntervention(
+  db: StateDB,
+  session: SessionRecord,
+  context: TaskSubmissionContext,
+): Promise<void> {
+  const driver = getDriver(session.agentType);
+  const submitted = await driver.afterTaskSubmitted(session.id, driverRuntime, context);
+  if (!submitted) {
+    throw new Error(
+      `Message was sent, but ${session.agentType} did not expose a new turn; session remains ${session.status}`,
+    );
+  }
+  await defaultWakeup.prepare(session.id);
+  db.updateStatus(session.id, SESSION_STATUS.Running);
+  if (!daemon.isDaemonRunning()) daemon.startDaemon();
+}
+
 export const send = withAuth(async ({ db, session }, message: string) => {
+  const submissionContext = canResumeMonitoring(session)
+    ? await captureSubmissionContext(session.id)
+    : {};
   await Tmux.sendKeys(session.id, message);
   // Host intervened — resume daemon monitoring
-  if (session.status === SESSION_STATUS.NeedsAttention) {
-    db.updateStatus(session.id, SESSION_STATUS.Running);
+  if (canResumeMonitoring(session)) {
+    await resumeMonitoringAfterIntervention(db, session, submissionContext);
   }
 });
 
@@ -40,11 +74,17 @@ export const capture = withAuth(async ({ session }, lines: number = 50) => {
   return Tmux.capture(session.id, lines);
 });
 
-export const sendTask = withAuth(async ({ session }, filePath: string) => {
+export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   const content = readFileSync(filePath, "utf-8");
   const fileHandoff = planFileHandoff(session.projectPath, session.id);
   prepareFileHandoff(fileHandoff, content);
+  const submissionContext = canResumeMonitoring(session)
+    ? await captureSubmissionContext(session.id)
+    : {};
   await Tmux.sendKeys(session.id, fileHandoff.taskInstruction);
+  if (canResumeMonitoring(session)) {
+    await resumeMonitoringAfterIntervention(db, session, submissionContext);
+  }
 });
 
 const driverRuntime: DriverRuntime = {

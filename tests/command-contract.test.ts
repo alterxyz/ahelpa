@@ -54,8 +54,11 @@ describe("command contract", () => {
     expect(text).toContain("gpt-5.6-terra (effort: low, medium, high, xhigh, max, ultra; default: medium)");
     expect(text).toContain("gpt-5.6-luna (effort: low, medium, high, xhigh, max; default: medium)");
     expect(text).toContain("gpt-5.5 (effort: low, medium, high, xhigh; default: medium)");
+    expect(text).toContain("gpt-5.2 (effort: low, medium, high, xhigh; default: medium)");
+    expect(text).not.toContain("gpt-5.3-codex-spark");
     expect(text).toContain("claude-code");
     expect(text).toContain("sonnet");
+    expect(text).toContain("kimi");
   });
 
   test("renders one agent model catalog by name", () => {

@@ -29,10 +29,26 @@ describe("StateDB", () => {
     });
     expect(session.id).toBe("claude-abc12345");
     expect(session.status).toBe("running");
+    expect(session.safe).toBe(false);
 
     const found = db.getSession("claude-abc12345");
     expect(found).not.toBeNull();
     expect(found!.task).toBe("Refactor auth module");
+  });
+
+  test("persists safe posture", () => {
+    const session = db.createSession({
+      id: "kimi-safe",
+      parentId: "parent-1",
+      agentType: "kimi",
+      task: "Safe task",
+      ownerToken: "tok-safe",
+      projectPath: "/tmp/project",
+      safe: true,
+    });
+
+    expect(session.safe).toBe(true);
+    expect(db.getSession("kimi-safe")?.safe).toBe(true);
   });
 
   test("updates session status", () => {

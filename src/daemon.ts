@@ -64,7 +64,11 @@ async function finishMissingSession(db: StateDB, archive: Archive, session: Sess
   cleanupSessionFiles(session.id);
 }
 
-export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[]): Promise<void> {
+export async function refreshSessionStatuses(
+  db: StateDB,
+  sessionIds?: string[],
+  nowMs: number = Date.now(),
+): Promise<void> {
   const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const targetIds = sessionIds ? new Set(sessionIds) : null;
   const sessions = db.listSessions()
@@ -97,9 +101,11 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
 
         // Inline refresh and restarted daemons must honor the existing drain
         // window instead of killing immediately because their map is empty.
-        const startedAt = drainingAt.get(session.id) ?? Date.parse(session.updatedAt);
+        const persistedStartedAt = Date.parse(session.updatedAt);
+        const startedAt = drainingAt.get(session.id)
+          ?? (Number.isFinite(persistedStartedAt) ? persistedStartedAt : nowMs);
         drainingAt.set(session.id, startedAt);
-        if (Date.now() - startedAt > DRAIN_TIMEOUT_MS) {
+        if (nowMs - startedAt > DRAIN_TIMEOUT_MS) {
           await Tmux.kill(session.id);
           await finishMissingSession(db, archive, session);
           log(`${session.id}: drain complete, runtime cleaned up`);
@@ -121,7 +127,7 @@ export async function refreshSessionStatuses(db: StateDB, sessionIds?: string[])
         if (newStatus === SESSION_STATUS.Idle) {
           try { await driver.gracefulExit(session.id, driverRuntime); } catch {}
           db.updateStatus(session.id, SESSION_STATUS.Draining);
-          drainingAt.set(session.id, Date.now());
+          drainingAt.set(session.id, nowMs);
           log(`${session.id}: sent graceful exit, draining`);
         }
       } else if (driver.detectActivity(output) !== "idle") {

@@ -5,9 +5,13 @@ import { check } from "../src/commands/session-ops";
 import { capture } from "../src/commands/session-ops";
 import { kill } from "../src/commands/session-ops";
 import { Tmux } from "../src/tmux";
-import { unlinkSync } from "fs";
+import { rmSync, rmdirSync, unlinkSync } from "fs";
+import { join } from "path";
 
 const TEST_DB = "/tmp/ahelpa-integration-test.db";
+// The repository root is a stable Claude workspace. Random temporary projects
+// leave orphaned workspace-trust paths and can stall on the trust menu.
+const TEST_PROJECT = join(import.meta.dir, "..");
 const createdSessions: string[] = [];
 
 describe("integration", () => {
@@ -21,6 +25,10 @@ describe("integration", () => {
     try { unlinkSync(TEST_DB); } catch {}
     try { unlinkSync(TEST_DB + "-wal"); } catch {}
     try { unlinkSync(TEST_DB + "-shm"); } catch {}
+    for (const id of createdSessions) {
+      rmSync(join(TEST_PROJECT, ".ahelpa", id), { recursive: true, force: true });
+    }
+    try { rmdirSync(join(TEST_PROJECT, ".ahelpa")); } catch {}
   });
 
   test("full lifecycle: launch → check → capture → kill", async () => {
@@ -31,7 +39,7 @@ describe("integration", () => {
       db,
       agentType: "claude-code",
       task: "echo 'hello from helper'",
-      projectPath: "/tmp",
+      projectPath: TEST_PROJECT,
       parentId: "integration-test",
     });
     createdSessions.push(result.sessionId);

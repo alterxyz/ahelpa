@@ -28,10 +28,10 @@ describe("Codex Driver", () => {
     expect(driver.detectStatus("still working")).toBe("running");
   });
 
-  test("codex detects an unsupported ChatGPT-account model request as error", () => {
+  test.each(["", "› "])("codex detects an unsupported ChatGPT-account model request with prefix %j", (prefix) => {
     const driver = getDriver("codex");
     const output = [
-      "Please read and complete the task described in /tmp/ahelpa/task.md.",
+      `${prefix}Please read and complete the task described in /tmp/ahelpa/task.md.`,
       "■ {\"type\":\"error\",\"status\":400,\"error\":",
       "{\"message\":\"The 'gpt-5.6' model is not supported",
       "when using Codex with a ChatGPT account.\"}}",
@@ -41,7 +41,20 @@ describe("Codex Driver", () => {
     expect(driver.detectStatus(output)).toBe("error");
   });
 
-  test("codex ignores a stale unsupported-model error after later task progress", () => {
+  test("codex ignores a stale unsupported-model error after a later working turn", () => {
+    const driver = getDriver("codex");
+    const output = [
+      "› Please read and complete the task described in /tmp/old-task.md.",
+      "ERROR: The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.",
+      "› Follow-up task",
+      "Working (1s)",
+      "• Reading file src/cli.ts",
+    ].join("\n");
+
+    expect(driver.detectStatus(output)).toBe("running");
+  });
+
+  test("codex ignores a stale unsupported-model error after later task progress without a turn marker", () => {
     const driver = getDriver("codex");
     const output = [
       "ERROR: The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.",
@@ -52,10 +65,10 @@ describe("Codex Driver", () => {
     expect(driver.detectStatus(output)).toBe("running");
   });
 
-  test("codex ignores unsupported-model error text quoted after task progress", () => {
+  test.each(["", "› "])("codex ignores unsupported-model error text quoted after task progress with prefix %j", (prefix) => {
     const driver = getDriver("codex");
     const output = [
-      "Please read and complete the task described in /tmp/ahelpa/task.md.",
+      `${prefix}Please read and complete the task described in /tmp/ahelpa/task.md.`,
       "Working (1s)",
       "• Ran codex exec --model gpt-5.6",
       "ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"message\":\"The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.\"}}",

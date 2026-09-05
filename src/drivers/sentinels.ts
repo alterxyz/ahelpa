@@ -9,7 +9,7 @@ export const SENTINEL = {
 
 function matchesStandaloneSentinel(captureOutput: string, sentinel: string): boolean {
   const escaped = sentinel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const pattern = new RegExp(`(^|\\n)\\s*(?:[-•⏺]\\s*)?${escaped}\\s*(?=$|\\n)`, "m");
+  const pattern = new RegExp(`(^|\\n)\\s*(?:[-•●⏺]\\s*)?${escaped}\\s*(?=$|\\n)`, "m");
   return pattern.test(captureOutput);
 }
 

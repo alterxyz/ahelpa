@@ -1,6 +1,21 @@
 import { $ } from "bun";
 import { shellEscape } from "./shell";
 
+function stderrText(error: unknown): string {
+  if (typeof error !== "object" || error === null || !("stderr" in error)) return "";
+  const stderr = error.stderr;
+  if (typeof stderr === "string") return stderr;
+  if (stderr instanceof Uint8Array) return new TextDecoder().decode(stderr);
+  return "";
+}
+
+export function isMissingTmuxSessionError(error: unknown): boolean {
+  const stderr = stderrText(error).trim();
+  return /^can't find session: .+$/m.test(stderr)
+    || /^no server running on .+$/m.test(stderr)
+    || /^no sessions$/m.test(stderr);
+}
+
 export class Tmux {
   static async create(name: string, command: string): Promise<void> {
     // Wrap command so the session persists after the command exits
@@ -36,7 +51,12 @@ export class Tmux {
   }
 
   static async kill(name: string): Promise<void> {
-    await $`tmux kill-session -t ${name}`.quiet();
+    try {
+      await $`tmux kill-session -t ${name}`.quiet();
+    } catch (error) {
+      if (isMissingTmuxSessionError(error)) return;
+      throw error;
+    }
   }
 
   static async listSessions(): Promise<string[]> {

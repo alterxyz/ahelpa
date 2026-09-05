@@ -22,6 +22,8 @@ describe("install-skill", () => {
       "codex",
       "--agent",
       "claude-code",
+      "--agent",
+      "kimi-code-cli",
     ]);
   });
 
