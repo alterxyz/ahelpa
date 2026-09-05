@@ -43,11 +43,11 @@ Safe mode is a lower-permission launch posture, not a separate OS user or VM. Se
 ```bash
 ahelpa models
 ahelpa models codex
-ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
+ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
 
-`models [agent]` prints the static model catalog known to this ahelpa release. `--model` starts the helper with the selected model. `--effort` is passed through when the selected agent supports launch-time effort settings. `resume` reuses the recorded launch model and effort automatically.
+`models [agent]` prints the static model catalog known to this ahelpa release. `--model` starts the helper with the selected model. For Codex, `gpt-5.6` is a stable convenience alias that launches `gpt-5.6-sol`; use `gpt-5.6-terra` or `gpt-5.6-luna` explicitly when you want those variants. `--effort` is passed through when the selected agent supports launch-time effort settings. `resume` reuses the recorded launch model and effort automatically.
 
 ## Switch a Running Helper Model
 

@@ -96,12 +96,12 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 ## Choosing a Model at Launch
 
-Use `ahelpa models` or `ahelpa models codex` to inspect the static model catalog known to this ahelpa release. Pass `--model <model>` to `launch` when a helper should start on a specific model. Pass `--effort <level>` when the selected agent supports launch-time effort settings. `resume` reuses the recorded launch model and effort automatically.
+Use `ahelpa models` or `ahelpa models codex` to inspect the static model catalog known to this ahelpa release. Pass `--model <model>` to `launch` when a helper should start on a specific model. For Codex, `gpt-5.6` is a stable convenience alias for `gpt-5.6-sol`; select `gpt-5.6-terra` or `gpt-5.6-luna` explicitly for those variants. Pass `--effort <level>` when the selected agent supports launch-time effort settings. `resume` reuses the recorded launch model and effort automatically.
 
 Examples:
 
 ```bash
-ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
+ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
 

@@ -65,6 +65,26 @@ describe("Drivers", () => {
     expect(cmd).toContain("-c 'model_reasoning_effort=\"xhigh\"'");
   });
 
+  test("codex routes the gpt-5.6 alias to gpt-5.6-sol for launch and resume", () => {
+    const driver = getDriver("codex");
+    const launch = driver.buildLaunchCommand({
+      cwd: "/tmp/project",
+      model: "gpt-5.6",
+      effort: "xhigh",
+    });
+    const resume = driver.buildResumeCommand({
+      cwd: "/tmp/project",
+      resumeId: "resume-token",
+      model: "gpt-5.6",
+      effort: "xhigh",
+    });
+
+    expect(launch).toContain("--model 'gpt-5.6-sol'");
+    expect(launch).not.toContain("--model 'gpt-5.6'");
+    expect(resume).toContain("--model 'gpt-5.6-sol'");
+    expect(resume).not.toContain("--model 'gpt-5.6'");
+  });
+
   test("codex hooks trust screens trigger an escape", () => {
     expect(codexNeedsHooksTrustEscape(
       "SessionStart hooks\n  Press t to trust all; enter to review hooks; esc to close",

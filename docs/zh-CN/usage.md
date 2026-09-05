@@ -43,11 +43,11 @@ Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。各 dri
 ```bash
 ahelpa models
 ahelpa models codex
-ahelpa launch codex --model gpt-5.5 --effort high --task "Review this change"
+ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ```
 
-`models [agent]` 会打印当前 ahelpa 版本内置的静态模型目录。`--model` 会用指定模型启动 helper。所选 agent 支持启动时设置 effort 时，`--effort` 会一并透传。`resume` 会自动沿用启动时记录的 model 和 effort。
+`models [agent]` 会打印当前 ahelpa 版本内置的静态模型目录。`--model` 会用指定模型启动 helper。对 Codex 而言，`gpt-5.6` 是稳定便捷别名，实际启动 `gpt-5.6-sol`；需要其他变体时请显式使用 `gpt-5.6-terra` 或 `gpt-5.6-luna`。所选 agent 支持启动时设置 effort 时，`--effort` 会一并透传。`resume` 会自动沿用启动时记录的 model 和 effort。
 
 ## 切换运行中 helper 的模型
 

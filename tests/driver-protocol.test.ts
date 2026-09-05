@@ -182,6 +182,35 @@ describe("driver launch protocol", () => {
     expect(runtime.sent).toEqual(["/model"]);
     expect(runtime.keys).toEqual(["2", "4"]);
   });
+
+  test("codex routes the gpt-5.6 alias to sol when switching models", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime([
+      [
+        "Select Model and Effort",
+        "❯ 1. gpt-5.6-terra (current)",
+        "  2. gpt-5.6-sol",
+      ].join("\n"),
+      [
+        "Select Reasoning Level for gpt-5.6-sol",
+        "  1. Low",
+        "  2. Medium (default)",
+        "  3. High",
+        "  4. Extra high",
+      ].join("\n"),
+      "Model changed to gpt-5.6-sol xhigh",
+    ]);
+
+    const result = await driver.switchModel("codex-test", runtime, {
+      model: "gpt-5.6",
+      effort: "xhigh",
+      persist: true,
+    });
+
+    expect(result).toContain("Model changed to gpt-5.6-sol xhigh");
+    expect(runtime.sent).toEqual(["/model"]);
+    expect(runtime.keys).toEqual(["2", "4"]);
+  });
 });
 
 describe("detectActivity", () => {
