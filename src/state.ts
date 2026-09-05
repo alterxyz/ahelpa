@@ -180,6 +180,11 @@ export class StateDB {
     this.db.prepare("UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?").run(status, now, id);
   }
 
+  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus): boolean {
+    return this.db.prepare("UPDATE sessions SET status = ?, updated_at = ? WHERE id = ? AND status = ?")
+      .run(status, new Date().toISOString(), id, expected).changes > 0;
+  }
+
   updateResumeId(id: string, agentResumeId: string): void {
     const now = new Date().toISOString();
     this.db.prepare("UPDATE sessions SET agent_resume_id = ?, updated_at = ? WHERE id = ?").run(agentResumeId, now, id);

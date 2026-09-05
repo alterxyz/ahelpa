@@ -37,7 +37,7 @@ ahelpa CLI ──────────► tmux session
 4. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
 5. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、清理 pipe。
 6. **Wakeup**：`wait` 收到 FIFO 事件后返回，调用者从文件交接目录读取结果。
-7. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。
+7. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。显式 `kill` 后记录保持为 `dead`；已经开始的刷新不会在 capture 或终端清理结束后覆盖该状态。
 
 ### 状态转换
 

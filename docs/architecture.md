@@ -43,7 +43,7 @@ A session starts as `running` and can settle as `idle`, `error`, `needs_attentio
 
 6. **Wakeup.** `wait` unblocks when the FIFO receives the settlement event. The caller reads results from the file handoff directory.
 
-7. **Runtime cleanup.** After success, the driver requests a graceful exit and the daemon records any resume token during `draining`. It allows up to 15 seconds before reclaiming the tmux session, then leaves the session `idle`. `wait` also reports `idle` during draining. Cleanup removes temporary runtime files while retaining the SQLite result, owner token, and resume metadata so later `wait`, `logs`, and `resume` calls still work. `clean` explicitly removes settled records only when their tmux sessions are gone; it leaves draining and attention states alone.
+7. **Runtime cleanup.** After success, the driver requests a graceful exit and the daemon records any resume token during `draining`. It allows up to 15 seconds before reclaiming the tmux session, then leaves the session `idle`. `wait` also reports `idle` during draining. Cleanup removes temporary runtime files while retaining the SQLite result, owner token, and resume metadata so later `wait`, `logs`, and `resume` calls still work. `clean` explicitly removes settled records only when their tmux sessions are gone; it leaves draining and attention states alone. An explicit `kill` keeps the record `dead`; a refresh already in progress cannot overwrite that state after capture or terminal cleanup.
 
 ### State Transitions
 

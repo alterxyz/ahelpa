@@ -10,11 +10,20 @@ export async function settle(
   sessionId: string,
   status: SessionStatus,
   archived: ArchivedSession,
-): Promise<void> {
+  expectedStatus?: SessionStatus,
+): Promise<boolean> {
+  let settled = false;
   db.transaction(() => {
-    db.updateStatus(sessionId, status);
+    if (expectedStatus !== undefined) {
+      if (!db.compareAndSetStatus(sessionId, expectedStatus, status)) return;
+    } else {
+      db.updateStatus(sessionId, status);
+    }
     archive.save(sessionId, archived);
+    settled = true;
   });
+  if (!settled) return false;
   await wakeup.notify(sessionId, status);
   wakeup.cleanup(sessionId);
+  return true;
 }

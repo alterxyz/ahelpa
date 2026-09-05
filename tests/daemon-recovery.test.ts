@@ -38,6 +38,94 @@ describe("daemon recovery", () => {
     return id;
   }
 
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((done) => { resolve = done; });
+    return { promise, resolve };
+  }
+
+  test("explicit kill wins while graceful exit is still awaiting completion", async () => {
+    db.close();
+    const dbPath = join(root, "concurrent.db");
+    db = new StateDB(dbPath);
+    const hostDb = new StateDB(dbPath);
+    const id = createSession("kimi");
+    const exiting = deferred<void>();
+    const releaseExit = deferred<void>();
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue("● [AHELPA:DONE]");
+    spyOn(Tmux, "sendKeys").mockImplementation(async () => {
+      exiting.resolve();
+      await releaseExit.promise;
+    });
+    spyOn(Tmux, "kill").mockResolvedValue();
+    const refreshing = daemon.refreshSessionStatuses(db, [id]);
+    try {
+      await exiting.promise;
+      expect(hostDb.getSession(id)?.status).toBe("idle");
+      await kill(hostDb, id, "tok");
+      expect(hostDb.getSession(id)?.status).toBe("dead");
+    } finally {
+      releaseExit.resolve();
+      await refreshing;
+      hostDb.close();
+    }
+
+    expect(db.getSession(id)?.status).toBe("dead");
+    expect(db.listActiveSessions()).toHaveLength(0);
+    expect(new Archive(join(root, "archive")).get(id)?.status).toBe("idle");
+  });
+
+  test("explicit kill wins while a completion capture is still pending", async () => {
+    const id = createSession();
+    const capturing = deferred<void>();
+    const releaseCapture = deferred<string>();
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockImplementation(async () => {
+      capturing.resolve();
+      return releaseCapture.promise;
+    });
+    const exitSpy = spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(Tmux, "kill").mockResolvedValue();
+
+    const refreshing = daemon.refreshSessionStatuses(db, [id]);
+    await capturing.promise;
+    await kill(db, id, "tok");
+    releaseCapture.resolve("[AHELPA:DONE]");
+    await refreshing;
+
+    expect(db.getSession(id)?.status).toBe("dead");
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(new Archive(join(root, "archive")).get(id)).toBeNull();
+  });
+
+  test("explicit kill wins while the daemon is reclaiming a draining terminal", async () => {
+    const id = createSession();
+    db.updateStatus(id, "draining");
+    db.updateResumeId(id, "resume-token");
+    new Archive(join(root, "archive")).save(id, { status: "idle", lastOutput: "done" });
+    const reclaiming = deferred<void>();
+    const releaseReclaim = deferred<void>();
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    let killCalls = 0;
+    spyOn(Tmux, "kill").mockImplementation(async () => {
+      if (++killCalls === 1) {
+        reclaiming.resolve();
+        await releaseReclaim.promise;
+      }
+    });
+
+    const refreshing = daemon.refreshSessionStatuses(db, [id], Date.now() + 16_000);
+    await reclaiming.promise;
+    await kill(db, id, "tok");
+    releaseReclaim.resolve();
+    await refreshing;
+
+    expect(db.getSession(id)?.status).toBe("dead");
+    expect(db.getSession(id)?.agentResumeId).toBe("resume-token");
+    expect(new Archive(join(root, "archive")).get(id)?.status).toBe("idle");
+  });
+
   test.each(["claude-code", "codex", "kimi"])("%s retains its result, logs, safe posture, and authorized resume after runtime cleanup", async (agentType) => {
     const id = createSession(agentType, true);
     const resumeId = agentType === "kimi"

@@ -54,10 +54,10 @@ async function finishMissingSession(db: StateDB, archive: Archive, session: Sess
     await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.Dead, {
       status: SESSION_STATUS.Dead,
       reason: "tmux session gone",
-    });
+    }, session.status);
   } else if (session.status === SESSION_STATUS.Draining) {
     // Draining is cleanup after successful settlement, not a new result.
-    db.updateStatus(session.id, SESSION_STATUS.Idle);
+    db.compareAndSetStatus(session.id, SESSION_STATUS.Draining, SESSION_STATUS.Idle);
   }
   drainingAt.delete(session.id);
   idleCount.delete(session.id);
@@ -120,15 +120,19 @@ export async function refreshSessionStatuses(
       const newStatus = statusFromCapture(output, driver);
       if (newStatus !== SESSION_STATUS.Running) {
         idleCount.delete(session.id);
-        await settle(db, archive, defaultWakeup, session.id, newStatus, {
+        const settled = await settle(db, archive, defaultWakeup, session.id, newStatus, {
           status: newStatus,
           lastOutput: output.slice(-500),
-        });
+        }, SESSION_STATUS.Running);
+        if (!settled) continue;
         if (newStatus === SESSION_STATUS.Idle) {
           try { await driver.gracefulExit(session.id, driverRuntime); } catch {}
-          db.updateStatus(session.id, SESSION_STATUS.Draining);
-          drainingAt.set(session.id, nowMs);
-          log(`${session.id}: sent graceful exit, draining`);
+          // The host may have killed the helper while graceful exit awaited
+          // tmux. A conditional SQL update also protects separate processes.
+          if (db.compareAndSetStatus(session.id, SESSION_STATUS.Idle, SESSION_STATUS.Draining)) {
+            drainingAt.set(session.id, nowMs);
+            log(`${session.id}: sent graceful exit, draining`);
+          }
         }
       } else if (driver.detectActivity(output) !== "idle") {
         idleCount.delete(session.id);
@@ -137,11 +141,11 @@ export async function refreshSessionStatuses(
         idleCount.set(session.id, count);
         if (count >= IDLE_DEBOUNCE) {
           idleCount.delete(session.id);
-          await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
+          const settled = await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
             status: SESSION_STATUS.NeedsAttention,
             lastOutput: output.slice(-500),
-          });
-          log(`${session.id}: needs attention (idle ${count} polls)`);
+          }, SESSION_STATUS.Running);
+          if (settled) log(`${session.id}: needs attention (idle ${count} polls)`);
         }
       }
     } catch (error) {
