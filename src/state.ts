@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite";
 import { unlinkSync, existsSync } from "fs";
 import { SESSION_STATUS, type SessionStatus } from "./session-lifecycle";
+import type { HelperRole } from "./drivers/types";
 
 export interface SessionRecord {
   id: string;
@@ -18,6 +19,7 @@ export interface SessionRecord {
   resumedFrom?: string | null;
   model?: string | null;
   effort?: string | null;
+  role?: HelperRole | null;
   safe: boolean;
 }
 
@@ -33,6 +35,7 @@ export interface CreateSessionInput {
   resumedFrom?: string;
   model?: string | null;
   effort?: string | null;
+  role?: HelperRole | null;
   safe?: boolean;
 }
 
@@ -52,6 +55,7 @@ interface SessionRow {
   resumed_from: string | null;
   model: string | null;
   effort: string | null;
+  role: HelperRole | null;
   safe: number;
 }
 
@@ -72,6 +76,7 @@ function rowToRecord(row: SessionRow): SessionRecord {
     resumedFrom: row.resumed_from,
     model: row.model,
     effort: row.effort,
+    role: row.role,
     safe: row.safe === 1,
   };
 }
@@ -89,58 +94,74 @@ export class StateDB {
       }
     }
     this.db = new Database(dbPath);
-    this.db.exec("PRAGMA busy_timeout = 5000;");
     try {
-      this.db.exec("PRAGMA journal_mode=WAL;");
-    } catch (error) {
-      const code = (error as { code?: string }).code;
-      if (code !== "SQLITE_BUSY" && code !== "SQLITE_BUSY_RECOVERY") {
-        throw error;
+      this.db.exec("PRAGMA busy_timeout = 5000;");
+      try {
+        this.db.exec("PRAGMA journal_mode=WAL;");
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (code !== "SQLITE_BUSY" && code !== "SQLITE_BUSY_RECOVERY") {
+          throw error;
+        }
       }
-    }
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS sessions (
-        id TEXT PRIMARY KEY,
-        parent_id TEXT NOT NULL,
-        agent_type TEXT NOT NULL,
-        task TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT '${SESSION_STATUS.Running}',
-        owner_token TEXT NOT NULL,
-        project_path TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        label TEXT,
-        model TEXT,
-        effort TEXT,
-        safe INTEGER NOT NULL DEFAULT 0
-      )
-    `);
-    const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
-    // Migration: drop legacy tmux_session column.
-    if (columns.some((column) => column.name === "tmux_session")) {
-      this.db.exec("ALTER TABLE sessions DROP COLUMN tmux_session");
-    }
-    // Migration: add depth column for O(1) nesting validation.
-    if (!columns.some((column) => column.name === "depth")) {
-      this.db.exec("ALTER TABLE sessions ADD COLUMN depth INTEGER NOT NULL DEFAULT 1");
-    }
-    // Migration: add agent resume and session lineage columns.
-    if (!columns.some((column) => column.name === "agent_resume_id")) {
-      this.db.exec("ALTER TABLE sessions ADD COLUMN agent_resume_id TEXT");
-    }
-    if (!columns.some((column) => column.name === "resumed_from")) {
-      this.db.exec("ALTER TABLE sessions ADD COLUMN resumed_from TEXT");
-    }
-    // Migration: add launch-time model/effort columns so resume can reuse them.
-    if (!columns.some((column) => column.name === "model")) {
-      this.db.exec("ALTER TABLE sessions ADD COLUMN model TEXT");
-    }
-    if (!columns.some((column) => column.name === "effort")) {
-      this.db.exec("ALTER TABLE sessions ADD COLUMN effort TEXT");
-    }
-    // Migration: preserve the launch permission posture across native resume.
-    if (!columns.some((column) => column.name === "safe")) {
-      this.db.exec("ALTER TABLE sessions ADD COLUMN safe INTEGER NOT NULL DEFAULT 0");
+      // Multiple CLI processes may open an old database together. Acquire the
+      // write lock before inspecting its schema so migrations cannot race on
+      // the same missing column or observe a partially migrated table.
+      this.db.transaction(() => {
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS sessions (
+            id TEXT PRIMARY KEY,
+            parent_id TEXT NOT NULL,
+            agent_type TEXT NOT NULL,
+            task TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT '${SESSION_STATUS.Running}',
+            owner_token TEXT NOT NULL,
+            project_path TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            label TEXT,
+            model TEXT,
+            effort TEXT,
+            role TEXT,
+            safe INTEGER NOT NULL DEFAULT 0
+          )
+        `);
+        const columns = this.db.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>;
+        // Migration: drop legacy tmux_session column.
+        if (columns.some((column) => column.name === "tmux_session")) {
+          this.db.exec("ALTER TABLE sessions DROP COLUMN tmux_session");
+        }
+        // Migration: add depth column for O(1) nesting validation.
+        if (!columns.some((column) => column.name === "depth")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN depth INTEGER NOT NULL DEFAULT 1");
+        }
+        // Migration: add agent resume and session lineage columns.
+        if (!columns.some((column) => column.name === "agent_resume_id")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN agent_resume_id TEXT");
+        }
+        if (!columns.some((column) => column.name === "resumed_from")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN resumed_from TEXT");
+        }
+        // Migration: add launch-time model/effort columns so resume can reuse them.
+        if (!columns.some((column) => column.name === "model")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN model TEXT");
+        }
+        if (!columns.some((column) => column.name === "effort")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN effort TEXT");
+        }
+        // Migration: preserve the launch permission posture across native resume.
+        if (!columns.some((column) => column.name === "safe")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN safe INTEGER NOT NULL DEFAULT 0");
+        }
+        // Existing sessions retain an unknown role; new launch defaults must
+        // not reinterpret their original model or intended use.
+        if (!columns.some((column) => column.name === "role")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN role TEXT");
+        }
+      }).immediate();
+    } catch (error) {
+      try { this.db.close(); } catch {}
+      throw error;
     }
   }
 
@@ -148,8 +169,8 @@ export class StateDB {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -166,6 +187,7 @@ export class StateDB {
       input.model ?? null,
       input.effort ?? null,
       input.safe ? 1 : 0,
+      input.role ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
   }

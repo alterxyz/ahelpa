@@ -51,6 +51,14 @@ describe("StateDB", () => {
     expect(db.getSession("kimi-safe")?.safe).toBe(true);
   });
 
+  test("persists an explicit helper role without inventing one for other sessions", () => {
+    db.createSession({ id: "advisor", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp", role: "advisor" });
+    db.createSession({ id: "unknown", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+
+    expect(db.getSession("advisor")?.role).toBe("advisor");
+    expect(db.getSession("unknown")?.role).toBeNull();
+  });
+
   test("updates session status", () => {
     db.createSession({
       id: "claude-abc12345", parentId: "parent-1", agentType: "claude-code",

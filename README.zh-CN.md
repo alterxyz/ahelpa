@@ -20,11 +20,13 @@ ahelpa 把这些胶水收束成一个小 CLI。一个 agent 启动 helper，把�
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-安装脚本会按你的 OS/arch 从 GitHub Releases 下载对应的 runtime binary，安装到 `~/.ahelpa/bin/ahelpa`，然后把 skill 安装交给 `npx skills@latest`。skill 会以全局 hard copy 的方式通过三个显式 target 安装到所有受支持的 agent：
+安装脚本会先解析明确的 release tag，按 OS/arch 下载归档并用 `SHASUMS256.txt` 校验，再检查二进制版本，最后原子安装到 `~/.ahelpa/bin/ahelpa`，保留已有二进制的备份。随后通过 `npx skills@latest` 安装同一 tag 的 skill。skill 会以全局 hard copy 的方式通过三个显式 target 安装到所有受支持的 agent：
 
 - Codex：target `codex` → `~/.codex/skills/ahelpa`
 - Claude Code：target `claude-code` → `~/.claude/skills/ahelpa`
 - Kimi Code CLI：target `kimi-code-cli` → `~/.agents/skills/ahelpa`
+
+没有校验清单的旧 release 需要显式提供可信的 `AHELPA_SHA256`；自定义下载源也需要该摘要或 `AHELPA_CHECKSUM_URL`。详见[安装说明](docs/zh-CN/development.md#部署)。
 
 如果 runtime 已经装好，只需要刷新 skill：
 
@@ -62,6 +64,8 @@ ls ".ahelpa/$session_id/artifacts/"
 
 Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读取任务文件，把结果写入 `.ahelpa/<session-id>/`，并通过打印 `[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP]` 宣告状态。
 
+长任务可以直接用 `ahelpa launch codex --file ./task.md` 启动。`--task` 和 `--file` 必须二选一；任务投递前会把文件正文复制到该 session 的交接文件，完整保留多行文本，无需 shell 转义。
+
 ## 核心原语
 
 | 原语 | 作用 |
@@ -84,11 +88,21 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 检查依赖时请用 `command -v claude`、`command -v codex` 或 `command -v kimi`。Claude 的 helper type 不是它的二进制名称。
 
+### 角色与默认值
+
+| Helper | 角色 | 默认模型 | Effort |
+| --- | --- | --- | --- |
+| `codex` | `worker`（默认且唯一角色） | `gpt-6.1-sol` | `high` |
+| `claude-code` | `advisor`（默认） | `claude-opus-5-5` | `xhigh` |
+| `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
+
+Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `ahelpa launch claude-code --role worker --file ./task.md` 会选择 Sonnet。显式 `--model`、`--effort` 分别覆盖对应默认值。角色只选择启动设置，不改变权限或任务范围。Kimi 保持原生模型默认值，不接受 `--role`。`models` 展示预设，`check` 展示已记录的角色、模型和 effort；resume 保留已记录设置，旧会话没有角色时也不会套用新默认。
+
 ## 命令速览
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex` 或 `kimi`） |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex` 或 `kimi`） |
 | `wait <id...> [--all] [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>]` | 非阻塞状态查询，并做 inline refresh |
 | `models [agent]` | 列出启动时可选的模型 |

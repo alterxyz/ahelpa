@@ -8,6 +8,8 @@ Codex operates in persistent interactive mode only — there is no background ag
 
 Codex is launched with `--dangerously-bypass-approvals-and-sandbox` by default, so helper agents also run with full permissions. Use `ahelpa launch codex --safe ...` to run Codex with `-s workspace-write -a never` instead. Be deliberate about `--project` and working directory isolation.
 
+Codex is always a `worker`. A new launch defaults to `gpt-6.1-sol` with `high` effort; explicit `--model` and `--effort` override these fields independently. `--role advisor` is rejected. Resume preserves the recorded selection without applying new launch defaults.
+
 ## Binary Mapping
 
 - `ahelpa launch codex ...` uses the `codex` CLI

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { RuntimeLayout } from "../src/runtime-layout";
+import { join, resolve } from "path";
+import { shellEscape } from "../src/shell";
 
 describe("runtime layout", () => {
   test("centralizes home, temp, archive, task, fifo, and project delivery paths", () => {
@@ -27,6 +29,43 @@ describe("runtime layout", () => {
     expect(layout.ahelpaHomeDir()).toBe("/tmp/ahelpa-isolated/state");
     expect(layout.stateDbPath()).toBe("/tmp/ahelpa-isolated/state/state.db");
     expect(layout.tmpDir).toBe("/tmp/ahelpa-isolated/runtime");
+  });
+
+  test("resolves explicit relative runtime roots and a relative home directory", () => {
+    const layout = new RuntimeLayout({ homeDir: "relative-home", tmpDir: "relative-runtime" });
+    const isolated = new RuntimeLayout({ ahelpaDir: "relative-state" });
+
+    expect(layout.homeDir).toBe(resolve("relative-home"));
+    expect(layout.ahelpaHomeDir()).toBe(resolve("relative-home/.ahelpa"));
+    expect(layout.tmpDir).toBe(resolve("relative-runtime"));
+    expect(isolated.ahelpaHomeDir()).toBe(resolve("relative-state"));
+  });
+
+  test("relative environment roots remain stable and are inherited after the caller changes directory", async () => {
+    const moduleDir = join(import.meta.dir, "../src");
+    const child = Bun.spawn([process.execPath, "-e", `
+      import { StateDB } from ${JSON.stringify(join(moduleDir, "state.ts"))};
+      import { planLaunch } from ${JSON.stringify(join(moduleDir, "commands/launch.ts"))};
+      import { defaultRuntimeLayout } from ${JSON.stringify(join(moduleDir, "runtime-layout.ts"))};
+      const base = process.cwd();
+      const db = new StateDB(":memory:");
+      process.chdir("/tmp");
+      const plan = planLaunch({ db, agentType: "codex", task: "task", projectPath: base, parentId: "test" });
+      console.log(JSON.stringify({ base, home: defaultRuntimeLayout.ahelpaHomeDir(), tmp: defaultRuntimeLayout.tmpDir, command: plan.launchCmd }));
+      db.close();
+    `], {
+      env: { ...process.env, AHELPA_HOME: "relative state", AHELPA_TMP_DIR: "relative runtime" },
+      stdout: "pipe", stderr: "pipe",
+    });
+    const [exitCode, stdout, stderr] = await Promise.all([
+      child.exited, new Response(child.stdout).text(), new Response(child.stderr).text(),
+    ]);
+    expect({ exitCode, stderr }).toEqual({ exitCode: 0, stderr: "" });
+    const result = JSON.parse(stdout) as { base: string; home: string; tmp: string; command: string };
+    expect(result.home).toBe(join(result.base, "relative state"));
+    expect(result.tmp).toBe(join(result.base, "relative runtime"));
+    expect(result.command).toContain(`AHELPA_HOME=${shellEscape(result.home)}`);
+    expect(result.command).toContain(`AHELPA_TMP_DIR=${shellEscape(result.tmp)}`);
   });
 
   test("uses environment overrides for the default runtime layout", () => {

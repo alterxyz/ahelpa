@@ -11,11 +11,25 @@ import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, switchModel, kill, logs, check, status, clean } from "./commands/session-ops";
 import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
 import { getDriver, listDrivers } from "./drivers/registry";
-import type { AgentModelCatalog, ModelCatalogEntry } from "./drivers/types";
+import type { AgentDriver, ModelCatalogEntry } from "./drivers/types";
 import { SessionAccessError } from "./session-access";
 import { VERSION } from "./version";
+import { readTaskFile } from "./task-input";
+import { parseHelperRole } from "./launch-profiles";
 
 export class UsageError extends Error {}
+
+function readLaunchTask(task?: string, file?: string): string {
+  if (task !== undefined && file !== undefined) {
+    throw new UsageError("Use exactly one of --task or --file");
+  }
+  if (task === undefined && file === undefined) {
+    throw new UsageError("--task or --file is required");
+  }
+  const content = file === undefined ? task! : readTaskFile(file);
+  if (!content.trim()) throw new UsageError("Task must not be empty");
+  return content;
+}
 
 export interface FlagSpec {
   kind: "string" | "number" | "boolean";
@@ -40,6 +54,9 @@ export interface CommandContract {
   usage: string;
   description: string;
   minPositionals?: number;
+  // Fixed-arity commands default to minPositionals (or zero). Variadic
+  // commands explicitly opt in with Infinity; optional arguments set a bound.
+  maxPositionals?: number;
   flags?: Record<string, FlagSpec>;
   run(ctx: CommandContext): Promise<void>;
 }
@@ -70,30 +87,43 @@ function renderModelLine(model: ModelCatalogEntry): string {
   return details.length ? `  ${model.name} (${details.join("; ")})` : `  ${model.name}`;
 }
 
-function renderCatalog(agent: string, catalog: AgentModelCatalog): string {
-  const lines = [agent, ...catalog.models.map(renderModelLine)];
+function renderCatalog(agent: string, driver: AgentDriver): string {
+  const { modelCatalog: catalog, launchProfiles } = driver;
+  const lines = [agent];
+  if (launchProfiles) {
+    lines.push("  Launch defaults (explicit --model and --effort override these):");
+    for (const [role, profile] of Object.entries(launchProfiles.profiles)) {
+      if (!profile) continue;
+      const defaultLabel = role === launchProfiles.defaultRole ? " (default)" : "";
+      lines.push(`    ${role}${defaultLabel}: ${profile.model}; effort: ${profile.effort}`);
+    }
+    lines.push("  Model catalog (model defaults may differ from launch defaults):");
+  }
+  lines.push(...catalog.models.map(renderModelLine));
   if (catalog.effortNote) lines.push(`  ${catalog.effortNote}`);
   return lines.join("\n");
 }
 
 export function renderModelsText(agent?: string): string {
   const agents = agent === undefined ? listDrivers() : [agent];
-  const catalogs = agents.map((name) => renderCatalog(name, getDriver(name).modelCatalog));
+  const catalogs = agents.map((name) => renderCatalog(name, getDriver(name)));
   return ["Available models", "", catalogs.join("\n\n")].join("\n");
 }
 
 export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "launch",
-    usage: "launch <type> --task \"...\" [--label \"...\"] [--project <path>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]",
+    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor] [--label \"...\"] [--project <path>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]",
     description: "Launch a helper agent",
     minPositionals: 1,
     flags: {
-      task: { kind: "string", required: true },
+      task: { kind: "string" },
+      file: { kind: "string" },
       project: { kind: "string" },
       parent: { kind: "string" },
       label: { kind: "string" },
       safe: { kind: "boolean" },
+      role: { kind: "string" },
       model: { kind: "string" },
       effort: { kind: "string" },
     },
@@ -101,11 +131,12 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       const result = await launch({
         db: ctx.db,
         agentType: ctx.positionals[0],
-        task: ctx.flags.strings.task!,
+        task: readLaunchTask(ctx.flags.strings.task, ctx.flags.strings.file),
         projectPath: ctx.flags.strings.project || process.cwd(),
         parentId: ctx.flags.strings.parent || resolveParentId(),
         label: ctx.flags.strings.label,
         safe: ctx.flags.booleans.safe,
+        role: parseHelperRole(ctx.flags.strings.role),
         model: ctx.flags.strings.model,
         effort: ctx.flags.strings.effort,
       });
@@ -117,6 +148,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
     usage: "wait <id...> [--all] [--timeout <seconds>]",
     description: "Wait for helper(s) to finish",
     minPositionals: 1,
+    maxPositionals: Infinity,
     flags: { all: { kind: "boolean" }, timeout: { kind: "number" } },
     async run(ctx) {
       const result = await wait(
@@ -143,7 +175,8 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "models",
     usage: "models [agent]",
-    description: "List launch-time model options",
+    description: "List model options and role defaults",
+    maxPositionals: 1,
     async run(ctx) {
       ctx.print(renderModelsText(ctx.positionals[0]));
     },
@@ -318,17 +351,19 @@ ${commands}`;
 function resolveFlags(contract: CommandContract, raw: Record<string, string>): ResolvedFlags {
   const specs = contract.flags ?? {};
   for (const name of Object.keys(raw)) {
-    if (!(name in specs)) throw new UsageError(`Unknown flag --${name}. Usage: ahelpa ${contract.usage}`);
+    if (!Object.hasOwn(specs, name)) throw new UsageError(`Unknown flag --${name}. Usage: ahelpa ${contract.usage}`);
   }
   const resolved: ResolvedFlags = { strings: {}, numbers: {}, booleans: {} };
   for (const [name, spec] of Object.entries(specs)) {
     const value = raw[name];
-    // An empty string means "flag given without a usable value" — treat as absent.
-    if (value === undefined || value === "") {
+    if (value === undefined) {
       if (spec.required) throw new UsageError(`--${name} is required`);
       if (spec.kind === "boolean") resolved.booleans[name] = false;
       continue;
     }
+    // Explicit empty values and options with a missing value must not silently
+    // restore defaults (cwd, wait timeout, permission posture, task source).
+    if (value === "") throw new UsageError(`--${name} requires a value`);
     switch (spec.kind) {
       case "string":
         resolved.strings[name] = value;
@@ -359,6 +394,10 @@ export async function runCli(db: StateDB, argv: string[], io: CliIO): Promise<nu
   const [name, ...rest] = argv;
 
   if (!name || name === "help") {
+    if (rest.length > 0) {
+      io.printError("Usage: ahelpa help");
+      return 1;
+    }
     io.print(renderHelpText());
     return 0;
   }
@@ -374,7 +413,9 @@ export async function runCli(db: StateDB, argv: string[], io: CliIO): Promise<nu
       .filter(([, spec]) => spec.kind === "boolean")
       .map(([flag]) => flag));
     const { flags: rawFlags, positionals } = parseCliArgs(rest, booleanFlags);
-    if (positionals.length < (contract.minPositionals ?? 0)) {
+    const minPositionals = contract.minPositionals ?? 0;
+    const maxPositionals = contract.maxPositionals ?? minPositionals;
+    if (positionals.length < minPositionals || positionals.length > maxPositionals) {
       throw new UsageError(`Usage: ahelpa ${contract.usage}`);
     }
     const flags = resolveFlags(contract, rawFlags);

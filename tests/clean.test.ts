@@ -77,6 +77,43 @@ describe("clean", () => {
     expect(existsSync(`${TEST_TMP}/unrelated.txt`)).toBe(true);
   });
 
+  test("preserves handoff files while launch has a terminal but no session record yet", async () => {
+    const id = "launch-in-progress";
+    writeFileSync(layout.taskFilePath(id), "task awaiting delivery");
+    writeFileSync(layout.fifoPath(id), "");
+    spyOn(Tmux, "hasSession").mockImplementation(async (sessionId) => sessionId === id);
+
+    const result = await clean(db, layout);
+
+    expect(result).toEqual({ removed: 0, orphanFiles: 0 });
+    expect(existsSync(layout.taskFilePath(id))).toBe(true);
+    expect(existsSync(layout.fifoPath(id))).toBe(true);
+  });
+
+  test("rechecks session registration after awaiting the terminal check", async () => {
+    const id = "registered-during-clean";
+    writeFileSync(layout.taskFilePath(id), "delivered task");
+    spyOn(Tmux, "hasSession").mockImplementation(async () => {
+      db.createSession({ id, parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+      return false;
+    });
+
+    const result = await clean(db, layout);
+
+    expect(result.orphanFiles).toBe(0);
+    expect(existsSync(layout.taskFilePath(id))).toBe(true);
+  });
+
+  test("keeps possible launch files when terminal existence cannot be determined", async () => {
+    const id = "uncertain-terminal";
+    writeFileSync(layout.taskFilePath(id), "task awaiting delivery");
+    spyOn(Tmux, "hasSession").mockRejectedValue(new Error("permission denied"));
+
+    await expect(clean(db, layout)).rejects.toThrow("permission denied");
+
+    expect(existsSync(layout.taskFilePath(id))).toBe(true);
+  });
+
   test("removes terminal records only after tmux exits and keeps draining records", async () => {
     const sessions = [
       ["done", "idle"], ["failed", "error"], ["draining", "draining"],

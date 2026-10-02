@@ -32,6 +32,24 @@ function runtimeProbe(outputs: string[] = []): DriverRuntime & {
   };
 }
 
+// Minimized from a real closure-gate capture: the tool has finished writing,
+// but Kimi is still generating and keeps its empty composer below the spinner.
+const workingWithComposer = [
+  "│ Session: session_closure-test │",
+  "✨ Please read and complete the task described in /tmp/task.md.",
+  "● Read the task file.",
+  "● Used Read (/tmp/task.md) · 1 line",
+  "● Used Write (/tmp/summary.md) · 1 line",
+  "     1 gate-kimi",
+  "     2",
+  "  🌘",
+  "╭──────────────────────────────────╮",
+  "│ >                                │",
+  "╰──────────────────────────────────╯",
+  "yolo  kimi-k3 thinking: high",
+  "context: 4% (30.2k/977k)",
+].join("\n");
+
 describe("Kimi driver", () => {
   test("is registered with its own session prefix", () => {
     const driver = getDriver("kimi");
@@ -164,6 +182,27 @@ describe("Kimi driver", () => {
     expect(runtime.captures).toHaveLength(1);
   });
 
+  test.each(["prepareForTask", "prepareForResume"] as const)("%s waits for active generation above the composer to finish", async (prepare) => {
+    const runtime = runtimeProbe([
+      workingWithComposer,
+      `${workingWithComposer}\n● [AHELPA:DONE]\n│ > │`,
+    ]);
+
+    await getDriver("kimi")[prepare]("kimi-working", runtime);
+
+    expect(runtime.captures).toHaveLength(2);
+    expect(runtime.sent).toEqual([]);
+  });
+
+  test("a visible composer does not make an approval panel ready for another task", async () => {
+    const runtime = runtimeProbe([`${workingWithComposer}\n▶ Run this command?\n1. Approve once\n│ > │`]);
+
+    await expect(getDriver("kimi").prepareForResume("kimi-approval", runtime))
+      .rejects.toThrow("did not reach its input prompt");
+    expect(runtime.captures).toHaveLength(30);
+    expect(runtime.sent).toEqual([]);
+  });
+
   test("waits until the first message creates a Kimi session", async () => {
     const driver = getDriver("kimi");
     const runtime = runtimeProbe([
@@ -221,6 +260,27 @@ describe("Kimi driver", () => {
 
     expect(submitted).toBe(true);
     expect(runtime.captures).toHaveLength(2);
+  });
+
+  test("accepts resumed generation above the persistent composer within the same turn", async () => {
+    const waiting = "│ Session: session_same-turn │\n✨ Task\n▶ Run this command?\n1. Approve once\n│ > │";
+    const runtime = runtimeProbe([waiting, `${waiting}\n🌘\n│ > │`]);
+
+    expect(await getDriver("kimi").afterTaskSubmitted("kimi-test", runtime, { beforeOutput: waiting }))
+      .toBe(true);
+    expect(runtime.captures).toHaveLength(2);
+  });
+
+  test.each([
+    workingWithComposer,
+    "│ Session: session_old-work │\n✨ Task\n● Using Write (/tmp/result.md)\n│ > │",
+    "│ Session: session_old-response │\n✨ Task\n🌗 Retrying (2/3)\n● Earlier response\n│ > │",
+  ])("does not mistake unchanged work or a historical response for a new submission", async (beforeOutput) => {
+    const runtime = runtimeProbe([beforeOutput]);
+
+    expect(await getDriver("kimi").afterTaskSubmitted("kimi-test", runtime, { beforeOutput }))
+      .toBe(false);
+    expect(runtime.captures).toHaveLength(10);
   });
 
   test("accepts a question answer that resumes generation inside the same turn", async () => {
@@ -373,7 +433,7 @@ describe("Kimi driver", () => {
     )).toBe("working");
     expect(driver.detectActivity(
       `${task}\n▶ Run this command?\n1. Allow\n⠏ working...\n${prompt}`,
-    )).toBe("idle");
+    )).toBe("working");
     expect(driver.detectActivity([
       `✨ ${task}`,
       "● Read src/cli.ts",
@@ -400,6 +460,36 @@ describe("Kimi driver", () => {
     expect(driver.detectActivity(`${prompt}\ncontext: 42%`)).toBe("idle");
     expect(driver.detectActivity("Trust this folder?\n❯ Don't trust")).toBe("booting");
     expect(driver.detectActivity("Welcome to Kimi Code!\n│  Session:   │")).toBe("booting");
+  });
+
+  test("keeps the captured Kimi turn working while its moon spinner precedes the composer", () => {
+    const driver = getDriver("kimi");
+    expect(driver.detectActivity(workingWithComposer)).toBe("working");
+    expect(driver.detectStatus(workingWithComposer)).toBe("running");
+  });
+
+  test.each([
+    "● [AHELPA:DONE]",
+    "● [AHELPA:NEED_HELP]",
+    "▶ Run this command?\n1. Approve once",
+    "▶ question\n▶ ? Which option?\n1. One\nesc cancel",
+  ])("a newer stop signal ends generation despite the persistent composer", (stop) => {
+    const driver = getDriver("kimi");
+    expect(driver.detectActivity(`${workingWithComposer}\n${stop}\n│ > │`)).toBe("idle");
+    expect(driver.detectActivity(`${workingWithComposer}\n${stop}\n🌕\n│ > │`)).toBe("working");
+  });
+
+  test("a later assistant response can retire an old generation signal", () => {
+    expect(getDriver("kimi").detectActivity("✨ Task\n🌗 Retrying (2/3)\n● Earlier response\n│ > │"))
+      .toBe("idle");
+  });
+
+  test("tool progress and results are not a returned assistant response", () => {
+    const driver = getDriver("kimi");
+    expect(driver.detectActivity("✨ Task\n🌘\n● Used Write (/tmp/result.md) · 1 line\n│ > │"))
+      .toBe("working");
+    expect(driver.detectActivity("✨ Task\n● Using Write (/tmp/result.md)\n● Preparing the report\n│ > │"))
+      .toBe("working");
   });
 
   test("detects Kimi Code bullet sentinels", () => {

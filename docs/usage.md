@@ -13,11 +13,23 @@ token=$(echo "$result" | jq -r .ownerToken)
 The `launch` command returns JSON with `sessionId`, `ownerToken`, and `tmuxSession`. Save the token — you need it for all mutating operations on this session.
 - `warning` (optional): the task was delivered, but the driver has not confirmed a new turn. The session stays `needs_attention`, so `wait` returns immediately and the daemon does not inspect completion markers. Use `capture` to inspect the prompt: if the task is still in the input box, submit it with `send ""`; if it is already running, wait for that turn to finish before sending another. Keep the helper alive while checking delivery.
 
-Use `--project` to pin the helper to a specific working directory:
+For a multiline task, pass a UTF-8 file instead of `--task`:
+
+```bash
+ahelpa launch codex --file ./review-task.md --project /path/to/project
+```
+
+The file path is relative to the caller's working directory, independently of `--project`. ahelpa snapshots its contents into the handoff file; later edits to the source file do not alter the submitted task. Empty tasks, non-file paths, and using both `--task` and `--file` are rejected before creating a helper. The same file validation applies to follow-up `task` commands.
+
+To use an inline task with a specific working directory:
 
 ```bash
 ahelpa launch codex --project /path/to/project --task "Add tests for the CLI parser"
 ```
+
+The project directory must exist. Relative project paths are resolved at launch and saved as absolute paths, so task results and later resumes use the same directory. Legacy sessions with an ambiguous relative project path must be relaunched with an explicit project directory.
+
+Commands reject extra positional arguments and flags with missing values. For example, `clean some-id` does not scope cleanup to that ID: it is invalid. Quote a multiword `send` message as a single argument.
 
 Kimi Code uses the `kimi` helper type and the `kimi` binary:
 
@@ -50,9 +62,23 @@ Kimi launches as `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` by default. The canoni
 
 ## Choose a Model at Launch
 
+Choose the role first. Claude defaults to `advisor` for analysis, planning, and review. Use `--role worker` for implementation or other execution with a clear objective. Codex supports only `worker`, regardless of which model you explicitly choose.
+
+| Launch | Effective defaults |
+| --- | --- |
+| `launch codex` | `worker`, `gpt-6.1-sol`, `high` |
+| `launch claude-code` | `advisor`, `claude-opus-5-5`, `xhigh` |
+| `launch claude-code --role worker` | `worker`, `claude-sonnet-5-5`, `high` |
+
+`xhigh` is the CLI spelling for the intended extra-high effort; `extra` is not an accepted Claude effort value. The full Claude model IDs pin 5.5 instead of relying on provider-specific `opus` and `sonnet` aliases. Both models support `high` and `xhigh`. See [Claude model configuration](https://code.claude.com/docs/en/model-config) and [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+
+Explicit `--model` and `--effort` override defaults independently. Roles do not impose different permissions or rewrite the task. `launch` reports the effective selection, `check` includes `role`, `model`, and `effort`, and `status` shows the role column. Old sessions keep unknown values as `null`; resume uses the stored selection without applying new launch presets. Kimi does not accept `--role` and retains its existing native defaults.
+
 ```bash
 ahelpa models
 ahelpa models codex
+ahelpa launch codex --file ./task.md
+ahelpa launch claude-code --role worker --file ./implementation.md
 ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
@@ -72,6 +98,8 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. If unrelated config changes are detected, it preserves the current file and reports that defaults could not be restored. Add `--persist` when you want Codex's new model to remain the default. Successful switches update the model and explicit effort that `resume` reuses; omitting effort lets the resumed CLI choose its default.
 
 Runtime `ahelpa model` switching is not supported for Kimi. Choose the model at launch instead.
+
+Claude Code rejects runtime `--effort` and `--persist`; set its effort at launch. Model switches require a new confirmation matching the selected model, and failures close the model menu before returning an error.
 
 ## Wait for Completion
 

@@ -29,6 +29,8 @@ ahelpa CLI ──────────► tmux session
 
 ## Session Lifecycle
 
+SQLite schema creation and migrations run in one immediate transaction. Concurrent CLI or daemon starts wait for that transaction and then inspect the committed schema, preventing duplicate-column failures when upgrading an existing runtime.
+
 A session starts as `running` and can settle as `idle`, `error`, `needs_attention`, or `dead`. Successful sessions pass through `draining` while their terminal is being reclaimed.
 
 1. **Launch.** `launch` generates a session ID (`{driver-prefix}-{uuid12}`) and an owner token, claims a new tmux session, prepares the file handoff, and submits and confirms the first turn through the selected driver. It then records the session in SQLite, prepares its FIFO pipe, and starts the daemon if needed. If delivery is visible but a new turn cannot yet be confirmed, launch returns a warning and retains the helper as `needs_attention` instead of terminating it.
@@ -58,7 +60,7 @@ launch ──► running
 idle/dead + native resume token ── resume ─► needs_attention ── send/task ─► running
 ```
 
-Sending input to a `needs_attention` session resumes monitoring as `running` after the driver confirms a new user turn. If its terminal disappears instead, it becomes `dead`.
+Sending input to a `needs_attention` session resumes monitoring as `running` after the driver confirms a new user turn. The transition is conditional: a concurrent `kill` remains authoritative even if input submission was already in progress. If its terminal disappears instead, it becomes `dead`.
 
 `still_running` is a wait-specific return value, not a session state — it means the timeout expired before settlement.
 
@@ -85,6 +87,8 @@ The task instruction sent to each helper includes the exact paths for reading th
 
 If no one is waiting (no reader on the pipe), the write is dropped — the SQLite row remains the source of truth. If `wait` is called after settlement, it reads the terminal state from SQLite and returns immediately.
 
+Preparing an existing FIFO reuses its inode, keeping current readers connected. Concurrent preparations converge on the same pipe; a regular file or symbolic link at that path is rejected and preserved.
+
 ## Daemon
 
 The daemon is an optional background process that watches running sessions. It starts automatically on `launch` and exits when no active sessions remain.
@@ -98,11 +102,26 @@ The daemon is an optional background process that watches running sessions. It s
 5. A capture or kill failure is logged for that session. If its terminal disappeared, reconcile the final state; otherwise retry on a later poll. Other sessions continue refreshing.
 6. When no running, draining, or attention sessions remain, the daemon exits.
 
-**Inline refresh.** When the daemon is not running, `wait`, `check`, and `status` perform the same refresh logic inline before reporting state. Short-lived tasks work fine without a persistent daemon.
+**Inline refresh.** When the daemon is not running, `wait`, `check`, and `status` perform the same refresh logic inline before reporting state. Short-lived tasks work fine without a persistent daemon. A tmux permission or connection error is not proof of session death: the monitor retains state and retries. `clean` also checks for a live terminal before removing files belonging to a launch that has not registered its database row yet.
 
 **Process management:** PID file at `~/.ahelpa/daemon.pid`, log at `~/.ahelpa/daemon.log`. Crash recovery is automatic — the next `launch` restarts it.
 
 ## Drivers
+
+### Upstream interfaces reviewed on 2026-10-02
+
+| Official source | Implication for ahelpa |
+| --- | --- |
+| [Codex App Server](https://learn.chatgpt.com/docs/app-server) | Structured turn events distinguish completion, failure, and interruption; some APIs require explicit experimental opt-in. A future driver should use stable lifecycle methods and native thread IDs. |
+| [Kimi ACP](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-acp) and [Wire](https://moonshotai.github.io/kimi-cli/en/customization/wire-mode.html) | Bidirectional JSON-RPC is an alternative to terminal parsing. Probe the installed CLI's protocol capabilities before choosing a transport; documentation for different Kimi distributions may differ. |
+| [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) | Check the advertised `loadSession` capability before attempting native resume. |
+| [Claude hooks](https://code.claude.com/docs/en/hooks) | `Stop`, `StopFailure`, and `SessionEnd` represent different lifecycle events. A finished response alone does not prove the assigned task succeeded. |
+
+The current implementation keeps tmux and file handoff. Adopting these transports requires a supervised process that outlives the caller, capability negotiation, approval handling, cancellation, and reconnection tests. Add one driver at a time behind the existing command contract. Before making it the default, verify launch, interruption, restart, native resume, and result delivery; keep the same owner-token and safe-mode guarantees. Structured transports are a follow-up design direction, not an implemented feature of this release.
+
+### Current terminal drivers
+
+Optional driver `launchProfiles` define supported roles and their default model/effort. `launch-profiles.ts` resolves the role and explicit overrides once during launch planning. The resulting role, model, and effort are stored with the session and returned to the host. Claude supports `advisor` (default) and `worker`; Codex only supports `worker`; Kimi leaves the role unset and retains native model defaults. Roles do not alter task instructions or permissions. Resume uses the stored settings directly, including unknown values in legacy records, and never reapplies current launch presets.
 
 Drivers encapsulate agent-specific terminal behavior so that launch orchestration stays generic. A driver defines:
 

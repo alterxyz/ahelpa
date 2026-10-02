@@ -2,7 +2,7 @@ import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSw
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelStatus } from "./sentinels";
-import { findModelChoice, findSelectedChoice, waitForOutput } from "./model-menu";
+import { findModelChoice, findSelectedChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
 
 function claudeNeedsSubmitNudge(captureOutput: string): boolean {
   return isTaskInstructionEcho(captureOutput)
@@ -110,12 +110,52 @@ function modelArgs(opts: { model?: string; effort?: string }): string[] {
   return args;
 }
 
+function modelConfirmations(output: string): Array<{ model: string; text: string }> {
+  return output.split("\n").flatMap((line) => {
+    const match = line.match(/\bSet model to (.+?) for this session only\b/i);
+    return match ? [{ model: match[1].trim(), text: line.trim() }] : [];
+  });
+}
+
+function normalizeModelLabel(model: string): string {
+  return model.toLowerCase().replace(/\s*\(.*$/, "").replace(/\s+/g, " ").trim();
+}
+
+function freshModelConfirmation(output: string, target: string, baseline: string): string | undefined {
+  const confirmations = modelConfirmations(output);
+  const latest = confirmations.at(-1);
+  if (!latest) return undefined;
+  const actual = normalizeModelLabel(latest.model);
+  const wanted = normalizeModelLabel(target);
+  // Claude confirms the Default row using the resolved model's display name
+  // followed by `(default)`, rather than echoing the menu label. Keep that
+  // selection distinct from explicitly choosing the same concrete model.
+  const confirmedDefault = /\(default\)/i.test(latest.model);
+  if (confirmedDefault !== (wanted === "default")) return undefined;
+  // An alias such as Sonnet can resolve to a versioned label, but a selected
+  // version must not accept a different version or a suffixed model name.
+  if (!confirmedDefault && actual !== wanted && !actual.startsWith(`${wanted} `)) return undefined;
+  const count = (items: ReturnType<typeof modelConfirmations>) => items.filter(
+    (confirmation) => confirmation.text === latest.text,
+  ).length;
+  return count(confirmations) > count(modelConfirmations(baseline)) ? latest.text : undefined;
+}
+
 export const claudeCodeDriver: AgentDriver = {
   name: "claude-code",
   sessionPrefix: "claude",
+  launchProfiles: {
+    defaultRole: "advisor",
+    profiles: {
+      advisor: { model: "claude-opus-5-5", effort: "xhigh" },
+      worker: { model: "claude-sonnet-5-5", effort: "high" },
+    },
+  },
   resumeTokenAvailableAfterSubmit: false,
   modelCatalog: {
     models: [
+      { name: "claude-opus-5-5", efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" },
+      { name: "claude-sonnet-5-5", efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" },
       { name: "fable" },
       { name: "opus" },
       { name: "sonnet" },
@@ -179,28 +219,49 @@ export const claudeCodeDriver: AgentDriver = {
   },
 
   async switchModel(sessionId: string, runtime: DriverRuntime, opts: ModelSwitchOptions): Promise<string> {
-    await runtime.sendKeys(sessionId, "/model");
-    const menu = await waitForOutput(
-      sessionId,
-      runtime,
-      (output) => output.includes("Select model"),
-      "Claude model menu",
-    );
-    const selected = findSelectedChoice(menu);
-    const target = findModelChoice(menu, opts.model);
-    const delta = target.lineIndex - selected.lineIndex;
+    // The verified interactive protocol only changes the session model.
+    // Reject unsupported options before touching the terminal, so the caller
+    // cannot persist a model/effort choice that was never actually applied.
+    if (opts.effort !== undefined) {
+      throw new Error("Claude Code runtime model switching does not support --effort; launch with --effort instead");
+    }
+    if (opts.persist) {
+      throw new Error("Claude Code runtime model switching does not support --persist; only session-only changes are supported");
+    }
 
-    await sendSteps(sessionId, runtime, delta < 0 ? "Up" : "Down", Math.abs(delta));
-    await runtime.sendKey(sessionId, "s");
+    let menuOpen = false;
+    try {
+      await runtime.sendKeys(sessionId, "/model");
+      menuOpen = true;
+      const menu = await waitForOutput(
+        sessionId,
+        runtime,
+        (output) => output.includes("Select model"),
+        "Claude model menu",
+      );
+      const selected = findSelectedChoice(menu);
+      const target = findModelChoice(menu, opts.model);
+      const choices = parseModelMenuChoices(menu);
+      // Arrow keys move between choices, not physical terminal lines. Model
+      // descriptions may wrap onto several lines or have blank separators.
+      const delta = choices.findIndex((choice) => choice.lineIndex === target.lineIndex)
+        - choices.findIndex((choice) => choice.lineIndex === selected.lineIndex);
 
-    const result = await waitForOutput(
-      sessionId,
-      runtime,
-      (output) => /Set model to .* for this session only/i.test(output),
-      "Claude session-only model switch",
-    );
-    return result.split("\n").find((line) => /Set model to/i.test(line))?.trim()
-      ?? `Set model to ${opts.model} for this session only`;
+      await sendSteps(sessionId, runtime, delta < 0 ? "Up" : "Down", Math.abs(delta));
+      await runtime.sendKey(sessionId, "s");
+
+      const result = await waitForOutput(
+        sessionId,
+        runtime,
+        (output) => freshModelConfirmation(output, target.label, menu) !== undefined,
+        "Claude session-only model switch",
+      );
+      menuOpen = false;
+      return freshModelConfirmation(result, target.label, menu)!;
+    } catch (error) {
+      if (menuOpen) await runtime.sendKey(sessionId, "Escape").catch(() => {});
+      throw error;
+    }
   },
 
   detectStatus(captureOutput: string): DetectedStatus {

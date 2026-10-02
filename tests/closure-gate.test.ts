@@ -10,7 +10,7 @@ afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-async function runFixture(scenario: string, agent = "codex", integration = false) {
+async function runFixture(scenario: string, agent = "codex", integration = false, role = "") {
   const root = mkdtempSync(join(tmpdir(), "ahelpa-closure-test-"));
   fixtureRoots.push(root);
   const binDir = join(root, "bin");
@@ -39,19 +39,31 @@ switch (command) {
   case "version": console.log("ahelpa fixture"); break;
   case "daemon": break;
   case "launch": {
-    const id = args[0] + "-fixture";
+    const roleIndex = args.indexOf("--role");
+    const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : args[0] === "codex" ? "worker" : null)
+      : args[roleIndex + 1];
+    const model = args[0] === "claude-code" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
+      : args[0] === "codex" ? "gpt-6.1-sol" : null;
+    const effort = args[0] === "claude-code" && role === "advisor" ? "xhigh" : args[0] === "kimi" ? null : "high";
+    const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
     const task = args[args.indexOf("--task") + 1];
     const marker = task.match(/Remember this context marker for our next turn: ([a-f0-9-]+)\./)?.[1];
-    sessions[id] = { id, project, task, marker, status: scenario === "reaped" ? "idle" : "draining",
+    const completionMarker = task.match(/Write exactly ([^ ]+) followed by a newline/)?.[1];
+    sessions[id] = { id, project, task, marker, role, model, effort, status: scenario === "reaped" ? "idle" : "draining",
       agentResumeId: scenario === "missing-native-id" ? null : "session_fixture" };
     save();
     const delivery = join(project, ".ahelpa", id);
     mkdirSync(delivery, { recursive: true });
     if (scenario !== "marker-echo") {
-      writeFileSync(join(delivery, "summary.md"), scenario === "wrong-summary" ? "wrong\\n" : "gate-" + args[0] + "\\n");
+      writeFileSync(join(delivery, "summary.md"), scenario === "wrong-summary" ? "wrong\\n" : completionMarker + "\\n");
     }
-    console.log(JSON.stringify({ sessionId: id, ownerToken: "fixture-token" }));
+    const result = { sessionId: id, ownerToken: "fixture-token", role, model, effort };
+    for (const field of ["role", "model", "effort"]) {
+      if (scenario === "launch-" + field + "-drift") result[field] = "incorrect";
+      if (scenario === "launch-" + field + "-missing") delete result[field];
+    }
+    console.log(JSON.stringify(result));
     break;
   }
   case "wait": {
@@ -71,6 +83,9 @@ switch (command) {
     if (scenario === "malformed-check") { console.log("not JSON"); break; }
     console.log(JSON.stringify(Object.values(sessions).map((entry) => ({
       id: entry.id, agentResumeId: entry.agentResumeId,
+      role: scenario === "check-role-drift" ? "incorrect" : entry.role,
+      model: scenario === "check-model-drift" ? "incorrect" : entry.model,
+      effort: scenario === "check-effort-drift" ? "incorrect" : entry.effort,
       status: scenario === "check-running" || (scenario === "stale-after-kill" && entry.status === "dead")
         ? "running" : entry.status,
     }))));
@@ -99,6 +114,7 @@ switch (command) {
     mkdirSync(delivery, { recursive: true });
     if (scenario !== "stale-first-turn") {
       writeFileSync(join(delivery, "summary.md"), "gate-kimi-resumed:" +
+        (scenario === "resumed-extra-space" ? " " : "") +
         (scenario === "context-loss" ? "wrong" : session.marker) + "\\n");
     }
     break;
@@ -113,8 +129,8 @@ exit 1
 
   const proc = Bun.spawn([
     "bash", "-c",
-    'source "$1"; GATE_DIR="$2"; PROJECT_ROOT="$3"; if [ "$4" = yes ]; then run_integration_gate; else run_gate "$5"; fi',
-    "closure-fixture", gateScript, evidenceDir, projectRoot, integration ? "yes" : "no", agent,
+    'source "$1"; GATE_DIR="$2"; PROJECT_ROOT="$3"; if [ "$4" = yes ]; then run_integration_gate; else run_gate "$5" "$6"; fi',
+    "closure-fixture", gateScript, evidenceDir, projectRoot, integration ? "yes" : "no", agent, role,
   ], {
     env: {
       ...process.env,
@@ -136,7 +152,7 @@ exit 1
   ]);
   const calls = readFileSync(join(root, "calls.jsonl"), "utf8")
     .trim().split("\n").map((line): { command: string; args: string[]; home: string; runtime: string } => JSON.parse(line));
-  return { exitCode, stdout, stderr, calls };
+  return { exitCode, stdout, stderr, calls, evidenceDir: integration ? join(calls[0].home, "..") : evidenceDir };
 }
 
 describe("closure gate", () => {
@@ -150,7 +166,30 @@ describe("closure gate", () => {
     ]);
     expect(result.calls[0].args.join(" ")).toContain("summary.md");
     expect(result.calls.find((call) => call.command === "kill")?.args)
-      .toEqual(["codex-fixture", "--token", "fixture-token"]);
+      .toEqual(["codex-worker-fixture", "--token", "fixture-token"]);
+  });
+
+  test("exercises Claude worker explicitly with independent evidence", async () => {
+    const result = await runFixture("success", "claude-code", false, "worker");
+    expect(result.exitCode).toBe(0);
+    const launch = result.calls.find((call) => call.command === "launch")!;
+    expect(launch.args.slice(-2)).toEqual(["--role", "worker"]);
+    expect(result.stdout).toContain("pass > claude-code-worker");
+    expect(readFileSync(join(result.evidenceDir, "result-claude-code-worker", "summary.md"), "utf8"))
+      .toBe("gate-claude-code-worker\n");
+  });
+
+  test.each([
+    "launch-role-drift", "launch-model-drift", "launch-effort-drift",
+    "launch-role-missing", "launch-model-missing", "launch-effort-missing",
+    "check-role-drift", "check-model-drift", "check-effort-drift",
+  ])("rejects %s and still reclaims the helper", async (scenario) => {
+    const result = await runFixture(scenario);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("expected role/model/effort");
+    expect(result.stdout).not.toContain("pass >");
+    expect(result.calls.at(-1)?.command).toBe("kill");
+    expect(result.calls.at(-1)?.args[0]).toBe("codex-worker-fixture");
   });
 
   test.each(["reaped", "logs-unavailable"])("accepts completed file delivery when %s", async (scenario) => {
@@ -201,6 +240,7 @@ describe("closure gate", () => {
     ["resume-not-ready", "Kimi resume did not reach needs_attention"],
     ["resumed-timeout", "wait did not observe successful completion"],
     ["context-loss", "missing or incorrect summary"],
+    ["resumed-extra-space", "missing or incorrect summary"],
     ["stale-first-turn", "missing or incorrect summary"],
   ])("rejects Kimi %s and cleans the current helper", async (scenario, message) => {
     const result = await runFixture(scenario, "kimi");
@@ -217,11 +257,26 @@ describe("closure gate", () => {
     expect(result.calls.at(-1)?.args[0]).toBe("kimi-resumed-fixture");
   });
 
-  test("checks all three drivers with the selected binary and private runtime roots", async () => {
+  test("checks three role profiles and Kimi with private runtime roots and distinct evidence", async () => {
     const result = await runFixture("success", "codex", true);
     expect(result.exitCode).toBe(0);
     expect(result.calls.filter((call) => call.command === "launch").map((call) => call.args[0]))
-      .toEqual(["claude-code", "codex", "kimi"]);
+      .toEqual(["claude-code", "claude-code", "codex", "kimi"]);
+    const launches = result.calls.filter((call) => call.command === "launch");
+    expect(launches[0].args).not.toContain("--role");
+    expect(launches[1].args.slice(-2)).toEqual(["--role", "worker"]);
+    expect(launches[2].args).not.toContain("--role");
+    for (const [label, role, model, effort] of [
+      ["claude-code-advisor", "advisor", "claude-opus-5-5", "xhigh"],
+      ["claude-code-worker", "worker", "claude-sonnet-5-5", "high"],
+      ["codex-worker", "worker", "gpt-6.1-sol", "high"],
+    ]) {
+      expect(readFileSync(join(result.evidenceDir, `result-${label}`, "summary.md"), "utf8"))
+        .toBe(`gate-${label}\n`);
+      const sessions = JSON.parse(readFileSync(join(result.evidenceDir, `check-${label}.json`), "utf8"));
+      expect(sessions.find((session: { id: string }) => session.id === `${label}-fixture`))
+        .toMatchObject({ role, model, effort });
+    }
     const homes = new Set(result.calls.map((call) => call.home));
     expect(homes.size).toBe(1);
     expect([...homes][0]).toContain("ahelpa-closure-gate.");

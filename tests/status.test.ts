@@ -36,11 +36,14 @@ describe("status", () => {
       ownerToken: "tok-child",
       projectPath: "/tmp",
       label: "nested",
+      role: "worker",
     });
 
     const output = status(db, true);
 
     expect(output).toContain("DEPTH");
+    expect(output).toContain("ROLE");
+    expect(output).toContain("worker");
     expect(output).toContain("PARENT");
     expect(output).toContain("child-session");
     expect(output).toContain("root-session");

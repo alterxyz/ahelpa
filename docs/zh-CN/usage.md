@@ -12,11 +12,23 @@ token=$(echo "$result" | jq -r .ownerToken)
 
 `launch` 返回 JSON，包含 `sessionId`、`ownerToken` 和 `tmuxSession`。请保存 token；所有写操作都需要它。
 
-用 `--project` 指定 helper 工作目录：
+多行任务可以从 UTF-8 文件直接启动，替代 `--task`：
+
+```bash
+ahelpa launch codex --file ./review-task.md --project /path/to/project
+```
+
+文件路径相对于调用方当前目录解析，与 `--project` 无关。ahelpa 会把正文复制到交接文件；之后修改源文件不会改变已提交的任务。空任务、非普通文件路径以及同时使用 `--task` 和 `--file`，都会在创建 helper 前被拒绝。后续 `task` 命令使用相同的文件校验。
+
+行内任务也可以指定工作目录：
 
 ```bash
 ahelpa launch codex --project /path/to/project --task "Add tests for the CLI parser"
 ```
+
+项目目录必须存在。相对项目路径会在启动时解析并保存为绝对路径，保证结果交付和后续恢复始终使用同一目录。旧会话若只保存了含义不明确的相对路径，需要指定项目目录重新启动。
+
+命令会拒绝多余的位置参数和缺少值的选项。例如 `clean some-id` 是无效命令，不能用来只清理该 ID；多词 `send` 消息应加引号作为一个参数传入。
 
 Kimi Code 使用 `kimi` helper type 和 `kimi` 二进制：
 
@@ -49,9 +61,23 @@ Kimi 默认以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` 启动。这个 canonica
 
 ## 启动时选择模型
 
+先按任务选择角色。Claude 默认 `advisor`，用于分析、规划和审阅；目标明确的实现或执行任务使用 `--role worker`。Codex 只支持 `worker`，显式选择其他模型也不会改变这一角色归属。
+
+| 启动方式 | 实际默认值 |
+| --- | --- |
+| `launch codex` | `worker`、`gpt-6.1-sol`、`high` |
+| `launch claude-code` | `advisor`、`claude-opus-5-5`、`xhigh` |
+| `launch claude-code --role worker` | `worker`、`claude-sonnet-5-5`、`high` |
+
+口语中的 extra-high 在 CLI 中写作 `xhigh`；`extra` 不是 Claude 接受的 effort 值。完整模型 ID 固定选择 5.5，避免不同提供方的 `opus`、`sonnet` 别名指向不同版本。两款模型均支持 `high`、`xhigh`。依据见 [Claude 模型配置](https://code.claude.com/docs/en/model-config)与 [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)。
+
+显式 `--model`、`--effort` 分别覆盖对应默认值。角色不改变权限，也不改写任务。`launch` 返回最终选择，`check` 包含 `role`、`model`、`effort`，`status` 显示角色列。旧会话未知的字段保持 `null`；resume 沿用记录，不重新套用新启动预设。Kimi 不接受 `--role`，保持原有 CLI 默认设置。
+
 ```bash
 ahelpa models
 ahelpa models codex
+ahelpa launch codex --file ./task.md
+ahelpa launch claude-code --role worker --file ./implementation.md
 ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
@@ -71,6 +97,8 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 Helper 必须停在可输入的 idle prompt。Claude Code 只切当前 session。Codex 会走自己的 `/model` TUI，而该 TUI 会写入 Codex config；ahelpa 默认在当前 session 切换后恢复原 config。检测到无关配置变化时，会保留当前文件并报告未能恢复默认值。需要保留 Codex 新默认模型时，加 `--persist`。成功切换会更新 `resume` 沿用的模型和显式 effort；省略 effort 时，恢复的 CLI 自行选择默认值。
 
 Kimi 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择模型。
+
+Claude Code 会拒绝运行时的 `--effort` 和 `--persist`；effort 请在 launch 时指定。切换成功必须有匹配所选模型的新确认信息；失败时会先退出模型菜单，再返回错误。
 
 ## 等待完成
 

@@ -43,6 +43,16 @@ describe("command contract", () => {
     }
   });
 
+  test("only wait accepts unbounded positional arguments", () => {
+    for (const contract of COMMAND_CONTRACTS) {
+      const min = contract.minPositionals ?? 0;
+      const max = contract.maxPositionals ?? min;
+      expect(max).toBeGreaterThanOrEqual(min);
+      expect(Number.isFinite(max)).toBe(contract.name !== "wait");
+    }
+    expect(COMMAND_CONTRACTS.find((contract) => contract.name === "models")?.maxPositionals).toBe(1);
+  });
+
   test("renders all available agent model catalogs", () => {
     const text = renderModelsText();
 
@@ -70,6 +80,17 @@ describe("command contract", () => {
     expect(text).toContain("gpt-5.6-sol");
     expect(text).toContain("gpt-5.4-mini");
     expect(text).not.toContain("claude-code");
+  });
+
+  test("shows role launch defaults separately from native model defaults", () => {
+    const codex = renderModelsText("codex");
+    expect(codex).toContain("worker (default): gpt-6.1-sol; effort: high");
+    expect(codex).not.toContain("advisor");
+    const claude = renderModelsText("claude-code");
+    expect(claude).toContain("advisor (default): claude-opus-5-5; effort: xhigh");
+    expect(claude).toContain("worker: claude-sonnet-5-5; effort: high");
+    expect(claude).toContain("model defaults may differ from launch defaults");
+    expect(renderModelsText("kimi")).not.toContain("Launch defaults");
   });
 
   test("rejects an unknown model catalog agent", () => {

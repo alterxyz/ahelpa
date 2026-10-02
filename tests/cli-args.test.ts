@@ -49,4 +49,22 @@ describe("cli arg parsing", () => {
     expect(parsed.flags.effort).toBe("xhigh");
     expect(parsed.positionals).toEqual(["codex"]);
   });
+
+  test.each([
+    { args: ["--project"] },
+    { args: ["--project="] },
+    { args: ["--project", ""] },
+    { args: ["--project", "--safe"] },
+  ])("preserves explicit missing values for contract validation: $args", ({ args }) => {
+    const parsed = parseCliArgs([...args], new Set(["safe"]));
+    expect(Object.hasOwn(parsed.flags, "project")).toBe(true);
+    expect(parsed.flags.project).toBe("");
+  });
+
+  test("retains prototype-like flag names for unknown-option rejection", () => {
+    const parsed = parseCliArgs(["--__proto__=x", "--constructor=y"], new Set());
+    expect(Object.hasOwn(parsed.flags, "__proto__")).toBe(true);
+    expect(parsed.flags.__proto__).toBe("x");
+    expect(Object.entries(parsed.flags)).toContainEqual(["constructor", "y"]);
+  });
 });

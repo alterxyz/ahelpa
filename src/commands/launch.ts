@@ -2,15 +2,17 @@ import { StateDB } from "../state";
 import { Tmux } from "../tmux";
 import { defaultWakeup } from "../wakeup";
 import { getDriver } from "../drivers/registry";
-import type { AgentDriver, DriverRuntime, TaskSubmissionContext } from "../drivers/types";
+import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
 import { getPendingLaunchNestingInfo, getMaxNestingDepth } from "../nesting";
-import { mkdirSync, existsSync, rmSync, unlinkSync } from "fs";
+import { mkdirSync, existsSync, rmSync, unlinkSync, statSync } from "fs";
+import { isAbsolute, resolve } from "path";
 import { defaultRuntimeLayout } from "../runtime-layout";
 import { isTaskInstructionEcho, planFileHandoff, prepareFileHandoff, type FileHandoffPlan } from "../file-handoff";
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
+import { resolveLaunchProfile } from "../launch-profiles";
 
 export interface LaunchInput {
   db: StateDB;
@@ -22,12 +24,16 @@ export interface LaunchInput {
   safe?: boolean;
   model?: string;
   effort?: string;
+  role?: HelperRole;
 }
 
 export interface LaunchResult {
   sessionId: string;
   ownerToken: string;
   tmuxSession: string;
+  role?: HelperRole;
+  model?: string;
+  effort?: string;
   // Set when the task was delivered to the agent but the driver could not
   // confirm it started a new turn. The session is kept alive as
   // needs_attention instead of being killed.
@@ -67,16 +73,29 @@ function helperEnvironmentPrefix(sessionId: string, maxDepth: number): string {
   const assignments = [
     `AHELPA_PARENT_ID=${sessionId}`,
     `AHELPA_MAX_NESTING_DEPTH=${maxDepth}`,
+    `AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`,
+    `AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`,
   ];
-  const ahelpaHome = process.env.AHELPA_HOME?.trim();
-  const ahelpaTmpDir = process.env.AHELPA_TMP_DIR?.trim();
-  if (ahelpaHome) assignments.push(`AHELPA_HOME=${shellEscape(ahelpaHome)}`);
-  if (ahelpaTmpDir) assignments.push(`AHELPA_TMP_DIR=${shellEscape(ahelpaTmpDir)}`);
   return `export ${assignments.join(" ")};`;
+}
+
+function resolveProjectPath(projectPath: string): string {
+  const absolutePath = resolve(projectPath);
+  if (!statSync(absolutePath).isDirectory()) {
+    throw new Error(`Project path must be a directory: ${absolutePath}`);
+  }
+  return absolutePath;
 }
 
 export function planLaunch(input: LaunchInput): LaunchPlan {
   const driver = getDriver(input.agentType);
+  // Resolve once in the caller's working directory. The helper changes cwd,
+  // and a later resume may be invoked from an entirely different directory.
+  input = {
+    ...input,
+    ...resolveLaunchProfile(driver, { role: input.role, model: input.model, effort: input.effort }),
+    projectPath: resolveProjectPath(input.projectPath),
+  };
   const sessionId = generateAvailableSessionId(input.db, driver.sessionPrefix);
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
   const maxDepth = getMaxNestingDepth();
@@ -190,6 +209,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       depth: plan.depth,
       model: plan.input.model,
       effort: plan.input.effort,
+      role: plan.input.role,
       safe: plan.input.safe,
     });
     dbCreated = true;
@@ -201,8 +221,8 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       plan.input.db.updateStatus(plan.sessionId, SESSION_STATUS.NeedsAttention);
     }
 
-    wakeupOwned = true;
     await defaultWakeup.prepare(plan.sessionId);
+    wakeupOwned = true;
 
     if (!daemon.isDaemonRunning()) {
       daemon.startDaemon();
@@ -223,6 +243,9 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   }
 
   const result: LaunchResult = { sessionId: plan.sessionId, ownerToken: plan.ownerToken, tmuxSession: plan.sessionId };
+  if (plan.input.role !== undefined) result.role = plan.input.role;
+  if (plan.input.model !== undefined) result.model = plan.input.model;
+  if (plan.input.effort !== undefined) result.effort = plan.input.effort;
   if (submissionUnconfirmed) {
     result.warning = `${plan.driver.name} received the task but did not confirm a new turn; session marked needs_attention`;
   }
@@ -245,6 +268,9 @@ export interface ResumeResult {
   ownerToken: string;
   tmuxSession: string;
   resumedFrom: string;
+  role?: HelperRole;
+  model?: string;
+  effort?: string;
 }
 
 export async function resume(input: ResumeInput): Promise<ResumeResult> {
@@ -263,6 +289,12 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   if (oldSession.status === SESSION_STATUS.Idle && await Tmux.hasSession(oldSession.id)) {
     throw new Error(`Cannot resume: session ${input.sessionId} still has an active terminal`);
   }
+  if (!isAbsolute(oldSession.projectPath)) {
+    throw new Error(
+      `Cannot resume: session ${input.sessionId} stores a relative project path and its original working directory is unknown. Launch a new session with an absolute --project path.`,
+    );
+  }
+  const projectPath = resolveProjectPath(oldSession.projectPath);
 
   const driver = getDriver(oldSession.agentType);
   const sessionId = generateAvailableSessionId(input.db, driver.sessionPrefix);
@@ -273,7 +305,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   const safe = oldSession.safe || input.safe === true;
 
   const resumeCmd = driver.buildResumeCommand({
-    cwd: oldSession.projectPath,
+    cwd: projectPath,
     resumeId: oldSession.agentResumeId,
     safe,
     model: oldSession.model ?? undefined,
@@ -301,12 +333,13 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       agentType: oldSession.agentType,
       task: `(resumed from ${oldSession.id})`,
       ownerToken,
-      projectPath: oldSession.projectPath,
+      projectPath,
       label: oldSession.label,
       depth: oldSession.depth,
       resumedFrom: oldSession.id,
       model: oldSession.model,
       effort: oldSession.effort,
+      role: oldSession.role,
       safe,
     });
     dbCreated = true;
@@ -315,8 +348,8 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     // alive without daemon settlement until the host sends the next turn.
     input.db.updateStatus(sessionId, SESSION_STATUS.NeedsAttention);
 
-    wakeupOwned = true;
     await defaultWakeup.prepare(sessionId);
+    wakeupOwned = true;
 
     if (!daemon.isDaemonRunning()) {
       daemon.startDaemon();
@@ -332,5 +365,9 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     throw error;
   }
 
-  return { sessionId, ownerToken, tmuxSession: sessionId, resumedFrom: oldSession.id };
+  const result: ResumeResult = { sessionId, ownerToken, tmuxSession: sessionId, resumedFrom: oldSession.id };
+  if (oldSession.role != null) result.role = oldSession.role;
+  if (oldSession.model != null) result.model = oldSession.model;
+  if (oldSession.effort != null) result.effort = oldSession.effort;
+  return result;
 }

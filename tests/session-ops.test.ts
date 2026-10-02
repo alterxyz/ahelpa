@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, rmSync, writeFileSync, unlinkSync } from "fs";
-import { send, sendTask } from "../src/commands/session-ops";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, unlinkSync } from "fs";
+import { send, sendTask, kill } from "../src/commands/session-ops";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
 import { FIFO } from "../src/fifo";
 import * as daemon from "../src/daemon";
+import { getDriver } from "../src/drivers/registry";
+import { defaultWakeup } from "../src/wakeup";
+import { defaultRuntimeLayout } from "../src/runtime-layout";
 
 const TEST_DB = "/tmp/ahelpa-session-ops-test.db";
 const TEST_TASK = "/tmp/ahelpa-session-ops-task.md";
@@ -160,5 +163,97 @@ describe("session operations", () => {
 
     expect(sendSpy.mock.calls[0]?.[1]).toContain("Please read and complete the task described in");
     expect(db.getSession("codex-task-follow-up")?.status).toBe("running");
+  });
+
+  test.each(["empty", "directory", "missing"])("sendTask rejects a %s input before replacing the handoff or typing a message", async (kind) => {
+    db = new StateDB(TEST_DB);
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    const id = `invalid-task-${kind}`;
+    db.createSession({ id, parentId: "p", agentType: "codex", task: "original", ownerToken: "tok", projectPath: TEST_PROJECT });
+    mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+    const handoff = defaultRuntimeLayout.taskFilePath(id);
+    writeFileSync(handoff, "previous task");
+    writeFileSync(TEST_TASK, " \n ");
+    const filePath = kind === "directory" ? TEST_PROJECT : kind === "missing" ? `${TEST_PROJECT}/missing.md` : TEST_TASK;
+    const send = spyOn(Tmux, "sendKeys").mockResolvedValue();
+
+    try {
+      await expect(sendTask(db, id, "tok", filePath)).rejects.toThrow();
+
+      expect(send).not.toHaveBeenCalled();
+      expect(readFileSync(handoff, "utf8")).toBe("previous task");
+      expect(db.getSession(id)?.status).toBe("running");
+      expect(existsSync(`${TEST_PROJECT}/.ahelpa`)).toBe(false);
+    } finally {
+      unlinkSync(handoff);
+    }
+  });
+
+  test("sendTask rejects a legacy relative project instead of writing results under the caller directory", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "relative-project", parentId: "p", agentType: "codex", task: "original", ownerToken: "tok", projectPath: "." });
+    writeFileSync(TEST_TASK, "Follow-up task");
+    const send = spyOn(Tmux, "sendKeys").mockResolvedValue();
+
+    await expect(sendTask(db, "relative-project", "tok", TEST_TASK))
+      .rejects.toThrow("original working directory is unknown");
+
+    expect(send).not.toHaveBeenCalled();
+    expect(db.getSession("relative-project")?.projectPath).toBe(".");
+  });
+
+  test.each(["send", "sendTask"])("%s cannot revive a session killed while preparing its wakeup pipe", async (operation) => {
+    db = new StateDB(TEST_DB);
+    const id = `killed-during-${operation}`;
+    db.createSession({ id, parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT });
+    db.updateStatus(id, "needs_attention");
+    writeFileSync(TEST_TASK, "Follow-up task body");
+    spyOn(Tmux, "capture").mockResolvedValue("synthetic turn");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(Tmux, "kill").mockResolvedValue();
+    spyOn(getDriver("codex"), "afterTaskSubmitted").mockResolvedValue(true);
+    let started!: () => void;
+    const preparing = new Promise<void>((resolve) => { started = resolve; });
+    let release!: () => void;
+    const paused = new Promise<void>((resolve) => { release = resolve; });
+    spyOn(FIFO, "create").mockImplementation(async () => {
+      started();
+      await paused;
+    });
+    const cleanup = spyOn(defaultWakeup, "cleanup").mockImplementation(() => {});
+    const startDaemon = spyOn(daemon, "startDaemon").mockImplementation(() => {});
+    const sending = operation === "send"
+      ? send(db, id, "tok", "Follow-up task")
+      : sendTask(db, id, "tok", TEST_TASK);
+
+    await preparing;
+    await kill(db, id, "tok");
+    expect(db.getSession(id)?.status).toBe("dead");
+    release();
+    await expect(sending).rejects.toThrow("monitoring was not resumed");
+
+    expect(db.getSession(id)?.status).toBe("dead");
+    expect(cleanup).toHaveBeenCalledTimes(2);
+    expect(startDaemon).not.toHaveBeenCalled();
+  });
+
+  test("a concurrent intervention that already resumed monitoring keeps its wakeup pipe", async () => {
+    db = new StateDB(TEST_DB);
+    const id = "concurrent-intervention";
+    db.createSession({ id, parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT });
+    db.updateStatus(id, "needs_attention");
+    spyOn(Tmux, "capture").mockResolvedValue("synthetic turn");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(getDriver("codex"), "afterTaskSubmitted").mockResolvedValue(true);
+    spyOn(FIFO, "create").mockImplementation(async () => {
+      db.updateStatus(id, "running");
+    });
+    const cleanup = spyOn(defaultWakeup, "cleanup").mockImplementation(() => {});
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+
+    await send(db, id, "tok", "Follow-up task");
+
+    expect(db.getSession(id)?.status).toBe("running");
+    expect(cleanup).not.toHaveBeenCalled();
   });
 });

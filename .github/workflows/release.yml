@@ -1,9 +1,6 @@
 name: release
 
-# Build the ahelpa runtime for every supported platform and attach the
-# tarballs to the GitHub Release for the pushed tag. install.sh resolves the
-# asset name per OS/arch (darwin-arm64 / darwin-x64 / linux-x64 / linux-arm64),
-# so the runtime is installable on macOS and Linux alike.
+# Build and verify every supported platform before making a release available.
 
 on:
   push:
@@ -11,7 +8,11 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -21,12 +22,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14, platform: darwin-arm64 }
-          - { os: macos-13, platform: darwin-x64 }
+          - { os: macos-15, platform: darwin-arm64 }
+          - { os: macos-15-intel, platform: darwin-x64 }
           - { os: ubuntu-latest, platform: linux-x64 }
-          # linux-arm64 uses GitHub's hosted arm64 Linux runner. If it is not
-          # available on this account/repo, drop this matrix entry.
           - { os: ubuntu-24.04-arm, platform: linux-arm64 }
+    env:
+      AHELPA_PLATFORM: ${{ matrix.platform }}
+      RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,15 +38,69 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: compile runtime
+      - name: verify source and platform
         run: |
-          bun build src/cli.ts --compile --outfile=dist/ahelpa
-          rm -f .*.bun-build
+          test "$(bun -p 'process.platform + "-" + process.arch')" = "$AHELPA_PLATFORM"
+          test "v$(bun -p 'require("./package.json").version')" = "$RELEASE_TAG"
+          bun run typecheck
+          bun test tests/version.test.ts tests/installer.test.ts tests/release-workflow.test.ts
 
-      - name: package tarball
-        run: tar czf "ahelpa-${{ matrix.platform }}.tar.gz" -C dist ahelpa
+      - name: compile and verify runtime
+        run: |
+          bun run build
+          test "$(dist/ahelpa version)" = "ahelpa ${RELEASE_TAG#v}"
+          dist/ahelpa help > /dev/null
 
-      - name: upload to release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${GITHUB_REF_NAME}" "ahelpa-${{ matrix.platform }}.tar.gz" --clobber
+      - name: package and verify tarball
+        run: |
+          tar czf "ahelpa-${AHELPA_PLATFORM}.tar.gz" -C dist ahelpa
+          test "$(tar tzf "ahelpa-${AHELPA_PLATFORM}.tar.gz")" = ahelpa
+          mkdir extracted
+          tar xzf "ahelpa-${AHELPA_PLATFORM}.tar.gz" -C extracted
+          test "$(extracted/ahelpa version)" = "ahelpa ${RELEASE_TAG#v}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ahelpa-${{ matrix.platform }}
+          path: ahelpa-${{ matrix.platform }}.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: ahelpa-*
+          path: assets
+          merge-multiple: true
+
+      - name: verify complete release and generate checksums
+        working-directory: assets
+        run: |
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            test -s "ahelpa-${platform}.tar.gz"
+          done
+          test "$(find . -type f | wc -l)" -eq 4
+          sha256sum ahelpa-*.tar.gz > SHASUMS256.txt
+          sha256sum --check SHASUMS256.txt
+
+      - name: publish verified draft release
+        run: |
+          if RELEASE_IS_DRAFT="$(gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft')"; then
+            if [ "$RELEASE_IS_DRAFT" != true ]; then
+              echo "Release $RELEASE_TAG is already published; refusing to overwrite its assets." >&2
+              exit 1
+            fi
+          else
+            gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" assets/ahelpa-*.tar.gz assets/SHASUMS256.txt --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

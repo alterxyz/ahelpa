@@ -1,15 +1,33 @@
-import { unlinkSync, existsSync, openSync, closeSync, writeSync, readSync, constants } from "fs";
+import { unlinkSync, lstatSync, openSync, closeSync, writeSync, readSync, constants } from "fs";
+
+function hasFifo(path: string): boolean {
+  let stat;
+  try {
+    stat = lstatSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw error;
+  }
+  // Follow no symlinks, even ones pointing to a FIFO. A wakeup path must own
+  // its pipe directly; regular files and other filesystem entries are not ours.
+  if (!stat.isFIFO()) throw new Error(`Refusing to use non-FIFO path: ${path}`);
+  return true;
+}
 
 export class FIFO {
   static async create(path: string): Promise<void> {
-    // Remove existing file first
-    if (existsSync(path)) {
-      unlinkSync(path);
-    }
-    const result = await Bun.spawn(["mkfifo", path]).exited;
+    // Reuse the inode: replacing a pipe disconnects readers that already have
+    // it open, including another host waiting while a task is resumed.
+    if (hasFifo(path)) return;
+    const creation = Bun.spawn(["mkfifo", path], { stdout: "ignore", stderr: "pipe" });
+    const [result, stderr] = await Promise.all([creation.exited, new Response(creation.stderr).text()]);
+    // Another creator can win between lstat and mkfifo. Treat that race as
+    // success only after checking the resulting entry is itself a FIFO.
+    if (hasFifo(path)) return;
     if (result !== 0) {
-      throw new Error(`mkfifo failed with exit code ${result}`);
+      throw new Error(`mkfifo failed for ${path} with exit code ${result}: ${stderr.trim()}`);
     }
+    throw new Error(`FIFO disappeared during creation: ${path}`);
   }
 
   // ponytail: sync impl behind async interface; upgrade to true async only if write ever needs to block

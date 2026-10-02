@@ -54,4 +54,18 @@ describe("check", () => {
     expect(grandchild!.rootSessionId).toBe("root-session");
     expect(grandchild!.lineage).toEqual(["root-session", "child-session", "grandchild-session"]);
   });
+
+  test("reports the stored role and model choices without guessing legacy defaults", () => {
+    db.createSession({ id: "worker", parentId: "p", agentType: "claude-code", task: "work",
+      ownerToken: "private-token", projectPath: "/tmp", role: "worker",
+      model: "claude-sonnet-5-5", effort: "high" });
+    db.createSession({ id: "legacy", parentId: "p", agentType: "codex", task: "old",
+      ownerToken: "private-token", projectPath: "/tmp" });
+    const rows = check(db);
+    expect(rows.find((row) => row.id === "worker")).toMatchObject({
+      role: "worker", model: "claude-sonnet-5-5", effort: "high",
+    });
+    expect(rows.find((row) => row.id === "legacy")).toMatchObject({ role: null, model: null, effort: null });
+    expect(JSON.stringify(rows)).not.toContain("private-token");
+  });
 });

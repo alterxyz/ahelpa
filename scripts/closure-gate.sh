@@ -55,16 +55,56 @@ check_kimi_resume_id() {
   ' "$2"
 }
 
+check_session_profile() {
+  printf '%s' "$1" | bun -e '
+    try {
+      const fs = require("fs");
+      const [id, role, model, effort] = process.argv.slice(1);
+      const result = JSON.parse(fs.readFileSync(0, "utf8"));
+      const session = Array.isArray(result)
+        ? result.find((entry) => entry.id === id)
+        : result.sessionId === id ? result : undefined;
+      if (!session || session.role !== role || session.model !== model || session.effort !== effort) {
+        process.exit(1);
+      }
+    } catch { process.exit(1); }
+  ' "$2" "$3" "$4" "$5"
+}
+
 # A subshell scopes all state and cleanup to the driver launched by this run.
 run_gate() (
   # Bash 3 discards function-local variables before an EXIT trap after a
   # nested function exits, so cleanup state belongs to this subshell scope.
   agent="$1"
+  requested_role="${2:-}"
+  expected_role=""
+  expected_model=""
+  expected_effort=""
+  case "$agent:$requested_role" in
+    claude-code: | claude-code:advisor)
+      expected_role="advisor"
+      expected_model="claude-opus-5-5"
+      expected_effort="xhigh"
+      ;;
+    claude-code:worker)
+      expected_role="worker"
+      expected_model="claude-sonnet-5-5"
+      expected_effort="high"
+      ;;
+    codex: | codex:worker)
+      expected_role="worker"
+      expected_model="gpt-6.1-sol"
+      expected_effort="high"
+      ;;
+    kimi:) ;;
+    *) fail "Unsupported gate scenario: $agent $requested_role" ;;
+  esac
   label="$agent"
-  expected_marker="gate-$agent"
+  if [ -n "$expected_role" ]; then label="$agent-$expected_role"; fi
+  expected_marker="gate-$label"
   task="Write exactly $expected_marker followed by a newline to summary.md in your assigned result directory. Then output [AHELPA:DONE] on its own line."
   task="$task Only read the assigned task file and write within the assigned result directory; do not inspect other projects, home directories, or global ahelpa state."
-  project="${GATE_FIXTURE_PROJECT:-$GATE_DIR/project-$agent}"
+  project="${GATE_FIXTURE_PROJECT:-$GATE_DIR/project-$label}"
   if [ "$agent" = "claude-code" ] && [ -n "${GATE_CLAUDE_PROJECT:-}" ]; then
     project="$GATE_CLAUDE_PROJECT"
   fi
@@ -138,6 +178,10 @@ run_gate() (
     if ! check_session_status "$check_output" "$session_id" completed; then
       fail "check did not observe completed $agent session $session_id"
     fi
+    if [ -n "$expected_role" ] && ! check_session_profile "$check_output" "$session_id" \
+      "$expected_role" "$expected_model" "$expected_effort"; then
+      fail "check did not retain expected role/model/effort for $label session $session_id"
+    fi
     if ! bun -e '
       try {
         const fs = require("fs");
@@ -164,10 +208,16 @@ run_gate() (
   }
 
   echo
-  echo "== closure gate > $agent =="
+  echo "== closure gate > $label =="
   mkdir -p "$project"
-  launch_output="$("$CLI" launch "$agent" --task "$task" --project "$project")"
+  launch_args=(launch "$agent" --task "$task" --project "$project")
+  if [ -n "$requested_role" ]; then launch_args+=(--role "$requested_role"); fi
+  launch_output="$("$CLI" "${launch_args[@]}")"
   take_session "$launch_output"
+  if [ -n "$expected_role" ] && ! check_session_profile "$launch_output" "$session_id" \
+    "$expected_role" "$expected_model" "$expected_effort"; then
+    fail "launch did not report expected role/model/effort for $label session $session_id"
+  fi
   verify_completion
   if [ "$agent" = "kimi" ] && ! check_kimi_resume_id "$check_output" "$session_id"; then
     fail "Kimi did not retain a native session resume ID"
@@ -186,14 +236,14 @@ run_gate() (
     if [ -e "$delivery/summary.md" ]; then fail "Kimi resumed summary already exists before its new task"; fi
     expected_marker="gate-kimi-resumed:$context_marker"
     cat >"$GATE_DIR/kimi-resume-task.md" <<'TASK'
-Recall the exact context marker from our prior conversation without reading prior task files, result files, other projects, home directories, or global ahelpa state. Write exactly gate-kimi-resumed: followed immediately by that marker and a newline to summary.md in your assigned result directory. Then output [AHELPA:DONE] on its own line. Only write within that assigned result directory.
+Recall the exact context marker from our prior conversation without reading prior task files, result files, other projects, home directories, or global ahelpa state. Write one line to summary.md in your assigned result directory. Construct it by concatenating the literal prefix `gate-kimi-resumed:` and the remembered UUID, then one newline. There must be NO SPACE after the colon or anywhere in the line. Do not include backticks, quotes, placeholders, or commentary. Before declaring completion, check only the new summary.md for this exact format. Then output [AHELPA:DONE] on its own line. Only write within that assigned result directory.
 TASK
     "$CLI" task "$session_id" --file "$GATE_DIR/kimi-resume-task.md" --token "$owner_token" >"$GATE_DIR/task-kimi-resumed.txt"
     verify_completion
     reclaim_session
     echo "pass > kimi resume readiness, new turn, and context continuity"
   fi
-  echo "pass > $agent ($session_id)"
+  echo "pass > $agent${expected_role:+-$expected_role} ($session_id)"
 )
 
 # The same bounded integration checks can verify a compiled development binary
@@ -219,6 +269,7 @@ run_integration_gate() (
   "$CLI" help >"$GATE_DIR/cli.txt"
   "$CLI" version >"$GATE_DIR/version.txt"
   run_gate claude-code
+  run_gate claude-code worker
   run_gate codex
   run_gate kimi
 )

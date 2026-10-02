@@ -221,9 +221,16 @@ function freshModelConfirmation(output: string, model: string, baseline: ModelEv
 export const codexDriver: AgentDriver = {
   name: "codex",
   sessionPrefix: "codex",
+  launchProfiles: {
+    defaultRole: "worker",
+    profiles: {
+      worker: { model: "gpt-6.1-sol", effort: "high" },
+    },
+  },
   resumeTokenAvailableAfterSubmit: false,
   modelCatalog: {
     models: [
+      { name: "gpt-6.1-sol", efforts: CODEX_MAX_EFFORTS, defaultEffort: "medium" },
       { name: "gpt-6-astra", efforts: CODEX_ULTRA_EFFORTS, defaultEffort: "medium" },
       { name: "gpt-5.6", efforts: CODEX_ULTRA_EFFORTS, defaultEffort: "low" },
       { name: "gpt-5.6-sol", efforts: CODEX_ULTRA_EFFORTS, defaultEffort: "low" },

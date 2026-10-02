@@ -11,11 +11,13 @@ Verify with `command -v claude` or `command -v codex`, not `command -v claude-co
 
 Claude Code is launched with `--dangerously-skip-permissions --verbose` by default. Use `ahelpa launch claude-code --safe ...` to omit `--dangerously-skip-permissions`.
 
+The default role is `advisor`, using `claude-opus-5-5` with `xhigh` effort for analysis, plans, and review. For implementation against a clear objective, pass `--role worker` to use `claude-sonnet-5-5` with `high`. Explicit model/effort options override those defaults; roles do not change permissions.
+
 ## Typical Workflow
 
 ```bash
 # 1. Launch a helper
-result=$(ahelpa launch claude-code --task "Add unit tests for auth.ts" --project /path/to/project)
+result=$(ahelpa launch claude-code --role worker --task "Add unit tests for auth.ts" --project /path/to/project)
 session_id=$(echo $result | jq -r .sessionId)
 token=$(echo $result | jq -r .ownerToken)
 

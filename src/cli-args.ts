@@ -4,7 +4,9 @@ export interface ParsedCliArgs {
 }
 
 export function parseCliArgs(args: string[], booleanFlags?: ReadonlySet<string>): ParsedCliArgs {
-  const flags: Record<string, string> = {};
+  // Flag names are user input. Keep prototype names as ordinary own keys so
+  // the command contract can reject them like any other unknown option.
+  const flags: Record<string, string> = Object.create(null);
   const positionals: string[] = [];
 
   for (let i = 0; i < args.length; i++) {

@@ -116,7 +116,26 @@ ahelpa install-skill --source ./skill
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-公开安装脚本会按当前 OS/arch 从 GitHub Releases 下载对应 tarball（如 `ahelpa-darwin-arm64.tar.gz`），然后调用 `ahelpa install-skill`。
+公开安装脚本把 `latest` 解析为具体 tag，从同一 release 下载平台归档和 `SHASUMS256.txt`。替换前会校验 SHA-256，确认归档中只有普通文件 `ahelpa`，并验证可执行文件的版本与 tag 一致。替换在目标目录内原子完成；旧二进制保留为 `ahelpa.backup.*`。runtime 与 skill 固定到同一 tag。skill 安装随后执行；该步骤失败时，新 runtime 和旧二进制备份仍会保留。
+
+安装参数：
+
+| 环境变量 | 用途 |
+| --- | --- |
+| `AHELPA_VERSION` | 指定 release tag；默认 `latest` 只解析一次 |
+| `AHELPA_BIN_DIR` | runtime 安装目录 |
+| `AHELPA_REPO` | release 与 skill 来源，格式为 `owner/repository` |
+| `AHELPA_ARCHIVE_URL` | 自定义归档 URL，必须同时指定下列一种校验参数 |
+| `AHELPA_SHA256` | 可信的归档 SHA-256 摘要 |
+| `AHELPA_CHECKSUM_URL` | 包含对应平台归档条目的替代校验清单 |
+
+两种校验参数只能选一种。缺少清单的旧 release 必须显式提供可信摘要或替代清单，不会默默跳过校验。自定义归档版本必须与 `AHELPA_VERSION` 一致，该版本同时决定 skill 来源。
+
+### Release 工作流
+
+Tag 工作流使用 macOS 与 Linux 的两种架构原生 runner，检查类型与安装 fixture，并对编译后及解包后的二进制做冒烟验证。publish job 等四个平台全部完成后生成校验清单，再创建或继续 draft GitHub Release。release 在资产上传完成前保持 draft；已发布版本不允许通过重跑工作流覆盖，应使用新版本 tag。tag 必须匹配 `package.json`。
+
+macOS 矩阵使用 `macos-15` 与 `macos-15-intel`：[macOS 13 已退役](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/)，[macOS 14 将于 2026-11-02 退役](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/)。面向旧版用户分发新安装脚本前，应先发布带校验清单的 release。
 
 ## 测试
 
@@ -130,7 +149,7 @@ Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 
 
 ## Closure gate
 
-影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证三个 supported driver。Codex 和 Kimi 使用稳定的 `tests/fixtures/closure` 工作区，Claude Code 使用仓库根目录；任务只允许访问指定任务文件和结果目录。
+影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证三个 supported driver。场景依次为 Claude 默认 advisor、Claude 显式 worker、Codex 默认 worker、Kimi；前三项同时校验 launch 返回和 check 保存的准确角色/模型/effort，使用各自独立的结果标记与证据目录。Codex 和 Kimi 使用稳定的 `tests/fixtures/closure` 工作区，Claude Code 使用仓库根目录；任务只允许访问指定任务文件和结果目录。
 
 脚本为 gate 单独设置 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，因此它的 SQLite 状态、daemon、archive、FIFO 和任务文件不会干扰用户正在运行的 ahelpa session。helper CLI 仍使用正常的 OS home 和既有认证状态。
 

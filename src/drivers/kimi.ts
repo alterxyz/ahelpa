@@ -71,6 +71,13 @@ function lastActiveToolUseIndex(captureOutput: string): number {
   return matches.at(-1)?.index ?? -1;
 }
 
+function lastAssistantResponseIndex(captureOutput: string): number {
+  const matches = [...captureOutput.matchAll(
+    /^\s*[●•][ \t]+(?!(?:Using|Used)\b|\[AHELPA:)\S.*$/gmu,
+  )];
+  return matches.at(-1)?.index ?? -1;
+}
+
 function lastApprovalPromptIndex(captureOutput: string): number {
   const matches = [...captureOutput.matchAll(
     /^\s*[▶›❯]\s*(?:Run this command\?|Write this file\?|Apply these edits\?|Stop this task\?|Ready to build with this plan\?|Approve .+\?)\s*$/gimu,
@@ -126,11 +133,24 @@ function latestTurnEvidence(captureOutput: string): PositionedSignal | Positione
   const attentionIndex = lastAttentionPromptIndex(captureOutput);
   const promptIndex = lastEmptyPromptIndex(captureOutput);
   const sentinel = latestSentinel(captureOutput);
-  if (generationIndex >= 0) signals.push({ index: generationIndex, kind: "generation" });
+  // An old retry/spinner can remain in resumed scrollback. A later assistant
+  // response followed by the composer retires it; tool progress/results do
+  // not, since generation can continue after a tool has finished writing.
+  const responseIndex = lastAssistantResponseIndex(captureOutput);
+  const historicalGeneration = responseIndex > generationIndex && promptIndex > responseIndex;
+  if (generationIndex >= 0 && !historicalGeneration) {
+    signals.push({ index: generationIndex, kind: "generation" });
+  }
   if (attentionIndex >= 0) signals.push({ index: attentionIndex, kind: "attention" });
-  if (promptIndex >= 0) signals.push({ index: promptIndex, kind: "prompt" });
   if (sentinel) signals.push(sentinel);
-  return signals.sort((left, right) => left.index - right.index).at(-1) ?? null;
+  const latest = signals.sort((left, right) => left.index - right.index).at(-1);
+  // The empty composer stays below active generation and approval panels.
+  // It is ready for input only when neither of those signals is current.
+  if (latest?.kind === "generation" || latest?.kind === "attention") return latest;
+  if (promptIndex >= 0 && promptIndex > (latest?.index ?? -1)) {
+    return { index: promptIndex, kind: "prompt" };
+  }
+  return latest ?? null;
 }
 
 function kimiHasActiveToolUse(captureOutput: string): boolean {
@@ -152,8 +172,9 @@ function kimiIsGenerating(captureOutput: string): boolean {
 }
 
 function kimiIsReady(captureOutput: string): boolean {
-  return !kimiHasActiveToolUse(captureOutput)
-    && latestTurnEvidence(captureOutput)?.kind === "prompt";
+  const current = currentTurnOutput(captureOutput);
+  return !kimiHasActiveToolUse(current)
+    && latestTurnEvidence(current)?.kind === "prompt";
 }
 
 function extractSessionId(captureOutput: string): string | null {
@@ -193,9 +214,9 @@ function hasNewTurnEvidence(beforeOutput: string, captureOutput: string): boolea
   const beforeCurrent = currentTurnOutput(beforeOutput);
   const current = currentTurnOutput(captureOutput);
   const beforeEvidence = latestTurnEvidence(beforeCurrent);
-  const beforeWasWaiting = beforeEvidence?.kind === "attention"
+  const beforeWasWaiting = !kimiIsGenerating(beforeCurrent) && (beforeEvidence?.kind === "attention"
     || beforeEvidence?.kind === "prompt"
-    || beforeEvidence?.kind === "sentinel";
+    || beforeEvidence?.kind === "sentinel");
   if (beforeWasWaiting && kimiIsGenerating(current)) return true;
   // A very fast approval/question continuation can finish before the first
   // 500ms probe, so no generation frame is observable between panel and DONE.

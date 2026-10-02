@@ -1,6 +1,7 @@
 export interface LaunchOptions { cwd: string; safe?: boolean; model?: string; effort?: string; }
 export interface ResumeOptions { cwd: string; resumeId: string; safe?: boolean; model?: string; effort?: string; }
 export interface ModelSwitchOptions { model: string; effort?: string; persist?: boolean; }
+export type HelperRole = "worker" | "advisor";
 
 // The helper accepted the new model, but restoring the CLI defaults failed.
 // Callers must retain the applied choice while still reporting the failure.
@@ -41,6 +42,10 @@ export type ActivitySignal = "working" | "booting" | "idle";
 export interface AgentDriver {
   name: string;
   sessionPrefix: string;
+  launchProfiles?: {
+    defaultRole: HelperRole;
+    profiles: Partial<Record<HelperRole, { model: string; effort: string }>>;
+  };
   modelCatalog: AgentModelCatalog;
   resumeTokenAvailableAfterSubmit: boolean;
   buildLaunchCommand(opts: LaunchOptions): string;

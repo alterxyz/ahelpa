@@ -12,6 +12,8 @@ ahelpa lets you spawn, manage, and communicate with persistent helper agents run
 
 Public installs use GitHub Releases for the runtime and `npx skills@latest` for global hard-copy skill installation. Source checkouts can build a local skill bundle with `bun run package:skill`.
 
+The release installer verifies SHA-256 and the runtime version before atomic replacement, retains the prior binary as a backup, and installs the skill from the same release tag. Older releases without a checksum manifest require a trusted `AHELPA_SHA256` or `AHELPA_CHECKSUM_URL` override.
+
 Public documentation is available in English and Simplified Chinese:
 
 - `README.md` / `README.zh-CN.md`
@@ -34,7 +36,7 @@ Both commands install the skill globally as hard copies through the explicit `co
 ## Quick Start
 
 ```bash
-result=$(ahelpa launch claude-code --task "Refactor the auth module")
+result=$(ahelpa launch claude-code --role worker --task "Refactor the auth module")
 session_id=$(echo $result | jq -r .sessionId)
 token=$(echo $result | jq -r .ownerToken)
 ahelpa wait "$session_id"
@@ -57,13 +59,14 @@ Verify prerequisites with `command -v claude`, `command -v codex`, or `command -
 4. **Wait on multiple helpers at once.** Use `ahelpa wait id1 id2 id3`, not one-at-a-time waits.
 5. **Ownership is non-transitive.** You can only manage sessions you launched. Your helper's helpers are not yours to control.
 6. **Results land in files.** After completion: `.ahelpa/<session-id>/summary.md` for the summary, `.ahelpa/<session-id>/artifacts/` for supporting files.
-7. **Use `task` for long instructions.** `ahelpa task <id> --file <path>` avoids tmux keystroke limits.
+7. **Use files for long instructions.** Start with `ahelpa launch <type> --file <path>`; follow up with `ahelpa task <id> --file <path> --token <tok>`. Launch requires exactly one of `--task` and `--file` and snapshots the file contents.
 8. **`capture` is for debugging only.** Not a communication channel.
 9. **Tidy up.** After reading results, move useful outputs to the project tree and keep `.ahelpa/` clean.
 10. **Helpers have full permissions by default.** They run as the local user. Use `--project` to scope working directories, `--safe` to omit or bound default danger flags, or git worktrees for isolation. `--project` sets the task boundary but is not a filesystem sandbox, so prompts should explicitly forbid unrelated home directories, global ahelpa archives, and other projects unless the task truly needs them. For Kimi, `--safe` only restores native approvals by omitting `--yolo`; it still auto-trusts the project and is not a sandbox.
 11. **Inline refresh works without daemon.** `wait`, `check`, and `status` refresh session state even if the daemon isn't running.
 12. **Don't re-derive the CLI.** Follow this document for normal helper delegation. Only inspect `src/` or `tests/` when debugging ahelpa itself.
 13. **Trust prompt handling is automatic.** The Codex and Kimi drivers handle their directory trust prompts. On Kimi's first launch, ahelpa selects **Trust this folder**; Kimi persists that trust and may start project MCP servers from the directory. No manual intervention is needed during normal use.
+14. **Choose a role by the task.** Use Claude's default `advisor` for analysis, plans, and review; pass `--role worker` for execution with a clear objective. Codex is always a `worker`. Roles choose model defaults, not permissions. Kimi does not accept `--role`.
 
 ## Timing and Patience
 
@@ -79,7 +82,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 | Command | Description |
 |---------|-------------|
-| `launch <type> --task "..." [--label] [--project] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Spawn a helper. Returns JSON: `sessionId`, `ownerToken`, `tmuxSession`. |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--label] [--project] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Spawn a helper. Returns identity and known effective `role`, `model`, `effort`. |
 | `wait <id...> [--all] [--timeout <seconds>]` | Block until sessions complete or timeout (default 500s). |
 | `check [--parent <id>]` | Non-blocking status poll. |
 | `models [agent]` | List launch-time model options. |
@@ -100,12 +103,22 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 ## Choosing a Model at Launch
 
+| Helper / role | Default model | Effort |
+| --- | --- | --- |
+| Codex `worker` (default and only role) | `gpt-6.1-sol` | `high` |
+| Claude `advisor` (default) | `claude-opus-5-5` | `xhigh` |
+| Claude `worker` | `claude-sonnet-5-5` | `high` |
+
+Use `--role worker` to select the Claude worker preset. `--model` and `--effort` override their defaults independently. Extra-high is spelled `xhigh`, not `extra`. Defaults are applied only to new launches; `resume` reuses stored settings, including unknown values in legacy sessions. `check` exposes the stored role/model/effort, while `status` shows the role. Kimi retains its native defaults.
+
 Use `ahelpa models` or `ahelpa models codex` to inspect the model information known to this ahelpa release. Pass `--model <model>` to `launch` when a helper should start on a specific model. For Codex, `gpt-5.6` is a stable convenience alias for `gpt-5.6-sol`; select `gpt-5.6-terra` or `gpt-5.6-luna` explicitly for those variants. Pass `--effort <level>` when the selected agent supports launch-time effort settings. `resume` reuses recorded launch settings that the selected driver supports, including a sticky safe posture; `resume --safe` can upgrade a default-posture record but omission cannot downgrade a safe one.
 
 Examples:
 
 ```bash
 ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
+ahelpa launch codex --file ./implementation.md
+ahelpa launch claude-code --role worker --file ./implementation.md
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ahelpa launch kimi --task "Review this change"
@@ -118,6 +131,8 @@ For Kimi, ahelpa sets `KIMI_CODE_NO_AUTO_UPDATE=1` so a CLI self-update cannot i
 Use `ahelpa model <id> --to <model> --token <tok>` when a helper is idle at its input prompt. Claude Code switches the current session only. Codex switches the running session and ahelpa restores the previous Codex config by default; unrelated concurrent config changes are preserved and reported instead of overwritten. Add `--persist` to keep the new Codex default. Codex effort levels include `low|medium|high|xhigh|max|ultra`, subject to the selected model's actual menu. Successful switches update the model and explicit effort reused by `resume`.
 
 Runtime `ahelpa model` switching is not supported for Kimi. Choose its model when launching the helper.
+
+Claude Code rejects runtime `--effort` and `--persist`; set effort at launch. A model switch must receive a fresh confirmation matching the selected model before ahelpa records success.
 
 ## Resume and Identity
 

@@ -1,5 +1,5 @@
 import { homedir } from "os";
-import { join } from "path";
+import { join, resolve } from "path";
 
 export interface RuntimeLayoutOptions {
   homeDir?: string;
@@ -15,11 +15,11 @@ export class RuntimeLayout {
   constructor(options: RuntimeLayoutOptions = {}) {
     const envAhelpaHome = process.env.AHELPA_HOME?.trim() || undefined;
     const envTmpDir = process.env.AHELPA_TMP_DIR?.trim() || undefined;
-    this.homeDir = options.homeDir ?? homedir();
-    this.ahelpaDir = options.ahelpaDir
+    this.homeDir = resolve(options.homeDir ?? homedir());
+    this.ahelpaDir = resolve(options.ahelpaDir
       ?? (options.homeDir ? join(options.homeDir, ".ahelpa") : envAhelpaHome)
-      ?? join(this.homeDir, ".ahelpa");
-    this.tmpDir = options.tmpDir ?? envTmpDir ?? "/tmp/ahelpa";
+      ?? join(this.homeDir, ".ahelpa"));
+    this.tmpDir = resolve(options.tmpDir ?? envTmpDir ?? "/tmp/ahelpa");
   }
 
   ahelpaHomeDir(): string {

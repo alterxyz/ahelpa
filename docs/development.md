@@ -115,7 +115,26 @@ Public installs use the release installer:
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-The public installer downloads the platform-specific tarball (e.g. `ahelpa-darwin-arm64.tar.gz`) from GitHub Releases and then calls `ahelpa install-skill`.
+The public installer resolves `latest` to a specific tag and downloads the platform tarball plus `SHASUMS256.txt` from that release. It verifies SHA-256, requires an archive containing only the regular `ahelpa` file, and checks that the executable's version matches the tag before replacing an installation. Replacement is atomic within the destination directory; the previous binary is retained as `ahelpa.backup.*`. Runtime and skill use the same tag. Skill installation is a subsequent step; if it fails, the new runtime and previous binary backup remain available.
+
+Installer overrides:
+
+| Variable | Purpose |
+| --- | --- |
+| `AHELPA_VERSION` | Explicit release tag; default `latest` is resolved once |
+| `AHELPA_BIN_DIR` | Runtime installation directory |
+| `AHELPA_REPO` | Release and skill source as `owner/repository` |
+| `AHELPA_ARCHIVE_URL` | Custom archive URL; requires one checksum override below |
+| `AHELPA_SHA256` | Trusted archive SHA-256 digest |
+| `AHELPA_CHECKSUM_URL` | Alternate manifest with an entry for the platform archive |
+
+Use only one checksum override. Old releases without a manifest require an explicit trusted digest or alternate manifest; verification is never silently skipped. A custom archive must match `AHELPA_VERSION`, which also selects its skill source.
+
+### Release workflow
+
+The tag workflow builds on native macOS and Linux runners for both architectures, checks source types and installer fixtures, and smoke-tests the compiled and packaged binaries. A publish job waits for all four builds, assembles the checksum manifest, then creates or resumes a draft GitHub Release. Releases stay in draft until their assets upload. Published releases cannot be overwritten by rerunning the workflow; use a new version tag. The tag must match `package.json`.
+
+The macOS matrix uses `macos-15` and `macos-15-intel`: [macOS 13 has retired](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/), and [macOS 14 retirement is scheduled for 2026-11-02](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/). Publish a release containing the manifest before distributing the new installer to users of older releases.
 
 ## Testing
 
@@ -129,7 +148,7 @@ The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots 
 
 ## Closure Gate
 
-The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary across all three supported drivers. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
+The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary across all three supported drivers. It exercises Claude's default advisor and explicit worker separately, followed by Codex's default worker and Kimi. The first three scenarios verify the exact role/model/effort returned by launch and persisted in check, using separate result markers and evidence directories. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
 
 The gate assigns private `AHELPA_HOME` and `AHELPA_TMP_DIR` roots, so its SQLite state, daemon, archives, FIFOs, and task files do not interfere with active ahelpa sessions. Helper CLIs retain their normal OS home and authentication.
 

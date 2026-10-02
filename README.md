@@ -20,11 +20,13 @@ Requirements: macOS or Linux (x64 / arm64), tmux, and `npx` for skill installati
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-The installer downloads the runtime binary for your OS/arch from GitHub Releases, installs it to `~/.ahelpa/bin/ahelpa`, then delegates skill installation to `npx skills@latest`. The skill is installed globally as a hard copy for all supported agents through three explicit targets:
+The installer resolves a release tag, verifies its platform archive against `SHASUMS256.txt`, checks the binary's version, and atomically installs it to `~/.ahelpa/bin/ahelpa`. An existing binary is backed up. It then installs the skill from the same tag through `npx skills@latest`. The skill is installed globally as a hard copy for all supported agents through three explicit targets:
 
 - Codex: target `codex` → `~/.codex/skills/ahelpa`
 - Claude Code: target `claude-code` → `~/.claude/skills/ahelpa`
 - Kimi Code CLI: target `kimi-code-cli` → `~/.agents/skills/ahelpa`
+
+Older releases without a checksum manifest require a trusted `AHELPA_SHA256`; custom download sources also need that digest or `AHELPA_CHECKSUM_URL`. See [installation details](docs/development.md#deployment).
 
 If the runtime is already installed and you only need to refresh the skill:
 
@@ -62,6 +64,8 @@ ls ".ahelpa/$session_id/artifacts/"
 
 Helpers run in their own tmux sessions with fresh context. They receive a task file, write results under `.ahelpa/<session-id>/`, and signal completion by printing `[AHELPA:DONE]` or `[AHELPA:NEED_HELP]`.
 
+For longer tasks, use `ahelpa launch codex --file ./task.md`. Choose exactly one of `--task` and `--file`; file contents are copied into the session's handoff before task delivery, preserving multiline text without shell quoting.
+
 ## Core Primitives
 
 | Primitive | Role |
@@ -84,11 +88,21 @@ Helpers run in their own tmux sessions with fresh context. They receive a task f
 
 Verify prerequisites with `command -v claude`, `command -v codex`, or `command -v kimi` — the Claude helper type name is not its binary name.
 
+### Roles and defaults
+
+| Helper | Role | Default model | Effort |
+| --- | --- | --- | --- |
+| `codex` | `worker` (default and only role) | `gpt-6.1-sol` | `high` |
+| `claude-code` | `advisor` (default) | `claude-opus-5-5` | `xhigh` |
+| `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
+
+Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
+
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> --task "..." [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`) |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`) |
 | `wait <id...> [--all] [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>]` | Non-blocking status poll with inline refresh |
 | `models [agent]` | List launch-time model options |

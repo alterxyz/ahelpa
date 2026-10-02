@@ -15,8 +15,9 @@ import { getDriver } from "../drivers/registry";
 import type { DriverRuntime, ModelSwitchOptions, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
 import { ModelSwitchAppliedError } from "../drivers/types";
-import { readFileSync, unlinkSync, readdirSync } from "fs";
-import { join } from "path";
+import { unlinkSync, readdirSync } from "fs";
+import { isAbsolute, join } from "path";
+import { readTaskFile } from "../task-input";
 
 interface AuthContext { db: StateDB; session: SessionRecord; }
 
@@ -55,7 +56,13 @@ async function resumeMonitoringAfterIntervention(
     );
   }
   await defaultWakeup.prepare(session.id);
-  db.updateStatus(session.id, SESSION_STATUS.Running);
+  // Submission and FIFO creation both await external work. A concurrent kill
+  // must win even if the driver confirmed a turn before the terminal closed.
+  if (!db.compareAndSetStatus(session.id, session.status, SESSION_STATUS.Running)
+    && db.getSession(session.id)?.status !== SESSION_STATUS.Running) {
+    defaultWakeup.cleanup(session.id);
+    throw new Error(`Session ${session.id} changed while sending the message; monitoring was not resumed`);
+  }
   if (!daemon.isDaemonRunning()) daemon.startDaemon();
 }
 
@@ -75,7 +82,12 @@ export const capture = withAuth(async ({ session }, lines: number = 50) => {
 });
 
 export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
-  const content = readFileSync(filePath, "utf-8");
+  if (!isAbsolute(session.projectPath)) {
+    throw new Error(
+      `Cannot send task: session ${session.id} stores a relative project path and its original working directory is unknown. Launch a new session with an absolute --project path.`,
+    );
+  }
+  const content = readTaskFile(filePath);
   const fileHandoff = planFileHandoff(session.projectPath, session.id);
   prepareFileHandoff(fileHandoff, content);
   const submissionContext = canResumeMonitoring(session)
@@ -137,6 +149,7 @@ export function check(db: StateDB, parentId?: string) {
   return sessions.map(s => ({
     ...getSessionNestingInfo(db, s.id),
     id: s.id, agentType: s.agentType, status: s.status,
+    role: s.role ?? null, model: s.model ?? null, effort: s.effort ?? null,
     task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
     agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
   }));
@@ -147,12 +160,12 @@ export function status(db: StateDB, daemonRunning: boolean): string {
   let output = `ahelpa daemon: ${daemonRunning ? "running" : "stopped"}\n`;
   output += `sessions: ${sessions.length}\n\n`;
   if (sessions.length === 0) { output += "(no sessions)\n"; return output; }
-  output += "ID                    TYPE          STATUS    DEPTH PARENT                 LABEL         AGE\n";
-  output += "─".repeat(104) + "\n";
+  output += "ID                    TYPE          ROLE      STATUS    DEPTH PARENT                 LABEL         AGE\n";
+  output += "─".repeat(114) + "\n";
   for (const s of sessions) {
     const age = timeSince(s.createdAt);
     const nesting = getSessionNestingInfo(db, s.id);
-    output += `${s.id.padEnd(22)} ${s.agentType.padEnd(14)} ${s.status.padEnd(10)} ${String(nesting.depth).padEnd(5)} ${(nesting.parentSessionId || "-").padEnd(22)} ${(s.label || "").padEnd(14)} ${age}\n`;
+    output += `${s.id.padEnd(22)} ${s.agentType.padEnd(14)} ${(s.role ?? "-").padEnd(10)} ${s.status.padEnd(10)} ${String(nesting.depth).padEnd(5)} ${(nesting.parentSessionId || "-").padEnd(22)} ${(s.label || "").padEnd(14)} ${age}\n`;
   }
   return output;
 }
@@ -176,12 +189,12 @@ export async function clean(db: StateDB, layout: RuntimeLayout = defaultRuntimeL
     db.deleteSession(session.id);
     removed++;
   }
-  return { removed, orphanFiles: sweepOrphanFiles(db, layout) };
+  return { removed, orphanFiles: await sweepOrphanFiles(db, layout) };
 }
 
 // Pipes and task files whose session record no longer exists have no other
 // reclamation path — session ids are random, so they pile up forever.
-function sweepOrphanFiles(db: StateDB, layout: RuntimeLayout): number {
+async function sweepOrphanFiles(db: StateDB, layout: RuntimeLayout): Promise<number> {
   let entries: string[];
   try {
     entries = readdirSync(layout.tmpDir);
@@ -196,6 +209,11 @@ function sweepOrphanFiles(db: StateDB, layout: RuntimeLayout): number {
         ? entry.slice("ahelpa-task-".length, -".md".length)
         : null;
     if (!sessionId || db.getSession(sessionId)) continue;
+    // Launch creates its terminal and handoff files before registering the
+    // session, after startup and task delivery succeed. Those files are still
+    // owned while the terminal exists, even without a DB row yet.
+    if (await Tmux.hasSession(sessionId)) continue;
+    if (db.getSession(sessionId)) continue;
     try {
       unlinkSync(join(layout.tmpDir, entry));
       swept++;

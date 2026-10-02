@@ -5,7 +5,9 @@ import { resume } from "../src/commands/launch";
 import { getDriver } from "../src/drivers/registry";
 import { FIFO } from "../src/fifo";
 import * as daemon from "../src/daemon";
-import { unlinkSync, existsSync, mkdirSync, rmSync } from "fs";
+import { unlinkSync, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "fs";
+import { defaultRuntimeLayout } from "../src/runtime-layout";
+import { shellEscape } from "../src/shell";
 
 const TEST_DB = "/tmp/ahelpa-resume-test.db";
 const TEST_PROJECT = "/tmp/ahelpa-resume-test-project";
@@ -151,7 +153,7 @@ describe("resume command", () => {
     expect(newSession!.status).toBe("needs_attention");
   });
 
-  test("resume reuses the recorded launch model and effort", async () => {
+  test("resume reuses the recorded role, model, and effort without applying new profile defaults", async () => {
     mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
 
@@ -163,6 +165,7 @@ describe("resume command", () => {
       ownerToken: "tok-m",
       projectPath: TEST_PROJECT,
       depth: 1,
+      role: "worker",
       model: "opus",
       effort: "max",
     });
@@ -182,8 +185,35 @@ describe("resume command", () => {
     expect(cmd).toContain("--effort 'max'");
 
     const newSession = db.getSession(result.sessionId);
+    expect(newSession!.role).toBe("worker");
     expect(newSession!.model).toBe("opus");
     expect(newSession!.effort).toBe("max");
+    expect(result).toMatchObject({ role: "worker", model: "opus", effort: "max" });
+  });
+
+  test.each(["codex", "claude-code", "kimi"])("resume keeps unknown historical %s role and model settings unknown", async (agentType) => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const id = "historical-defaults";
+    db.createSession({ id, parentId: "p", agentType, task: "original", ownerToken: "tok", projectPath: TEST_PROJECT });
+    db.updateStatus(id, "dead");
+    db.updateResumeId(id, "session_historical-token");
+    const create = spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(getDriver(agentType), "prepareForResume").mockResolvedValue();
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+
+    const result = await resume({ db, sessionId: id, ownerToken: "tok" });
+
+    expect(db.getSession(result.sessionId)).toMatchObject({ role: null, model: null, effort: null });
+    expect(result).not.toHaveProperty("role");
+    expect(result).not.toHaveProperty("model");
+    expect(result).not.toHaveProperty("effort");
+    const command = create.mock.calls[0]?.[1] ?? "";
+    expect(command).not.toContain("--model");
+    expect(command).not.toContain("--effort");
+    expect(command).not.toContain("model_reasoning_effort");
+    expect(db.getSession(id)).toMatchObject({ role: null, model: null, effort: null });
   });
 
   test("resume preserves a safe launch posture without another flag", async () => {
@@ -230,28 +260,49 @@ describe("resume command", () => {
     db.updateStatus("claude-isolated", "dead");
     db.updateResumeId("claude-isolated", "resume-isolated-1");
 
-    const previousHome = process.env.AHELPA_HOME;
-    const previousTmp = process.env.AHELPA_TMP_DIR;
-    try {
-      process.env.AHELPA_HOME = "/tmp/ahelpa resume/state";
-      process.env.AHELPA_TMP_DIR = "/tmp/ahelpa resume/runtime";
-      spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
-      const tmuxSpy = spyOn(Tmux, "create").mockResolvedValue();
-      spyOn(Tmux, "capture").mockResolvedValue("0 tokens\n❯");
-      spyOn(Bun, "sleep").mockResolvedValue();
-      spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    const tmuxSpy = spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(Tmux, "capture").mockResolvedValue("0 tokens\n❯");
+    spyOn(Bun, "sleep").mockResolvedValue();
+    spyOn(FIFO, "create").mockResolvedValue();
 
-      await resume({ db, sessionId: "claude-isolated", ownerToken: "tok-isolated" });
+    await resume({ db, sessionId: "claude-isolated", ownerToken: "tok-isolated" });
 
-      const command = tmuxSpy.mock.calls[0]?.[1];
-      expect(command).toContain("AHELPA_HOME='/tmp/ahelpa resume/state'");
-      expect(command).toContain("AHELPA_TMP_DIR='/tmp/ahelpa resume/runtime'");
-    } finally {
-      if (previousHome === undefined) delete process.env.AHELPA_HOME;
-      else process.env.AHELPA_HOME = previousHome;
-      if (previousTmp === undefined) delete process.env.AHELPA_TMP_DIR;
-      else process.env.AHELPA_TMP_DIR = previousTmp;
-    }
+    const command = tmuxSpy.mock.calls[0]?.[1];
+    expect(command).toContain(`AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`);
+    expect(command).toContain(`AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`);
+  });
+
+  test("rejects a legacy relative project path instead of guessing its original working directory", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "legacy-relative", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "." });
+    db.updateStatus("legacy-relative", "dead");
+    db.updateResumeId("legacy-relative", "resume-legacy");
+    const create = spyOn(Tmux, "create").mockResolvedValue();
+
+    await expect(resume({ db, sessionId: "legacy-relative", ownerToken: "tok" }))
+      .rejects.toThrow("original working directory is unknown");
+
+    expect(create).not.toHaveBeenCalled();
+    expect(db.getSession("legacy-relative")?.projectPath).toBe(".");
+    expect(db.listSessions()).toHaveLength(1);
+  });
+
+  test.each(["missing", "file"])("rejects a %s recorded project before creating a resumed terminal", async (kind) => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const projectPath = `${TEST_PROJECT}/${kind}`;
+    if (kind === "file") writeFileSync(projectPath, "regular file");
+    db.createSession({ id: "invalid-project", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath });
+    db.updateStatus("invalid-project", "dead");
+    db.updateResumeId("invalid-project", "resume-invalid");
+    const create = spyOn(Tmux, "create").mockResolvedValue();
+
+    await expect(resume({ db, sessionId: "invalid-project", ownerToken: "tok" }))
+      .rejects.toThrow(kind === "missing" ? "ENOENT" : "must be a directory");
+
+    expect(create).not.toHaveBeenCalled();
+    expect(db.listSessions()).toHaveLength(1);
   });
 
   test("resume reclaims the new tmux session when the driver never becomes ready", async () => {
@@ -309,6 +360,41 @@ describe("resume command", () => {
     expect(killSpy).not.toHaveBeenCalled();
     expect(db.listSessions()).toHaveLength(1);
     expect(db.getSession("claude-create-fails")?.status).toBe("dead");
+  });
+
+  test("preserves a conflicting wakeup path when resume rolls back", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const oldId = "claude-fifo-conflict";
+    db.createSession({
+      id: oldId, parentId: "cli-1", agentType: "claude-code", task: "original task",
+      ownerToken: "tok-conflict", projectPath: TEST_PROJECT,
+    });
+    db.updateStatus(oldId, "dead");
+    db.updateResumeId(oldId, "resume-fifo-conflict");
+    let newId = "";
+    let conflict = "";
+    spyOn(Tmux, "create").mockImplementation(async (id) => {
+      newId = id;
+      conflict = defaultRuntimeLayout.fifoPath(id);
+      writeFileSync(conflict, "unowned file");
+    });
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    spyOn(getDriver("claude-code"), "prepareForResume").mockResolvedValue();
+
+    try {
+      await expect(resume({ db, sessionId: oldId, ownerToken: "tok-conflict" }))
+        .rejects.toThrow("non-FIFO path");
+
+      expect(readFileSync(conflict, "utf8")).toBe("unowned file");
+      expect(killSpy).toHaveBeenCalledWith(newId);
+      expect(db.getSession(newId)).toBeNull();
+      expect(db.listSessions()).toHaveLength(1);
+      expect(db.getSession(oldId)?.agentResumeId).toBe("resume-fifo-conflict");
+    } finally {
+      if (conflict) try { unlinkSync(conflict); } catch {}
+    }
   });
 
   test("a resumed Kimi record immediately inherits the agent session ID", async () => {
@@ -501,6 +587,7 @@ describe("state: resume fields", () => {
     expect(session!.resumedFrom).toBeNull();
     expect(session!.model).toBeNull();
     expect(session!.effort).toBeNull();
+    expect(session!.role).toBeNull();
   });
 
   test("model and effort round-trip through the session record", () => {

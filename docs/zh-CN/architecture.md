@@ -29,6 +29,8 @@ ahelpa CLI ──────────► tmux session
 
 ## Session 生命周期
 
+SQLite 建表和 schema 迁移在同一个 immediate transaction 内执行。CLI 或 daemon 并发启动时，会等待该事务并重新读取已提交的 schema，避免升级旧 runtime 时重复添加列。
+
 一个 session 从 `running` 开始，可以结算为 `idle`、`error`、`needs_attention` 或 `dead`。成功完成后，在回收终端期间会经过 `draining` 状态。
 
 1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid12}`）和 owner token，先取得新的 tmux session，再准备文件交接，并通过所选 driver 提交、确认第一轮任务。随后在 SQLite 记录 session、准备 FIFO，并在需要时启动 daemon。如果投递已可见、但尚未确认新回合，launch 会返回 warning，并把 helper 保留为 `needs_attention`，而非终止它。
@@ -52,7 +54,7 @@ launch ──► running
 idle/dead + 原生 resume token ── resume ─► needs_attention ── send/task ─► running
 ```
 
-向 `needs_attention` session 发送输入后，driver 确认新用户回合已开始，才会恢复为 `running` 并继续监控。如果终端消失，则转为 `dead`。
+向 `needs_attention` session 发送输入后，driver 确认新用户回合已开始，才会恢复为 `running` 并继续监控。该转换有状态条件：即使输入投递已开始，并发执行的 `kill` 仍然优先，不会被重新标为运行中。如果终端消失，则转为 `dead`。
 
 `still_running` 是 `wait` 的返回值，不是 session 状态。它表示等待超时前 session 还没有 settle。
 
@@ -79,6 +81,8 @@ idle/dead + 原生 resume token ── resume ─► needs_attention ── send
 
 如果没有 reader，写入会被丢弃；SQLite 记录仍是事实来源。如果 session 已经 settle 后再调用 `wait`，它会直接从 SQLite 读到终态并立即返回。
 
+重复准备已有 FIFO 时会复用原 inode，保持等待中的 reader 连通；并发准备共用同一管道。该路径若是普通文件或符号链接，则拒绝使用并保留原文件。
+
 ## Daemon
 
 daemon 是可选后台进程，用于监控运行中的 session。它会在 `launch` 时自动启动，并在没有 active session 后退出。
@@ -92,9 +96,24 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 5. 某个 session 的 capture 或 kill 失败会记录到日志。如果终端已消失，则补齐终态；否则留待之后重试。其他 session 的刷新继续执行。
 6. 没有 running、draining 或 attention session 后，daemon 退出。
 
-**Inline refresh**：daemon 未运行时，`wait`、`check`、`status` 会在返回前执行同样的刷新逻辑。短任务不依赖常驻 daemon。
+**Inline refresh**：daemon 未运行时，`wait`、`check`、`status` 会在返回前执行同样的刷新逻辑。短任务不依赖常驻 daemon。tmux 的权限或连接错误不代表会话死亡，monitor 会保留状态并重试。`clean` 清理尚无数据库记录的文件前，也会检查终端是否存活，保留正在启动的 helper 所需文件。
 
 ## Drivers
+
+### 2026-10-02 上游接口调研
+
+| 官方资料 | 对 ahelpa 的启示 |
+| --- | --- |
+| [Codex App Server](https://learn.chatgpt.com/docs/app-server) | 结构化回合事件区分成功、失败与中断；部分接口需要显式开启实验能力。后续 driver 应优先使用稳定生命周期方法与原生 thread ID。 |
+| [Kimi ACP](https://www.kimi.com/code/docs/en/kimi-code-cli/reference/kimi-acp) 与 [Wire](https://moonshotai.github.io/kimi-cli/en/customization/wire-mode.html) | 双向 JSON-RPC 可减少终端解析。选择传输方式前，应探测本机 CLI 的协议能力；不同 Kimi 发行版的文档可能存在差异。 |
+| [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) | 原生恢复前必须确认 `loadSession` 能力，而不能默认所有 agent 均支持。 |
+| [Claude hooks](https://code.claude.com/docs/en/hooks) | `Stop`、`StopFailure` 和 `SessionEnd` 是不同生命周期事件；一轮回复结束本身不能证明任务成功。 |
+
+当前实现保留 tmux 与文件交接。接入这些传输方式需要能独立于调用方存活的受管进程，以及能力协商、审批处理、取消和重连测试。后续应保留现有命令契约，每次接入一个 driver；成为默认实现前，验证启动、中断、重启、原生恢复和结果交付，并保持 owner token 与 safe mode 的保证。结构化传输是后续设计方向，本版本尚未实现。
+
+### 当前终端驱动
+
+Driver 可选的 `launchProfiles` 定义支持的角色及其默认模型/effort。`launch-profiles.ts` 在启动规划时解析一次角色和显式覆盖参数，最终值随 session 存储并返回 host。Claude 支持默认 `advisor` 与 `worker`；Codex 只支持 `worker`；Kimi 保持既有配置，不设置角色。角色不改写任务指令或权限。Resume 直接使用记录中的设置，包括旧记录中的未知值，不重新套用当前启动预设。
 
 Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration 保持通用。
 

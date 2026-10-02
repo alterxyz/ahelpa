@@ -1,11 +1,13 @@
 import { describe, test, expect, afterEach, spyOn, mock } from "bun:test";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
-import { executeLaunch, launch, planLaunch } from "../src/commands/launch";
+import { executeLaunch, launch, planLaunch, resume } from "../src/commands/launch";
 import { FIFO } from "../src/fifo";
 import * as daemon from "../src/daemon";
 import { unlinkSync, existsSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
+import { relative, resolve } from "path";
+import { shellEscape } from "../src/shell";
 
 const TEST_DB = "/tmp/ahelpa-launch-test.db";
 const TEST_PROJECT = "/tmp/ahelpa-launch-test-project";
@@ -187,13 +189,14 @@ describe("launch", () => {
   });
 
   test("planLaunch returns a data object without side effects", () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
 
     const plan = planLaunch({
       db,
       agentType: "claude-code",
       task: "plan only",
-      projectPath: "/tmp/nonexistent",
+      projectPath: TEST_PROJECT,
       parentId: "test-parent",
       label: "plan-test",
     });
@@ -203,18 +206,21 @@ describe("launch", () => {
     expect(plan.driver.name).toBe("claude-code");
     expect(plan.launchCmd).toContain("claude --dangerously-skip-permissions");
     expect(plan.fileHandoff.taskInstruction).toContain("Please read and complete the task described in");
-    expect(plan.fileHandoff.sessionDeliveryDir).toContain("/tmp/nonexistent/.ahelpa/");
+    expect(plan.fileHandoff.sessionDeliveryDir).toContain(`${TEST_PROJECT}/.ahelpa/`);
     expect(plan.input.task).toBe("plan only");
+    expect(existsSync(`${TEST_PROJECT}/.ahelpa`)).toBe(false);
+    expect(db.listSessions()).toHaveLength(0);
   });
 
   test("planLaunch safe mode omits danger flags", () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
 
     const plan = planLaunch({
       db,
       agentType: "codex",
       task: "plan safe",
-      projectPath: "/tmp/nonexistent",
+      projectPath: TEST_PROJECT,
       parentId: "test-parent",
       safe: true,
     });
@@ -225,13 +231,14 @@ describe("launch", () => {
   });
 
   test("planLaunch passes model and effort to the driver launch command", () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
 
     const plan = planLaunch({
       db,
       agentType: "codex",
       task: "plan model",
-      projectPath: "/tmp/nonexistent",
+      projectPath: TEST_PROJECT,
       parentId: "test-parent",
       model: "gpt-5.5",
       effort: "high",
@@ -243,29 +250,126 @@ describe("launch", () => {
     expect(plan.input.effort).toBe("high");
   });
 
-  test("isolated runtime roots are inherited by nested helper launches", () => {
+  test.each([
+    { agentType: "codex", role: undefined, expectedRole: "worker", model: "gpt-6.1-sol", effort: "high" },
+    { agentType: "claude-code", role: undefined, expectedRole: "advisor", model: "claude-opus-5-5", effort: "xhigh" },
+    { agentType: "claude-code", role: "worker" as const, expectedRole: "worker", model: "claude-sonnet-5-5", effort: "high" },
+    { agentType: "kimi", role: undefined, expectedRole: undefined, model: undefined, effort: undefined },
+  ])("launch persists and returns the effective $agentType profile ($role)", async ({ agentType, role, expectedRole, model, effort }) => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
-    const previousHome = process.env.AHELPA_HOME;
-    const previousTmp = process.env.AHELPA_TMP_DIR;
+    const plan = planLaunch({ db, agentType, role, task: "task", projectPath: TEST_PROJECT, parentId: "test-parent" });
+    const create = spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(Tmux, "capture").mockResolvedValue("");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(plan.driver, "prepareForTask").mockResolvedValue();
+    spyOn(plan.driver, "afterTaskSubmitted").mockResolvedValue(true);
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+
+    const result = await executeLaunch(plan);
+
+    expect(plan.input.role).toBe(expectedRole);
+    expect(plan.input.model).toBe(model);
+    expect(plan.input.effort).toBe(effort);
+    expect(db.getSession(result.sessionId)).toMatchObject({ role: expectedRole ?? null, model: model ?? null, effort: effort ?? null });
+    expect(result.role).toBe(expectedRole);
+    expect(result.model).toBe(model);
+    expect(result.effort).toBe(effort);
+    if (model) expect(create.mock.calls[0]?.[1]).toContain(shellEscape(model));
+    else {
+      expect(create.mock.calls[0]?.[1]).not.toContain("--model");
+      expect(result).not.toHaveProperty("role");
+      expect(result).not.toHaveProperty("model");
+      expect(result).not.toHaveProperty("effort");
+    }
+  });
+
+  test("launch persists explicit model and effort overrides along with the chosen role", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const plan = planLaunch({ db, agentType: "claude-code", role: "worker", model: "custom-model", effort: "low",
+      task: "task", projectPath: TEST_PROJECT, parentId: "test-parent" });
+    spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(Tmux, "capture").mockResolvedValue("");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(plan.driver, "prepareForTask").mockResolvedValue();
+    spyOn(plan.driver, "afterTaskSubmitted").mockResolvedValue(true);
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+
+    const result = await executeLaunch(plan);
+
+    expect(result).toMatchObject({ role: "worker", model: "custom-model", effort: "low" });
+    expect(db.getSession(result.sessionId)).toMatchObject({ role: "worker", model: "custom-model", effort: "low" });
+    expect(plan.launchCmd).toContain("--model 'custom-model'");
+    expect(plan.launchCmd).toContain("--effort 'low'");
+  });
+
+  test("nested helper launches inherit the active absolute runtime roots", () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const plan = planLaunch({
+      db,
+      agentType: "codex",
+      task: "nested isolation",
+      projectPath: TEST_PROJECT,
+      parentId: "test-parent",
+    });
+
+    expect(plan.launchCmd).toContain(`AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`);
+    expect(plan.launchCmd).toContain(`AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`);
+  });
+
+  test.each(["missing", "file"])("rejects a %s project before creating a terminal or handoff files", async (kind) => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const projectPath = `${TEST_PROJECT}/${kind}`;
+    if (kind === "file") writeFileSync(projectPath, "regular file");
+    const create = spyOn(Tmux, "create").mockResolvedValue();
+
+    await expect(launch({ db, agentType: "codex", task: "task", projectPath, parentId: "test-parent" }))
+      .rejects.toThrow(kind === "missing" ? "ENOENT" : "must be a directory");
+
+    expect(create).not.toHaveBeenCalled();
+    expect(db.listSessions()).toHaveLength(0);
+    expect(existsSync(`${TEST_PROJECT}/.ahelpa`)).toBe(false);
+    if (kind === "missing") expect(existsSync(projectPath)).toBe(false);
+  });
+
+  test("relative project paths stay stable through launch and resume from another working directory", async () => {
+    mkdirSync(`${TEST_PROJECT}/other`, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const callerCwd = process.cwd();
+    const projectPath = resolve(TEST_PROJECT);
+    const plan = planLaunch({
+      db, agentType: "codex", task: "task", projectPath: relative(callerCwd, TEST_PROJECT), parentId: "test-parent",
+    });
+    const create = spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(Tmux, "capture").mockResolvedValue("");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(plan.driver, "prepareForTask").mockResolvedValue();
+    spyOn(plan.driver, "prepareForResume").mockResolvedValue();
+    spyOn(plan.driver, "afterTaskSubmitted").mockResolvedValue(true);
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+
     try {
-      process.env.AHELPA_HOME = "/tmp/ahelpa nested/state";
-      process.env.AHELPA_TMP_DIR = "/tmp/ahelpa nested/runtime";
+      process.chdir(`${TEST_PROJECT}/other`);
+      const launched = await executeLaunch(plan);
+      expect(db.getSession(launched.sessionId)?.projectPath).toBe(projectPath);
+      expect(create.mock.calls[0]?.[1]).toContain(`cd ${shellEscape(projectPath)} &&`);
+      expect(plan.fileHandoff.summaryPath).toBe(`${projectPath}/.ahelpa/${launched.sessionId}/summary.md`);
+      expect(resolve(projectPath, plan.fileHandoff.summaryPath)).toBe(plan.fileHandoff.summaryPath);
+      db.updateStatus(launched.sessionId, "dead");
+      db.updateResumeId(launched.sessionId, "synthetic-resume-token");
 
-      const plan = planLaunch({
-        db,
-        agentType: "codex",
-        task: "nested isolation",
-        projectPath: "/tmp/nonexistent",
-        parentId: "test-parent",
-      });
+      const resumed = await resume({ db, sessionId: launched.sessionId, ownerToken: launched.ownerToken });
 
-      expect(plan.launchCmd).toContain("AHELPA_HOME='/tmp/ahelpa nested/state'");
-      expect(plan.launchCmd).toContain("AHELPA_TMP_DIR='/tmp/ahelpa nested/runtime'");
+      expect(db.getSession(resumed.sessionId)?.projectPath).toBe(projectPath);
+      expect(create.mock.calls[1]?.[1]).toContain(`cd ${shellEscape(projectPath)} &&`);
     } finally {
-      if (previousHome === undefined) delete process.env.AHELPA_HOME;
-      else process.env.AHELPA_HOME = previousHome;
-      if (previousTmp === undefined) delete process.env.AHELPA_TMP_DIR;
-      else process.env.AHELPA_TMP_DIR = previousTmp;
+      process.chdir(callerCwd);
     }
   });
 
@@ -390,6 +494,35 @@ describe("launch", () => {
     expect(existsSync(plan.fileHandoff.taskFilePath)).toBe(false);
     expect(existsSync(plan.fileHandoff.sessionDeliveryDir)).toBe(false);
     expect(db.getSession(plan.sessionId)).toBeNull();
+  });
+
+  test("preserves a conflicting wakeup path when launch rolls back", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+    db = new StateDB(TEST_DB);
+    const plan = planLaunch({
+      db, agentType: "codex", task: "task", projectPath: TEST_PROJECT, parentId: "test-parent",
+    });
+    const conflict = defaultRuntimeLayout.fifoPath(plan.sessionId);
+    writeFileSync(conflict, "unowned file");
+    spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(Tmux, "capture").mockResolvedValue("");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
+    spyOn(plan.driver, "prepareForTask").mockResolvedValue();
+    spyOn(plan.driver, "afterTaskSubmitted").mockResolvedValue(true);
+
+    try {
+      await expect(executeLaunch(plan)).rejects.toThrow("non-FIFO path");
+
+      expect(readFileSync(conflict, "utf8")).toBe("unowned file");
+      expect(killSpy).toHaveBeenCalledWith(plan.sessionId);
+      expect(db.getSession(plan.sessionId)).toBeNull();
+      expect(existsSync(plan.fileHandoff.taskFilePath)).toBe(false);
+      expect(existsSync(plan.fileHandoff.sessionDeliveryDir)).toBe(false);
+    } finally {
+      try { unlinkSync(conflict); } catch {}
+    }
   });
 
   test("refuses to overwrite pre-existing handoff resources", async () => {

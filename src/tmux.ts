@@ -13,6 +13,7 @@ export function isMissingTmuxSessionError(error: unknown): boolean {
   const stderr = stderrText(error).trim();
   return /^can't find session: .+$/m.test(stderr)
     || /^no server running on .+$/m.test(stderr)
+    || /^error connecting to .+ \(No such file or directory\)$/m.test(stderr)
     || /^no sessions$/m.test(stderr);
 }
 
@@ -27,8 +28,11 @@ export class Tmux {
     try {
       await $`tmux has-session -t ${name}`.quiet();
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      if (isMissingTmuxSessionError(error)) return false;
+      // A permission or connection failure says nothing about whether the
+      // helper is alive. Let monitoring retry instead of settling it dead.
+      throw error;
     }
   }
 
