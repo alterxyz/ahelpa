@@ -22,9 +22,11 @@ curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/instal
 
 The installer resolves a release tag, verifies its platform archive against `SHASUMS256.txt`, checks the binary's version, and atomically installs it to `~/.ahelpa/bin/ahelpa`. An existing binary is backed up. It then installs the skill from the same tag through `npx skills@latest`. The skill is installed globally as a hard copy for all supported agents through three explicit targets:
 
-- Codex: target `codex` → `~/.codex/skills/ahelpa`
+- Codex: target `codex` → `~/.agents/skills/ahelpa` (shared universal skill directory)
 - Claude Code: target `claude-code` → `~/.claude/skills/ahelpa`
 - Kimi Code CLI: target `kimi-code-cli` → `~/.agents/skills/ahelpa`
+
+The `skills` installer resolves these locations. Codex and Kimi currently share the universal directory; Claude Code receives its own hard copy.
 
 Older releases without a checksum manifest require a trusted `AHELPA_SHA256`; custom download sources also need that digest or `AHELPA_CHECKSUM_URL`. See [installation details](docs/development.md#deployment).
 

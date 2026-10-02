@@ -22,9 +22,11 @@ curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/instal
 
 安装脚本会先解析明确的 release tag，按 OS/arch 下载归档并用 `SHASUMS256.txt` 校验，再检查二进制版本，最后原子安装到 `~/.ahelpa/bin/ahelpa`，保留已有二进制的备份。随后通过 `npx skills@latest` 安装同一 tag 的 skill。skill 会以全局 hard copy 的方式通过三个显式 target 安装到所有受支持的 agent：
 
-- Codex：target `codex` → `~/.codex/skills/ahelpa`
+- Codex：target `codex` → `~/.agents/skills/ahelpa`（共享的通用 skill 目录）
 - Claude Code：target `claude-code` → `~/.claude/skills/ahelpa`
 - Kimi Code CLI：target `kimi-code-cli` → `~/.agents/skills/ahelpa`
+
+这些位置由 `skills` 安装器决定。目前 Codex 和 Kimi 共用通用目录，Claude Code 使用独立的 hard copy。
 
 没有校验清单的旧 release 需要显式提供可信的 `AHELPA_SHA256`；自定义下载源也需要该摘要或 `AHELPA_CHECKSUM_URL`。详见[安装说明](docs/zh-CN/development.md#部署)。
 
