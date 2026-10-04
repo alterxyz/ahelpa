@@ -5,10 +5,12 @@
 ## Requirements
 
 - **macOS or Linux** (x64 and arm64)
-- **Bun** (runtime, SQLite, test runner, and binary compiler)
+- **Bun 1.4.2** (runtime, SQLite, test runner, and binary compiler; pinned in `packageManager` and CI, with matching `bun-types`)
 - **tmux** (helper session management)
 
 `jq` is useful for shell examples but is not required by the runtime itself.
+
+Skill installation also requires Node.js >=22.20.0 and working `npx`, matching the [skills CLI requirement](https://github.com/vercel-labs/skills/blob/v1.7.0/package.json). Both installation entry points check these prerequisites; the public installer does so before any download or runtime replacement. The compiled ahelpa runtime does not require Node.js.
 
 The end-to-end gate also requires authenticated helper CLIs for the drivers being exercised. Verify the binaries with `command -v claude`, `command -v codex`, and `command -v kimi`; verify authentication with each CLI's own status or a harmless request.
 
@@ -133,6 +135,8 @@ Use only one checksum override. Old releases without a manifest require an expli
 ### Release workflow
 
 The tag workflow builds on native macOS and Linux runners for both architectures, checks source types and installer fixtures, and smoke-tests the compiled and packaged binaries. A publish job waits for all four builds, assembles the checksum manifest, then creates or resumes a draft GitHub Release. Releases stay in draft until their assets upload. Published releases cannot be overwritten by rerunning the workflow; use a new version tag. The tag must match `package.json`.
+
+Builds use Bun 1.4.2 instead of a moving `latest`. Checkout v5, upload-artifact v6, and download-artifact v7 declare Node 24 runtimes, following [GitHub Actions' Node 20 retirement](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/).
 
 The macOS matrix uses `macos-15` and `macos-15-intel`: [macOS 13 has retired](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/), and [macOS 14 retirement is scheduled for 2026-11-02](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/). Publish a release containing the manifest before distributing the new installer to users of older releases.
 

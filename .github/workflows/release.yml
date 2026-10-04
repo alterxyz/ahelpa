@@ -30,11 +30,11 @@ jobs:
       AHELPA_PLATFORM: ${{ matrix.platform }}
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.4.2
 
       - run: bun install --frozen-lockfile
 
@@ -43,7 +43,7 @@ jobs:
           test "$(bun -p 'process.platform + "-" + process.arch')" = "$AHELPA_PLATFORM"
           test "v$(bun -p 'require("./package.json").version')" = "$RELEASE_TAG"
           bun run typecheck
-          bun test tests/version.test.ts tests/installer.test.ts tests/release-workflow.test.ts
+          bun test tests/version.test.ts tests/codex-capabilities.test.ts tests/install-skill.test.ts tests/installer.test.ts tests/release-workflow.test.ts
 
       - name: compile and verify runtime
         run: |
@@ -59,7 +59,7 @@ jobs:
           tar xzf "ahelpa-${AHELPA_PLATFORM}.tar.gz" -C extracted
           test "$(extracted/ahelpa version)" = "ahelpa ${RELEASE_TAG#v}"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ahelpa-${{ matrix.platform }}
           path: ahelpa-${{ matrix.platform }}.tar.gz
@@ -76,7 +76,7 @@ jobs:
       GH_REPO: ${{ github.repository }}
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: ahelpa-*
           path: assets

@@ -90,6 +90,8 @@ ahelpa launch claude-code --model sonnet --task "Review this change"
 
 The catalog includes `gpt-6-astra`, with effort levels through `ultra`. Supported levels vary by model and the installed Codex CLI; a running session's reasoning menu determines which levels can be selected.
 
+For Codex launch and resume, ahelpa resolves the executable from the caller's PATH and probes its help in the target project with a one-second limit. It uses that same absolute executable for the helper, so a login shell cannot select a different Codex version. If `--no-daemon` is advertised, it adds that flag so the helper's work stays within its tmux process lifecycle. Older CLIs and failed probes retain the previous flags; if Codex is available only in the login shell, ahelpa uses its command name without the new flag. This concerns Codex's shared server; ahelpa's own monitoring daemon is unchanged.
+
 ```bash
 ahelpa model "$session_id" --to sonnet --token "$token"
 ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
@@ -236,6 +238,8 @@ ahelpa install-skill
 ```
 
 This delegates to `npx skills@latest` and installs global hard-copy skill files with explicit `codex`, `claude-code`, and `kimi-code-cli` targets.
+
+Node.js >=22.20.0 and working `npx` are required and checked before running the skill installer. The compiled ahelpa runtime itself does not need Node.js.
 
 ## Timing Expectations
 

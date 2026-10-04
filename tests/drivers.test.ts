@@ -44,7 +44,7 @@ describe("Drivers", () => {
   test("codex safe mode uses workspace-write sandbox", () => {
     const driver = getDriver("codex");
     const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project", safe: true });
-    expect(cmd).toContain("codex -s workspace-write -a never");
+    expect(cmd).toContain(" -s workspace-write -a never");
     expect(cmd).not.toContain("--dangerously-bypass");
   });
 

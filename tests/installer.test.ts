@@ -8,6 +8,7 @@ import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 const installer = resolve(import.meta.dir, "../scripts/install.sh");
+const bash = Bun.which("bash")!;
 const roots: string[] = [];
 const releaseBase = "https://github.com/example/ahelpa/releases/download/v9.8.7";
 const oldRuntime = "previous working runtime\n";
@@ -36,6 +37,20 @@ function createFixture(options: FixtureOptions = {}) {
     linkSync(join(installDir, "ahelpa"), join(root, "old-inode"));
   }
   const scenario = options.scenario ?? "success";
+  if (scenario !== "missing-node") {
+    writeFileSync(join(fakeBin, "node"), `#!/bin/sh
+[ "$1" = "--version" ] || exit 99
+[ "$INSTALLER_TEST_SCENARIO" != "node-failure" ] || exit 31
+printf '%s\\n' "$INSTALLER_TEST_NODE_VERSION"
+`, { mode: 0o755 });
+  }
+  if (scenario !== "missing-npx") {
+    writeFileSync(join(fakeBin, "npx"), `#!/bin/sh
+[ "$1" = "--version" ] || exit 99
+[ "$INSTALLER_TEST_SCENARIO" != "npx-failure" ] || exit 32
+printf '10.9.0\\n'
+`, { mode: 0o755 });
+  }
   const os = options.os ?? "Linux";
   const arch = options.arch ?? "x86_64";
   const platform = `${os === "Darwin" ? "darwin" : "linux"}-${["arm64", "aarch64"].includes(arch) ? "arm64" : "x64"}`;
@@ -102,15 +117,17 @@ esac
     return existsSync(path) ? readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line)) : [];
   };
   const run = async (overrides: Record<string, string> = {}) => {
-    const proc = Bun.spawn(["bash", installer], {
+    const proc = Bun.spawn([bash, installer], {
       env: {
         ...process.env,
-        PATH: `${fakeBin}:${process.env.PATH}`,
+        // Missing-tool fixtures must not discover the host's Node/npm install.
+        PATH: ["missing-node", "missing-npx"].includes(scenario) ? fakeBin : `${fakeBin}:${process.env.PATH}`,
         TMPDIR: root,
         INSTALLER_TEST_ROOT: root,
         INSTALLER_TEST_SCENARIO: scenario,
         INSTALLER_TEST_OS: os,
         INSTALLER_TEST_ARCH: arch,
+        INSTALLER_TEST_NODE_VERSION: "v22.20.0",
         AHELPA_REPO: "example/ahelpa",
         AHELPA_VERSION: "v9.8.7",
         AHELPA_BIN_DIR: installDir,
@@ -136,6 +153,38 @@ esac
 }
 
 describe("release installer", () => {
+  test.each(["v20.20.0", "v22.19.9"])("rejects unsupported Node %s before any download or replacement", async (version) => {
+    const fixture = createFixture();
+    const result = await fixture.run({ AHELPA_VERSION: "latest", INSTALLER_TEST_NODE_VERSION: version });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(`Node.js >=22.20.0 is required for skills installation; found ${version}`);
+    expect(result.curlCalls).toEqual([]);
+    expect(result.runtimeCalls).toEqual([]);
+    expect(readFileSync(join(fixture.installDir, "ahelpa"), "utf8")).toBe(oldRuntime);
+    expect(readdirSync(fixture.installDir)).toEqual(["ahelpa"]);
+  });
+
+  test.each([
+    ["missing-node", "Node.js >=22.20.0 is required"],
+    ["node-failure", "Could not run node --version"],
+    ["missing-npx", "npx is required for skills installation"],
+    ["npx-failure", "Could not run npx --version"],
+  ])("rejects %s before any download or replacement", async (scenario, message) => {
+    const fixture = createFixture({ scenario });
+    const result = await fixture.run({ AHELPA_VERSION: "latest" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(message);
+    expect(result.curlCalls).toEqual([]);
+    expect(result.runtimeCalls).toEqual([]);
+    expect(readFileSync(join(fixture.installDir, "ahelpa"), "utf8")).toBe(oldRuntime);
+    expect(readdirSync(fixture.installDir)).toEqual(["ahelpa"]);
+  });
+
+  test("accepts a newer stable Node major version", async () => {
+    const fixture = createFixture();
+    expect((await fixture.run({ INSTALLER_TEST_NODE_VERSION: "v24.0.0" })).exitCode).toBe(0);
+  });
+
   test.each([
     ["Darwin", "arm64"], ["Darwin", "x86_64"], ["Linux", "x86_64"], ["Linux", "aarch64"],
   ])("installs the verified %s/%s release atomically and backs up the old runtime", async (os, arch) => {

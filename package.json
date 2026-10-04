@@ -1,8 +1,9 @@
 {
   "name": "ahelpa",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Agent Help Agent — skill-shaped agent enhancement system",
   "type": "module",
+  "packageManager": "bun@1.4.2",
   "bin": {
     "ahelpa": "src/cli.ts"
   },
@@ -16,7 +17,7 @@
     "closure:gate": "bash scripts/closure-gate.sh"
   },
   "devDependencies": {
-    "bun-types": "^1.3.12",
+    "bun-types": "1.4.2",
     "typescript": "^5.9.0"
   }
 }

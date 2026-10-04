@@ -18,7 +18,7 @@ describe("Codex Driver", () => {
   test("codex launch command shell-quotes cwd", () => {
     const driver = getDriver("codex");
     const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project with spaces/it's ok" });
-    expect(cmd).toContain(`cd '/tmp/project with spaces/it'\\''s ok' && codex`);
+    expect(cmd).toStartWith(`cd '/tmp/project with spaces/it'\\''s ok' && `);
   });
 
   test("codex uses same signal protocol", () => {

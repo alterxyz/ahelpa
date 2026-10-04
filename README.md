@@ -14,13 +14,13 @@ For substantive cross-agent work, prefer ahelpa over a one-shot CLI call. The tm
 
 ## Installation
 
-Requirements: macOS or Linux (x64 / arm64), tmux, and `npx` for skill installation.
+Requirements: macOS or Linux (x64 / arm64), tmux, and Node.js >=22.20.0 with working `npx` for skill installation. The compiled runtime itself does not require Node.js.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-The installer resolves a release tag, verifies its platform archive against `SHASUMS256.txt`, checks the binary's version, and atomically installs it to `~/.ahelpa/bin/ahelpa`. An existing binary is backed up. It then installs the skill from the same tag through `npx skills@latest`. The skill is installed globally as a hard copy for all supported agents through three explicit targets:
+The installer checks Node.js and `npx` before downloading anything, resolves a release tag, verifies its platform archive against `SHASUMS256.txt`, checks the binary's version, and atomically installs it to `~/.ahelpa/bin/ahelpa`. An existing binary is backed up. It then installs the skill from the same tag through `npx skills@latest`. The skill is installed globally as a hard copy for all supported agents through three explicit targets:
 
 - Codex: target `codex` → `~/.agents/skills/ahelpa` (shared universal skill directory)
 - Claude Code: target `claude-code` → `~/.claude/skills/ahelpa`
@@ -146,7 +146,7 @@ Helpers run with the same local user permissions as the host process by default.
 
 ## Development
 
-Requirements: macOS or Linux, Bun, tmux.
+Requirements: macOS or Linux, Bun 1.4.2 (the pinned release toolchain), tmux.
 
 ```bash
 bun test                       # Unit tests

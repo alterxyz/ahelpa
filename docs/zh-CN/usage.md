@@ -89,6 +89,8 @@ ahelpa launch claude-code --model sonnet --task "Review this change"
 
 模型目录包含 `gpt-6-astra`，支持到 `ultra` 的 effort。不同模型及本机 Codex CLI 支持的级别可能不同；运行中会话以实际 reasoning 菜单为准。
 
+启动或恢复 Codex 时，ahelpa 会从调用方的 PATH 解析可执行文件，并在目标项目目录探测其帮助信息，最多等待一秒。helper 使用同一个绝对路径，避免登录 shell 选中不同版本。如果 CLI 声明支持 `--no-daemon`，就加上该参数，让 helper 的工作随其 tmux 进程一起结束。旧版 CLI 或探测失败时沿用原来的参数；如果只有登录 shell 能找到 Codex，就继续按命令名启动，不加新参数。这里指 Codex 的共享服务，ahelpa 自己的监控 daemon 不受影响。
+
 ```bash
 ahelpa model "$session_id" --to sonnet --token "$token"
 ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
@@ -235,6 +237,8 @@ ahelpa install-skill
 ```
 
 它会把安装交给 `npx skills@latest`，并通过显式的 `codex`、`claude-code` 和 `kimi-code-cli` target 安装全局 hard-copy skill 文件。
+
+需要 Node.js >=22.20.0 和可正常运行的 `npx`，命令会在调用 skill 安装器前检查。编译后的 ahelpa runtime 本身不需要 Node.js。
 
 ## 时间预期
 

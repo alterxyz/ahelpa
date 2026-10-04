@@ -5,6 +5,8 @@ import { shellEscape } from "../shell";
 import { detectSentinelStatus } from "./sentinels";
 import { findModelChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
 import { restoreCodexConfig, snapshotCodexConfig } from "./codex-config";
+import { getCodexCapabilities } from "./codex-capabilities";
+import { resolve } from "path";
 
 function codexNeedsSubmitNudge(captureOutput: string): boolean {
   return isTaskInstructionEcho(captureOutput)
@@ -245,13 +247,21 @@ export const codexDriver: AgentDriver = {
   },
 
   buildLaunchCommand(opts: LaunchOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
-    return `cd ${shellEscape(opts.cwd)} && codex ${args.join(" ")}`;
+    const cwd = resolve(opts.cwd);
+    const capabilities = getCodexCapabilities(cwd);
+    const executable = capabilities.executable ? shellEscape(capabilities.executable) : "codex";
+    // Shared servers outlive terminal clients. Keep supported Codex versions
+    // inside ahelpa's tmux lifecycle, including sessions without effort overrides.
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
+    return `cd ${shellEscape(cwd)} && ${executable} ${args.join(" ")}`;
   },
 
   buildResumeCommand(opts: ResumeOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
-    return `cd ${shellEscape(opts.cwd)} && codex resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
+    const cwd = resolve(opts.cwd);
+    const capabilities = getCodexCapabilities(cwd);
+    const executable = capabilities.executable ? shellEscape(capabilities.executable) : "codex";
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
+    return `cd ${shellEscape(cwd)} && ${executable} resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
   },
 
   extractResumeToken(captureOutput: string): string | null {

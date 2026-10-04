@@ -5,10 +5,12 @@
 ## 要求
 
 - **macOS 或 Linux**（x64 和 arm64）
-- **Bun**（runtime、SQLite、test runner、binary compiler）
+- **Bun 1.4.2**（runtime、SQLite、test runner、binary compiler；`packageManager` 与 CI 固定此版本，`bun-types` 同步）
 - **tmux**（helper session 管理）
 
 `jq` 对 shell 示例有用，但 runtime 本身不依赖它。
+
+安装 skill 还需要 Node.js >=22.20.0 和可正常运行的 `npx`，与 [skills CLI 的要求](https://github.com/vercel-labs/skills/blob/v1.7.0/package.json) 一致。两个安装入口都会检查这些条件；公开安装脚本会在下载或替换 runtime 前完成检查。编译后的 ahelpa runtime 不依赖 Node.js。
 
 端到端 gate 还要求对应 driver 的 helper CLI 已完成认证。可用 `command -v claude`、`command -v codex` 和 `command -v kimi` 检查二进制；认证状态则应通过各 CLI 自己的状态命令或一次无害请求确认。
 
@@ -134,6 +136,8 @@ curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/instal
 ### Release 工作流
 
 Tag 工作流使用 macOS 与 Linux 的两种架构原生 runner，检查类型与安装 fixture，并对编译后及解包后的二进制做冒烟验证。publish job 等四个平台全部完成后生成校验清单，再创建或继续 draft GitHub Release。release 在资产上传完成前保持 draft；已发布版本不允许通过重跑工作流覆盖，应使用新版本 tag。tag 必须匹配 `package.json`。
+
+构建使用固定的 Bun 1.4.2。Checkout v5、upload-artifact v6 和 download-artifact v7 声明使用 Node 24，以适配 [GitHub Actions 停用 Node 20](https://github.blog/changelog/2026-09-23-node-20-is-no-longer-available-in-github-actions/) 后的环境。
 
 macOS 矩阵使用 `macos-15` 与 `macos-15-intel`：[macOS 13 已退役](https://github.blog/changelog/2025-09-19-github-actions-macos-13-runner-image-is-closing-down/)，[macOS 14 将于 2026-11-02 退役](https://github.blog/changelog/2026-10-01-github-actions-macos-14-runner-image-retirement/)。面向旧版用户分发新安装脚本前，应先发布带校验清单的 release。
 

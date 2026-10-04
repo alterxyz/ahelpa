@@ -144,7 +144,7 @@ describe("launch", () => {
     const launchCommand = tmuxCreateSpy.mock.calls[0]?.[1];
     expect(launchCommand).toContain(`export AHELPA_PARENT_ID=${result.sessionId}`);
     expect(launchCommand).toContain("AHELPA_MAX_NESTING_DEPTH=4");
-    expect(launchCommand).toContain("codex --dangerously-bypass-approvals-and-sandbox");
+    expect(launchCommand).toContain(" --dangerously-bypass-approvals-and-sandbox");
     expect(sendKeysSpy).toHaveBeenCalledTimes(1);
     const instruction = sendKeysSpy.mock.calls[0]?.[1];
     expect(instruction).toContain("Please read and complete the task described in");
@@ -225,7 +225,7 @@ describe("launch", () => {
       safe: true,
     });
 
-    expect(plan.launchCmd).toContain("codex -s workspace-write -a never");
+    expect(plan.launchCmd).toContain(" -s workspace-write -a never");
     expect(plan.launchCmd).not.toContain("--dangerously-bypass");
     expect(plan.launchCmd).not.toContain("--dangerously-skip-permissions");
   });

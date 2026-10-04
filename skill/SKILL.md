@@ -10,7 +10,7 @@ user-invocable: true
 
 ahelpa lets you spawn, manage, and communicate with persistent helper agents running in tmux. Use it to delegate long-running tasks, fan out work across multiple parallel agents, or get a second opinion from a fresh context without polluting your own conversation.
 
-Public installs use GitHub Releases for the runtime and `npx skills@latest` for global hard-copy skill installation. Source checkouts can build a local skill bundle with `bun run package:skill`.
+Public installs use GitHub Releases for the runtime and `npx skills@latest` for global hard-copy skill installation. Skill installation requires Node.js >=22.20.0 and working `npx`; the compiled runtime itself does not require Node.js. Source checkouts can build a local skill bundle with `bun run package:skill` using the pinned Bun 1.4.2 toolchain.
 
 The release installer verifies SHA-256 and the runtime version before atomic replacement, retains the prior binary as a backup, and installs the skill from the same release tag. Older releases without a checksum manifest require a trusted `AHELPA_SHA256` or `AHELPA_CHECKSUM_URL` override.
 

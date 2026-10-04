@@ -10,6 +10,8 @@ Codex is launched with `--dangerously-bypass-approvals-and-sandbox` by default, 
 
 Codex is always a `worker`. A new launch defaults to `gpt-6.1-sol` with `high` effort; explicit `--model` and `--effort` override these fields independently. `--role advisor` is rejected. Resume preserves the recorded selection without applying new launch defaults.
 
+ahelpa probes the Codex executable from the caller's PATH in the target project and uses the same absolute path for launch and resume. It adds `--no-daemon` when the bounded help probe confirms support, keeping work within the helper's tmux lifecycle on CLIs that otherwise use a shared background server. Older CLIs and failed probes keep the previous flags; a login-shell-only Codex falls back to its command name without the new flag. ahelpa's own monitoring daemon is unchanged.
+
 ## Binary Mapping
 
 - `ahelpa launch codex ...` uses the `codex` CLI

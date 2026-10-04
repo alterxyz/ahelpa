@@ -66,8 +66,7 @@ describe("buildResumeCommand", () => {
   test("codex builds resume command", () => {
     const driver = getDriver("codex");
     const cmd = driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: "abc-123" });
-    expect(cmd).toContain("codex resume");
-    expect(cmd).toContain("abc-123");
+    expect(cmd).toContain(" resume 'abc-123' ");
     expect(cmd).toContain("--dangerously-bypass");
   });
 

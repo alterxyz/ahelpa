@@ -14,13 +14,13 @@ ahelpa 把这些胶水收束成一个小 CLI。一个 agent 启动 helper，把�
 
 ## 安装
 
-要求：macOS 或 Linux（x64 / arm64）、tmux，以及用于安装 skill 的 `npx`。
+要求：macOS 或 Linux（x64 / arm64）、tmux，以及用于安装 skill 的 Node.js >=22.20.0 和可正常运行的 `npx`。编译后的 runtime 本身不依赖 Node.js。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```
 
-安装脚本会先解析明确的 release tag，按 OS/arch 下载归档并用 `SHASUMS256.txt` 校验，再检查二进制版本，最后原子安装到 `~/.ahelpa/bin/ahelpa`，保留已有二进制的备份。随后通过 `npx skills@latest` 安装同一 tag 的 skill。skill 会以全局 hard copy 的方式通过三个显式 target 安装到所有受支持的 agent：
+安装脚本会在下载前检查 Node.js 和 `npx`，再解析明确的 release tag，按 OS/arch 下载归档并用 `SHASUMS256.txt` 校验，检查二进制版本，最后原子安装到 `~/.ahelpa/bin/ahelpa`，保留已有二进制的备份。随后通过 `npx skills@latest` 安装同一 tag 的 skill。skill 会以全局 hard copy 的方式通过三个显式 target 安装到所有受支持的 agent：
 
 - Codex：target `codex` → `~/.agents/skills/ahelpa`（共享的通用 skill 目录）
 - Claude Code：target `claude-code` → `~/.claude/skills/ahelpa`
@@ -146,7 +146,7 @@ Helper 默认以 host process 相同的本地用户权限运行。请用 `--proj
 
 ## 开发
 
-要求：macOS 或 Linux、Bun、tmux。
+要求：macOS 或 Linux、Bun 1.4.2（release 固定使用的工具链）、tmux。
 
 ```bash
 bun test                       # 单元测试

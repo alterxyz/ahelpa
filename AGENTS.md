@@ -43,8 +43,8 @@ When changing user-facing docs, update both language versions or explicitly note
 
 ## Requirements
 
-- macOS or Linux, Bun, tmux
-- `npx` for `ahelpa install-skill` / public skill installation
+- macOS or Linux, Bun 1.4.2 (pinned in `packageManager` and CI), tmux
+- Node.js >=22.20.0 with working `npx` for `ahelpa install-skill` / public skill installation
 - `jq` for shell examples (not required by runtime)
 
 ## Common Commands

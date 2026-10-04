@@ -24,6 +24,26 @@ if [ -n "${AHELPA_ARCHIVE_URL:-}" ] && [ -z "$EXPECTED_SHA256" ] && [ -z "$CHECK
   fail "AHELPA_ARCHIVE_URL requires AHELPA_SHA256 or AHELPA_CHECKSUM_URL."
 fi
 
+# Check skill-install prerequisites before any download or runtime replacement.
+if ! command -v node >/dev/null 2>&1; then
+  fail "Node.js >=22.20.0 is required for skills installation; install Node.js and retry."
+fi
+NODE_VERSION="$(node --version 2>/dev/null)" || fail "Could not run node --version; repair Node.js and retry."
+if [[ ! "$NODE_VERSION" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+  fail "Could not read a stable Node.js version; Node.js >=22.20.0 is required."
+fi
+NODE_MAJOR="${BASH_REMATCH[1]}"
+NODE_MINOR="${BASH_REMATCH[2]}"
+if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 20 ]; }; then
+  fail "Node.js >=22.20.0 is required for skills installation; found $NODE_VERSION. Upgrade Node.js and retry."
+fi
+if ! command -v npx >/dev/null 2>&1; then
+  fail "npx is required for skills installation; install Node.js with npm and retry."
+fi
+if ! npx --version >/dev/null 2>&1; then
+  fail "Could not run npx --version; repair Node.js/npm before installing skills."
+fi
+
 OS="$(uname -s)"
 ARCH="$(uname -m)"
 case "$OS/$ARCH" in
