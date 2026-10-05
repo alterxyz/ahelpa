@@ -26,10 +26,15 @@ export function codexNeedsHooksTrustEscape(captureOutput: string): boolean {
     || /Press space or enter to toggle/i.test(captureOutput);
 }
 
+// Codex <=0.15x: "Update available! … Press enter to continue"; 0.160: "Update available · … enter continue · esc skip".
+// Live only while every "›" row after the latest header is one of its own options: a later prompt
+// or another menu (e.g. directory trust) means the update rows are scrollback or quoted history.
 function codexNeedsUpdateSkip(captureOutput: string): boolean {
-  return /Update available!/i.test(captureOutput)
-    && /2\.\s*Skip/i.test(captureOutput)
-    && /Press enter to continue/i.test(captureOutput);
+  const header = [...captureOutput.matchAll(/Update available/gi)].at(-1);
+  if (header?.index === undefined) return false;
+  const menu = captureOutput.slice(header.index);
+  return /^[^\S\n]*(?:›[^\S\n]*)?2\.\s*Skip\b/im.test(menu)
+    && [...menu.matchAll(/^[^\S\n]*›.*$/gm)].every((row) => /^[^\S\n]*›[^\S\n]*\d+\.\s*(?:Update now|Skip)\b/.test(row[0]));
 }
 
 function codexIsStarting(captureOutput: string): boolean {
@@ -112,11 +117,15 @@ function codexHasInputPrompt(captureOutput: string): boolean {
   const prompts = [...captureOutput.matchAll(/^\s*›(?:\s+.*)?$/gmu)];
   const latest = prompts.at(-1);
   if (latest?.index === undefined) return false;
+  // ponytail: a numbered latest "›" row is always treated as a live menu (typing could pick an option) and an older
+  // "›" above it never counts. Startup composers are empty, so a numbered draft only costs a safe timeout.
+  if (/^\s*›\s+\d+\.\s/.test(latest[0])) return false;
   return !codexTurnEvidence(captureOutput.slice(latest.index));
 }
 
 async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Promise<void> {
   let nudged = false;
+  let updateSkipped = false;
   let startingPolls = 0;
 
   await runtime.sleep(2000);
@@ -134,9 +143,10 @@ async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Pro
       await runtime.sendKey(sessionId, "Escape");
       continue;
     }
-    if (!nudged && codexNeedsUpdateSkip(recentOutput)) {
-      await runtime.sendKeys(sessionId, "2");
-      nudged = true;
+    if (codexNeedsUpdateSkip(recentOutput)) {
+      // Never fall through while the menu is live: Enter would accept "1. Update now".
+      if (!updateSkipped) await runtime.sendKeys(sessionId, "2");
+      updateSkipped = true;
       continue;
     }
     if (!nudged && codexNeedsPromptNudge(recentOutput)) {

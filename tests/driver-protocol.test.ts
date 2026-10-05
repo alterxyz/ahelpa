@@ -166,6 +166,33 @@ describe("driver launch protocol", () => {
     expect(runtime.sent).toEqual(["2"]);
   });
 
+  test("codex skips the 0.160 update menu and never mistakes it for the input prompt", async () => {
+    const driver = getDriver("codex");
+    const menu = [
+      "  Update available · 0.160.0 → 0.160.1",
+      "  Release notes: https://github.com/openai/codex/releases/latest",
+      "› 1. Update now (runs `sh -c 'curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh'`)",
+      "  2. Skip",
+      "  3. Skip until next version",
+      "  enter continue · esc skip",
+    ].join("\n");
+    const runtime = probeRuntime([menu, "› Implement {feature}"]);
+
+    await driver.prepareForTask("codex-test", runtime);
+
+    expect(runtime.sent).toEqual(["2"]);
+  });
+
+  test("codex keeps waiting past an unknown numbered menu instead of typing into it", async () => {
+    const driver = getDriver("codex");
+    const runtime = probeRuntime(["› 1. Do something irreversible\n  2. Cancel", "› Implement {feature}"]);
+
+    await driver.prepareForTask("codex-test", runtime);
+
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.captures.length).toBeGreaterThanOrEqual(2);
+  });
+
   test("claude-code waits for the input prompt before task submission", async () => {
     const driver = getDriver("claude-code");
     const runtime = probeRuntime([
