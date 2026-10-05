@@ -391,11 +391,13 @@ describe("cli dispatch", () => {
     const result = JSON.parse(captured.out[0]);
     expect(db.getSession(result.sessionId)?.task).toBe(task);
     const handoffPath = defaultRuntimeLayout.taskFilePath(result.sessionId);
-    expect(readFileSync(handoffPath, "utf-8")).toBe(task);
+    const handedOffTask = readFileSync(handoffPath, "utf-8");
+    expect(handedOffTask).toStartWith(`${task}\n\n---\n\n## ahelpa signals\n\n`);
+    expect(handedOffTask).toContain("[AHELPA:NEED_HELP:review,input]");
     expect(sendSpy.mock.calls[0][1]).toContain(handoffPath);
     expect(sendSpy.mock.calls[0][1]).not.toContain("Keep literal");
     writeFileSync(TEST_TASK_FILE, "later edit");
-    expect(readFileSync(handoffPath, "utf-8")).toBe(task);
+    expect(readFileSync(handoffPath, "utf-8")).toBe(handedOffTask);
     unlinkSync(handoffPath);
   });
 
@@ -454,7 +456,7 @@ describe("cli dispatch", () => {
     expect(code).toBe(0);
     expect(captured.out[0]).toBe("task sent");
     expect(readFileSync(defaultRuntimeLayout.taskFilePath("task-cli-1"), "utf-8"))
-      .toBe("new task body");
+      .toStartWith("new task body\n\n---\n\n## ahelpa signals\n\n");
     expect(existsSync(`${TEST_PROJECT}/.ahelpa/task-cli-1/artifacts`)).toBe(true);
     expect(sendKeysSpy).toHaveBeenCalledTimes(1);
     const instruction = sendKeysSpy.mock.calls[0]?.[1];

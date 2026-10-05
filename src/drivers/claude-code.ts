@@ -1,7 +1,7 @@
 import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
-import { detectSentinelStatus } from "./sentinels";
+import { detectSentinelOutcome, detectSentinelStatus } from "./sentinels";
 import { findModelChoice, findSelectedChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
 
 function claudeNeedsSubmitNudge(captureOutput: string): boolean {
@@ -265,7 +265,11 @@ export const claudeCodeDriver: AgentDriver = {
   },
 
   detectStatus(captureOutput: string): DetectedStatus {
-    return detectSentinelStatus(currentTurnOutput(captureOutput));
+    return claudeCodeDriver.detectOutcome(captureOutput).status;
+  },
+
+  detectOutcome(captureOutput: string) {
+    return detectSentinelOutcome(currentTurnOutput(captureOutput));
   },
 
   detectActivity(captureOutput: string): "working" | "booting" | "idle" {

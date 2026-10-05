@@ -271,5 +271,11 @@ tmux capture-pane -t "$session_id" -p  # 不 attach，直接 dump pane 内容
 - **Kimi 显示月相或 `Retrying`。** 循环月相和 provider backoff 倒计时都表示仍在工作，即使 boxed input 仍然可见。继续 `wait`；120 秒 provider 重试不是本地 CLI 或 tmux 故障。
 - **Helper 看起来卡住。** Attach 到 tmux session 看完整屏幕。可能出现了 driver 没自动处理的 prompt 或确认框。手动处理后，暗号协议仍然有效。
 - **`wait` 返回但没有 summary.md。** Helper 可能完成了但没写结果。用 `capture` 或 `logs` 看发生了什么。
-- **Session 显示 `error`。** Helper 打印了 `[AHELPA:NEED_HELP]`。用 `capture` 或 `logs` 看它需要什么，再用 `send` 介入。
+- **Session 显示 `error`。** 先检查 `capture` 或 `logs`：NEED_HELP 或 Codex 模型/账号错误都可能导致此状态。若输出了 `[AHELPA:NEED_HELP]` 或 `[AHELPA:NEED_HELP:<payload>]`，读取 `summary.md`，再用 `send` 介入，不绕过拒绝。逗号分隔标签：`review` 表示拒绝导致阻塞；`input` 表示任务输入缺失、截断或矛盾；两者合用 `review,input`。
 - **Session 显示 `dead`。** tmux session 意外消失。用 `logs` 查看 archived output。
+
+只有 NEED_HELP 会向全局台账 `${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl` 写入一行。标签是 helper 自报的原因，并非经过验证的结论。在 agent 的 transcript 文件中 grep 台账里的 session ID，即可找到对应记录；统计标签：
+
+```bash
+jq -r '.tags[]? // "untagged"' "${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl" | sort | uniq -c
+```

@@ -51,6 +51,26 @@ const workingWithComposer = [
 ].join("\n");
 
 describe("Kimi driver", () => {
+  test.each(["prepareForTask", "prepareForResume"] as const)("%s ignores activity and attention text inside help payloads", async (method) => {
+    const output = "│ Session: session_payload │\n✨ Task\n● [AHELPA:NEED_HELP:review,working...,Review your answer before submit,Trust this folder?,Don't trust]\n│ > │";
+    const runtime = runtimeProbe([output]);
+    await getDriver("kimi")[method]("kimi-payload", runtime);
+    expect(runtime.captures).toHaveLength(1);
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.keys).toEqual([]);
+  });
+
+  test("a changed help payload cannot fake generation or submission evidence", async () => {
+    const beforeOutput = "│ Session: session_payload │\n✨ Task\n● [AHELPA:NEED_HELP:review]\n│ > │";
+    const afterOutput = beforeOutput.replace("NEED_HELP:review]", "NEED_HELP:review,working...]");
+    const runtime = runtimeProbe([afterOutput]);
+    expect(await getDriver("kimi").afterTaskSubmitted("kimi-payload", runtime, { beforeOutput })).toBe(false);
+    expect(runtime.captures).toHaveLength(10);
+  });
+
+  test("a resume hint inside a help payload is not session metadata", () => {
+    expect(getDriver("kimi").extractResumeToken("[AHELPA:NEED_HELP:To resume this session: kimi -r session_fake]")).toBeNull();
+  });
   test("is registered with its own session prefix", () => {
     const driver = getDriver("kimi");
     expect(driver.name).toBe("kimi");

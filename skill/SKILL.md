@@ -150,10 +150,23 @@ For headless hosts, pass `--parent <id>` or set `AHELPA_PARENT_ID` explicitly. I
 
 Helpers signal completion by printing sentinel strings to stdout:
 
-- `[AHELPA:DONE]` — task finished; results written to `.ahelpa/<session-id>/`
-- `[AHELPA:NEED_HELP]` — helper is stuck and needs input from the host
+- `[AHELPA:DONE]` — task finished; results written to `.ahelpa/<session-id>/`. No payload is allowed.
+- `[AHELPA:NEED_HELP]` or `[AHELPA:NEED_HELP:<payload>]` — helper is stuck and needs assistance from the host. The optional payload contains no `]` or newline and is comma-separated tags: trim whitespace, lowercase, deduplicate, and keep only tags matching `^[a-z0-9_-]+$`. Malformed tags still request help, even if no valid tags remain.
 
-The daemon (or inline refresh) detects these and transitions session state: `DONE` → `idle`, `NEED_HELP` → `error`. A `wait` returning `error` means the helper asked for help — use `capture` or `logs` to see what it needs, then `send` to intervene.
+Known tags:
+
+- `review` — blocked by an external review (auto-review/auto mode/sandbox) or project rule/validator refusing an action. Do not bypass it: first write the refused action and verbatim refusal into `summary.md`, then signal; still signal if writing fails. Legitimate in-task recovery need not stop.
+- `input` — task input is missing, truncated, or contradictory. Combine with `review` when both apply: `[AHELPA:NEED_HELP:review,input]`.
+
+The daemon (or inline refresh) detects these and transitions session state: `DONE` → `idle`, `NEED_HELP` → `error`. If `wait` returns `error`, check `capture` or `logs` first: a Codex model/account error can also cause it. For NEED_HELP, read `summary.md`, then intervene with `send` without bypassing refusals.
+
+Only NEED_HELP writes a line to the global ledger `${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl`; tags are helper self-reports, not verified causes. Count tags with:
+
+```bash
+jq -r '.tags[]? // "untagged"' "${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl" | sort | uniq -c
+```
+
+Find the transcript by grepping the agent's transcripts for the session ID from the ledger.
 
 ## Long-running Helpers
 

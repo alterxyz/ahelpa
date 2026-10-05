@@ -36,6 +36,11 @@ export interface TaskSubmissionContext {
 
 export type DetectedStatus = "idle" | "error" | "running";
 
+export interface DetectedOutcome {
+  status: DetectedStatus;
+  needHelpTags: string[] | null;
+}
+
 // ponytail: normal is finite, abnormal is infinite — detect the known-good, flag the rest
 export type ActivitySignal = "working" | "booting" | "idle";
 
@@ -60,6 +65,7 @@ export interface AgentDriver {
   ): Promise<boolean>;
   switchModel(sessionId: string, runtime: DriverRuntime, opts: ModelSwitchOptions): Promise<string>;
   detectStatus(captureOutput: string): DetectedStatus;
+  detectOutcome(captureOutput: string): DetectedOutcome;
   detectActivity(captureOutput: string): ActivitySignal;
   gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void>;
 }

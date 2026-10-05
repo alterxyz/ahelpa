@@ -8,19 +8,19 @@ import type {
   TaskSubmissionContext,
 } from "./types";
 import { shellEscape } from "../shell";
-import { detectSentinelStatus } from "./sentinels";
+import { detectSentinelStatus, maskSentinels, scanSentinels } from "./sentinels";
 
-const KIMI_BOXED_PROMPT = /^\s*│\s*>\s*│\s*$/gmu;
-const KIMI_SESSION = /^\s*│\s*Session:\s+(session_[A-Za-z0-9._-]+)\s*│\s*$/m;
+const KIMI_BOXED_PROMPT = /^[^\S\r\n]*│\s*>\s*│\s*$/gmu;
+const KIMI_SESSION = /^[^\S\r\n]*│\s*Session:\s+(session_[A-Za-z0-9._-]+)\s*│\s*$/m;
 const KIMI_RESUME_HINT = /To resume this session:\s+kimi\s+-r\s+(session_[A-Za-z0-9._-]+)/m;
 // Kimi defers model-alias resolution until it creates the session on the first
 // message, then reports the real cause on the pane. Without this the host only
 // sees a generic "no new turn" timeout and the launch rollback kills the pane
 // that held the explanation.
-const KIMI_SESSION_START_ERROR = /^\s*Error:\s*Failed to start a session:\s*(.+?)\s*$/m;
+const KIMI_SESSION_START_ERROR = /^[^\S\r\n]*Error:\s*Failed to start a session:\s*(.+?)\s*$/m;
 
 function sessionStartError(captureOutput: string): string | null {
-  return captureOutput.match(KIMI_SESSION_START_ERROR)?.[1] ?? null;
+  return maskSentinels(captureOutput).match(KIMI_SESSION_START_ERROR)?.[1] ?? null;
 }
 
 function postureArgs(safe?: boolean): string[] {
@@ -40,7 +40,7 @@ function modelArgs(opts: { model?: string; effort?: string }): string[] {
 function lastEmptyPromptIndex(captureOutput: string): number {
   KIMI_BOXED_PROMPT.lastIndex = 0;
   let lastIndex = -1;
-  for (const match of captureOutput.matchAll(KIMI_BOXED_PROMPT)) {
+  for (const match of maskSentinels(captureOutput).matchAll(KIMI_BOXED_PROMPT)) {
     lastIndex = match.index;
   }
   return lastIndex;
@@ -54,11 +54,12 @@ interface PositionedSignal {
 interface PositionedSentinel extends PositionedSignal {
   kind: "sentinel";
   status: Exclude<DetectedStatus, "running">;
+  needHelpTags: string[] | null;
 }
 
 function generationSignals(captureOutput: string): Array<{ index: number; text: string }> {
-  return [...captureOutput.matchAll(
-    /\b(?:thinking|working)\.\.\.|\bRetrying\s*\(\d+\/\d+\)|^\s*[🌑🌒🌓🌔🌕🌖🌗🌘](?:\s|$)/gimu,
+  return [...maskSentinels(captureOutput).matchAll(
+    /\b(?:thinking|working)\.\.\.|\bRetrying\s*\(\d+\/\d+\)|^[^\S\r\n]*[🌑🌒🌓🌔🌕🌖🌗🌘](?:\s|$)/gimu,
   )].map((match) => ({ index: match.index, text: match[0].trim() }));
 }
 
@@ -67,41 +68,43 @@ function lastGeneratingIndex(captureOutput: string): number {
 }
 
 function lastActiveToolUseIndex(captureOutput: string): number {
-  const matches = [...captureOutput.matchAll(/^\s*[●•]\s+Using\s+\S.*$/gmu)];
+  const matches = [...maskSentinels(captureOutput).matchAll(/^[^\S\r\n]*[●•]\s+Using\s+\S.*$/gmu)];
   return matches.at(-1)?.index ?? -1;
 }
 
 function lastAssistantResponseIndex(captureOutput: string): number {
-  const matches = [...captureOutput.matchAll(
-    /^\s*[●•][ \t]+(?!(?:Using|Used)\b|\[AHELPA:)\S.*$/gmu,
+  const matches = [...maskSentinels(captureOutput).matchAll(
+    /^[^\S\r\n]*[●•][ \t]+(?!(?:Using|Used)\b|\[AHELPA:)\S.*$/gmu,
   )];
   return matches.at(-1)?.index ?? -1;
 }
 
 function lastApprovalPromptIndex(captureOutput: string): number {
-  const matches = [...captureOutput.matchAll(
-    /^\s*[▶›❯]\s*(?:Run this command\?|Write this file\?|Apply these edits\?|Stop this task\?|Ready to build with this plan\?|Approve .+\?)\s*$/gimu,
+  const matches = [...maskSentinels(captureOutput).matchAll(
+    /^[^\S\r\n]*[▶›❯]\s*(?:Run this command\?|Write this file\?|Apply these edits\?|Stop this task\?|Ready to build with this plan\?|Approve .+\?)\s*$/gimu,
   )];
   return matches.at(-1)?.index ?? -1;
 }
 
 function kimiNeedsFolderTrust(captureOutput: string): boolean {
-  return captureOutput.includes("Trust this folder?")
-    && captureOutput.includes("Don't trust");
+  const masked = maskSentinels(captureOutput);
+  return masked.includes("Trust this folder?")
+    && masked.includes("Don't trust");
 }
 
 function lastQuestionPromptIndex(captureOutput: string): number {
-  const questionHeading = [...captureOutput.matchAll(
-    /^\s*(?:[▶›❯]\s*)?question\s*$/gimu,
+  const masked = maskSentinels(captureOutput);
+  const questionHeading = [...masked.matchAll(
+    /^[^\S\r\n]*(?:[▶›❯]\s*)?question\s*$/gimu,
   )].at(-1)?.index ?? -1;
-  const questionBody = [...captureOutput.matchAll(
-    /^\s*(?:[▶›❯]\s*)?\?\s+\S.*$/gmu,
+  const questionBody = [...masked.matchAll(
+    /^[^\S\r\n]*(?:[▶›❯]\s*)?\?\s+\S.*$/gmu,
   )].at(-1)?.index ?? -1;
-  const questionCancel = [...captureOutput.matchAll(/esc\s+cancel/gimu)].at(-1)?.index ?? -1;
+  const questionCancel = [...masked.matchAll(/esc\s+cancel/gimu)].at(-1)?.index ?? -1;
   const interactiveQuestion = questionHeading >= 0 && questionBody >= 0 && questionCancel >= 0
     ? Math.max(questionHeading, questionBody, questionCancel)
     : -1;
-  const review = [...captureOutput.matchAll(
+  const review = [...masked.matchAll(
     /Review your answer before submit|Ready to submit your answers\?/gimu,
   )].at(-1)?.index ?? -1;
   return Math.max(interactiveQuestion, review);
@@ -115,15 +118,11 @@ function lastAttentionPromptIndex(captureOutput: string): number {
 }
 
 function latestSentinel(captureOutput: string): PositionedSentinel | null {
-  const matches = [...captureOutput.matchAll(
-    /^\s*(?:[-•●⏺]\s*)?\[AHELPA:(DONE|NEED_HELP)\]\s*$/gmu,
-  )];
-  const latest = matches.at(-1);
+  const latest = scanSentinels(captureOutput).at(-1);
   if (!latest) return null;
   return {
-    index: latest.index,
+    ...latest,
     kind: "sentinel",
-    status: latest[1] === "NEED_HELP" ? "error" : "idle",
   };
 }
 
@@ -178,19 +177,20 @@ function kimiIsReady(captureOutput: string): boolean {
 }
 
 function extractSessionId(captureOutput: string): string | null {
-  return captureOutput.match(KIMI_SESSION)?.[1]
-    ?? captureOutput.match(KIMI_RESUME_HINT)?.[1]
+  const masked = maskSentinels(captureOutput);
+  return masked.match(KIMI_SESSION)?.[1]
+    ?? masked.match(KIMI_RESUME_HINT)?.[1]
     ?? null;
 }
 
 function currentTurnOutput(captureOutput: string): string {
-  const turns = [...captureOutput.matchAll(/^\s*✨\s/gmu)];
+  const turns = [...maskSentinels(captureOutput).matchAll(/^[^\S\r\n]*✨\s/gmu)];
   const latest = turns.at(-1);
   return latest?.index === undefined ? captureOutput : captureOutput.slice(latest.index);
 }
 
 function userTurns(captureOutput: string): string[] {
-  return [...captureOutput.matchAll(/^\s*✨\s+.*$/gmu)]
+  return [...maskSentinels(captureOutput).matchAll(/^[^\S\r\n]*✨\s+.*$/gmu)]
     .map((match) => match[0].trim());
 }
 
@@ -317,6 +317,10 @@ export const kimiDriver: AgentDriver = {
   },
 
   detectStatus(captureOutput: string): DetectedStatus {
+    return kimiDriver.detectOutcome(captureOutput).status;
+  },
+
+  detectOutcome(captureOutput: string) {
     // Resumed Kimi panes include earlier turns. Only the latest user turn may
     // settle the new ahelpa session; an old DONE must not end it immediately.
     const current = currentTurnOutput(captureOutput);
@@ -328,8 +332,10 @@ export const kimiDriver: AgentDriver = {
       lastGeneratingIndex(current),
       lastActiveToolUseIndex(current),
     );
-    if (sentinel && sentinel.index > latestGeneration) return sentinel.status;
-    return "running";
+    if (sentinel && sentinel.index > latestGeneration) {
+      return { status: sentinel.status, needHelpTags: sentinel.needHelpTags };
+    }
+    return { status: "running" as const, needHelpTags: null };
   },
 
   detectActivity(captureOutput: string): "working" | "booting" | "idle" {
@@ -339,7 +345,7 @@ export const kimiDriver: AgentDriver = {
     const evidence = latestTurnEvidence(current);
     if (evidence?.kind === "generation") return "working";
     if (evidence) return "idle";
-    if (current.includes("Welcome to Kimi Code!")) return "booting";
+    if (maskSentinels(current).includes("Welcome to Kimi Code!")) return "booting";
     return "idle";
   },
 

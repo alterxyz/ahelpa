@@ -15,6 +15,7 @@ describe("runtime layout", () => {
     expect(layout.daemonPidPath()).toBe("/tmp/ahelpa-home/.ahelpa/daemon.pid");
     expect(layout.daemonLogPath()).toBe("/tmp/ahelpa-home/.ahelpa/daemon.log");
     expect(layout.archiveDir()).toBe("/tmp/ahelpa-home/.ahelpa/archive");
+    expect(layout.needHelpLedgerPath()).toBe("/tmp/ahelpa-home/.ahelpa/need-help.jsonl");
     expect(layout.projectDeliveryDir("/tmp/project")).toBe("/tmp/project/.ahelpa");
     expect(layout.taskFilePath("codex-abc")).toBe("/tmp/ahelpa-runtime/ahelpa-task-codex-abc.md");
     expect(layout.fifoPath("codex-abc")).toBe("/tmp/ahelpa-runtime/codex-abc.pipe");
@@ -28,6 +29,7 @@ describe("runtime layout", () => {
 
     expect(layout.ahelpaHomeDir()).toBe("/tmp/ahelpa-isolated/state");
     expect(layout.stateDbPath()).toBe("/tmp/ahelpa-isolated/state/state.db");
+    expect(layout.needHelpLedgerPath()).toBe("/tmp/ahelpa-isolated/state/need-help.jsonl");
     expect(layout.tmpDir).toBe("/tmp/ahelpa-isolated/runtime");
   });
 
@@ -39,6 +41,8 @@ describe("runtime layout", () => {
     expect(layout.ahelpaHomeDir()).toBe(resolve("relative-home/.ahelpa"));
     expect(layout.tmpDir).toBe(resolve("relative-runtime"));
     expect(isolated.ahelpaHomeDir()).toBe(resolve("relative-state"));
+    expect(layout.needHelpLedgerPath()).toBe(resolve("relative-home/.ahelpa/need-help.jsonl"));
+    expect(isolated.needHelpLedgerPath()).toBe(resolve("relative-state/need-help.jsonl"));
   });
 
   test("relative environment roots remain stable and are inherited after the caller changes directory", async () => {
@@ -77,7 +81,13 @@ describe("runtime layout", () => {
       const layout = new RuntimeLayout();
 
       expect(layout.ahelpaHomeDir()).toBe("/tmp/ahelpa-env/state");
+      expect(layout.needHelpLedgerPath()).toBe("/tmp/ahelpa-env/state/need-help.jsonl");
       expect(layout.tmpDir).toBe("/tmp/ahelpa-env/runtime");
+
+      expect(new RuntimeLayout({ ahelpaDir: "/tmp/explicit-state" }).needHelpLedgerPath())
+        .toBe("/tmp/explicit-state/need-help.jsonl");
+      expect(new RuntimeLayout({ homeDir: "/tmp/explicit-home" }).needHelpLedgerPath())
+        .toBe("/tmp/explicit-home/.ahelpa/need-help.jsonl");
     } finally {
       if (previousHome === undefined) delete process.env.AHELPA_HOME;
       else process.env.AHELPA_HOME = previousHome;
@@ -95,6 +105,7 @@ describe("runtime layout", () => {
       const layout = new RuntimeLayout({ homeDir: "/tmp/ahelpa-blank-env-home" });
 
       expect(layout.ahelpaHomeDir()).toBe("/tmp/ahelpa-blank-env-home/.ahelpa");
+      expect(layout.needHelpLedgerPath()).toBe("/tmp/ahelpa-blank-env-home/.ahelpa/need-help.jsonl");
       expect(layout.tmpDir).toBe("/tmp/ahelpa");
     } finally {
       if (previousHome === undefined) delete process.env.AHELPA_HOME;

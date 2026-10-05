@@ -14,7 +14,7 @@
 
 **Driver** — An adapter for one helper type. Drivers own startup commands, readiness checks, trust prompt handling, post-submission nudges, and sentinel detection.
 
-**Sentinel protocol** — Helpers print `[AHELPA:DONE]` or `[AHELPA:NEED_HELP]` to declare completion or request assistance. Sentinel strings and matching rules live in `src/drivers/sentinels.ts`.
+**Sentinel protocol** — Helpers print `[AHELPA:DONE]` or `[AHELPA:NEED_HELP]` (optionally `[AHELPA:NEED_HELP:<payload>]` with comma-separated tags) to declare completion or request assistance. Sentinel strings and matching rules live in `src/drivers/sentinels.ts`.
 
 **Wakeup protocol** — `wait` blocks on a named pipe (FIFO). When a session settles, the daemon writes a wakeup event through the pipe. Pipe paths and payload handling live in `src/wakeup.ts`.
 

@@ -6,10 +6,11 @@ import { Archive } from "./archive";
 import { Wakeup, defaultWakeup } from "./wakeup";
 import { settle } from "./settle";
 import { getDriver } from "./drivers/registry";
-import { SESSION_STATUS, statusFromCapture } from "./session-lifecycle";
+import { SESSION_STATUS, outcomeFromCapture } from "./session-lifecycle";
 import { defaultRuntimeLayout } from "./runtime-layout";
 import { shellEscape } from "./shell";
 import type { DriverRuntime } from "./drivers/types";
+import { planFileHandoff } from "./file-handoff";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
 const PID_FILE = defaultRuntimeLayout.daemonPidPath();
@@ -117,14 +118,38 @@ export async function refreshSessionStatuses(
 
       const output = await Tmux.capture(session.id, 30);
       const driver = getDriver(session.agentType);
-      const newStatus = statusFromCapture(output, driver);
+      const outcome = outcomeFromCapture(output, driver);
+      const newStatus = outcome.status;
       if (newStatus !== SESSION_STATUS.Running) {
+        // Snapshot before settle awaits the wakeup, so a later model switch cannot relabel this event.
+        const ledgerSession = db.getSession(session.id) ?? session;
         idleCount.delete(session.id);
         const settled = await settle(db, archive, defaultWakeup, session.id, newStatus, {
           status: newStatus,
           lastOutput: output.slice(-500),
         }, SESSION_STATUS.Running);
         if (!settled) continue;
+        if (newStatus === SESSION_STATUS.Error && outcome.needHelpTags !== null) {
+          try {
+            mkdirSync(defaultRuntimeLayout.ahelpaHomeDir(), { recursive: true });
+            // Not crash-atomic with SQLite: a crash or wakeup failure between settle commit and append loses the line.
+            appendFileSync(defaultRuntimeLayout.needHelpLedgerPath(), JSON.stringify({
+              ts: new Date().toISOString(),
+              sessionId: ledgerSession.id,
+              parentId: ledgerSession.parentId,
+              agentType: ledgerSession.agentType,
+              role: ledgerSession.role || null,
+              model: ledgerSession.model || null,
+              effort: ledgerSession.effort || null,
+              safe: ledgerSession.safe,
+              projectPath: ledgerSession.projectPath,
+              tags: outcome.needHelpTags,
+              summaryPath: planFileHandoff(ledgerSession.projectPath, ledgerSession.id).summaryPath,
+            }) + "\n");
+          } catch (error) {
+            log(`${session.id}: need-help ledger append failed: ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
         if (newStatus === SESSION_STATUS.Idle) {
           try { await driver.gracefulExit(session.id, driverRuntime); } catch {}
           // The host may have killed the helper while graceful exit awaited

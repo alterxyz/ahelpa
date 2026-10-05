@@ -1,8 +1,8 @@
-import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
+import type { AgentDriver, DetectedOutcome, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
 import { ModelSwitchAppliedError } from "./types";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { shellEscape } from "../shell";
-import { detectSentinelStatus } from "./sentinels";
+import { detectSentinelOutcome } from "./sentinels";
 import { findModelChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
 import { restoreCodexConfig, snapshotCodexConfig } from "./codex-config";
 import { getCodexCapabilities } from "./codex-capabilities";
@@ -53,10 +53,17 @@ function userTurnMatches(captureOutput: string) {
   return [...captureOutput.matchAll(/^\s*›\s+\S.*$/gmu)];
 }
 
+function codexTurnOutcome(segment: string): DetectedOutcome {
+  const outcome = detectSentinelOutcome(segment);
+  if (outcome.status !== "running") return outcome;
+  return codexHasUnsupportedModelError(segment)
+    ? { status: "error", needHelpTags: null }
+    : outcome;
+}
+
 function codexTurnEvidence(segment: string): "working" | "idle" | "error" | null {
-  const settled = detectSentinelStatus(segment);
-  if (settled !== "running") return settled;
-  if (codexHasUnsupportedModelError(segment)) return "error";
+  const outcome = codexTurnOutcome(segment);
+  if (outcome.status !== "running") return outcome.status;
   return codexHasStartedTask(segment) ? "working" : null;
 }
 
@@ -367,8 +374,11 @@ export const codexDriver: AgentDriver = {
   },
 
   detectStatus(captureOutput: string): DetectedStatus {
-    const evidence = codexTurnEvidence(currentTurnOutput(captureOutput));
-    return evidence === "idle" || evidence === "error" ? evidence : "running";
+    return codexDriver.detectOutcome(captureOutput).status;
+  },
+
+  detectOutcome(captureOutput: string) {
+    return codexTurnOutcome(currentTurnOutput(captureOutput));
   },
 
   detectActivity(captureOutput: string): "working" | "booting" | "idle" {

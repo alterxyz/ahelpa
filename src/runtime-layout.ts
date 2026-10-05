@@ -38,6 +38,10 @@ export class RuntimeLayout {
     return join(this.ahelpaHomeDir(), "daemon.log");
   }
 
+  needHelpLedgerPath(): string {
+    return join(this.ahelpaHomeDir(), "need-help.jsonl");
+  }
+
   archiveDir(): string {
     return join(this.ahelpaHomeDir(), "archive");
   }
