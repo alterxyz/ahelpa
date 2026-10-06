@@ -502,6 +502,59 @@ describe("resumed turn status", () => {
     )).toBe("idle");
   });
 
+  test("codex keeps a resumed turn that opened with a non-English reply instead of reusing the old DONE", () => {
+    const driver = getDriver("codex");
+    expect(driver.detectStatus([
+      "› Previous review task",
+      "• Wrote the review.",
+      "  [AHELPA:DONE]",
+      "› Please read and complete the task described in /tmp/ahelpa/ahelpa-task-x.md. Use /p/.ahelpa/x as your",
+      "  result directory. Tags: see the end of the task file.",
+      "• 我会读取本轮任务",
+      "› Ask Codex to do anything",
+      "  GPT-6.1-Sol xhigh · ~/Desktop/project · Complete the ahelpa task",
+    ].join("\n"))).toBe("running");
+  });
+
+  test("codex never reuses an older DONE while the new task turn has no reply yet", () => {
+    const driver = getDriver("codex");
+    expect(driver.detectStatus([
+      "› Previous review task",
+      "• Wrote the review.",
+      "  [AHELPA:DONE]",
+      "› Please read and complete the task described in /tmp/ahelpa/ahelpa-task-x.md.",
+      "› Ask Codex to do anything",
+    ].join("\n"))).toBe("running");
+  });
+
+  test("codex settles on DONE when only the composer is left on screen", () => {
+    const driver = getDriver("codex");
+    expect(driver.detectStatus("• Wrote the review.\n  [AHELPA:DONE]\n› Ask Codex to do anything\n  gpt-5.5 high")).toBe("idle");
+  });
+
+  test.each(["Queued follow-up inputs", "Messages to be submitted after next tool call", "Messages to be submitted at end of turn"])(
+    "codex does not treat the pending-input header '%s' as activity",
+    (header) => {
+      expect(getDriver("codex").detectActivity(`• ${header}\n  ↳ Continue the review\n› Ask Codex to do anything`)).toBe("idle");
+    },
+  );
+
+  test.each([
+    "› Complete the review\n• Completed it.\n  [AHELPA:DONE]\n  › transcript example A\n  › transcript example B\n› Ask Codex to do anything",
+    "› Complete the review\n• Completed it.\n  [AHELPA:DONE]\n› Draft transcript for later\n  › example A\n  › example B",
+  ])("codex ignores indented literal chevrons when finding the current turn", (screen) => {
+    expect(getDriver("codex").detectStatus(screen)).toBe("idle");
+  });
+
+  test("codex does not treat indented bullets in the user's text as a reply", () => {
+    const driver = getDriver("codex");
+    expect(driver.detectStatus([
+      "› Please read and complete the task described in /tmp/ahelpa/ahelpa-task-x.md.",
+      "  • Acceptance criterion: preserve behaviour",
+      "■ The model is not supported when using Codex with a ChatGPT account.",
+    ].join("\n"))).toBe("error");
+  });
+
   test("codex still settles when its idle placeholder trails DONE", () => {
     const driver = getDriver("codex");
     expect(driver.detectStatus(

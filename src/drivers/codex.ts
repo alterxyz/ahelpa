@@ -54,8 +54,10 @@ function codexHasUnsupportedModelError(captureOutput: string): boolean {
     && /(?:^|\n)\s*(?:■|ERROR:)[\s\S]{0,1000}?model\s+is\s+not\s+supported\s+when\s+using\s+Codex\s+with\s+a\s+ChatGPT\s+account/i.test(captureOutput);
 }
 
+// Codex draws "›" at column 0 only on a user turn's first row (and the composer); continuation rows are indented,
+// so a literal "›" inside a message or draft must not count as a turn.
 function userTurnMatches(captureOutput: string) {
-  return [...captureOutput.matchAll(/^\s*›\s+\S.*$/gmu)];
+  return [...captureOutput.matchAll(/^›\s+\S.*$/gmu)];
 }
 
 function codexTurnOutcome(segment: string): DetectedOutcome {
@@ -87,15 +89,23 @@ function evidencedUserTurns(captureOutput: string): string[] {
 
 function currentTurnOutput(captureOutput: string): string {
   const turns = userTurnMatches(captureOutput);
-  for (let index = turns.length - 1; index >= 0; index--) {
-    const turn = turns[index];
+  // The last "›" row is normally the idle composer, so step back over it at most once: a new task turn with no
+  // reply yet must never fall back to an older turn's DONE/NEED_HELP (that reclaimed a resumed helper mid-task).
+  // ponytail: under non-default tui.raw_output_mode a column-0 literal "›" printed after the sentinel delays
+  // settlement to needs_attention (safe); add a structural turn boundary if raw mode is ever used for helpers.
+  const candidates = turns.slice(-2);
+  for (let index = candidates.length - 1; index >= 0; index--) {
+    const turn = candidates[index];
     if (turn.index === undefined) continue;
-    const end = turns[index + 1]?.index ?? captureOutput.length;
+    const end = candidates[index + 1]?.index ?? captureOutput.length;
     if (codexTurnEvidence(captureOutput.slice(turn.index, end))) {
       return captureOutput.slice(turn.index);
     }
   }
-  return captureOutput;
+  // With only the composer on screen the task row scrolled out, so the whole capture is the current turn.
+  return candidates.length === 2 && candidates[0].index !== undefined
+    ? captureOutput.slice(candidates[0].index)
+    : captureOutput;
 }
 
 function hasNewUserTurn(beforeOutput: string, captureOutput: string): boolean {
