@@ -268,6 +268,8 @@ tmux capture-pane -t "$session_id" -p  # 不 attach，直接 dump pane 内容
 
 常见情况：
 
+- **Claude Code 尚未信任项目目录。** 在项目目录手动运行一次 `claude`，选择 **Yes, I trust this folder** 后重新 launch；ahelpa 不会自动接受 Claude 的工作目录信任对话框。
+- **Claude pane 裁剪了信任对话框标签。** 不支持窄到将标签裁剪而非换行的 pane；启动或恢复前请加宽 pane。
 - **Kimi 显示月相或 `Retrying`。** 循环月相和 provider backoff 倒计时都表示仍在工作，即使 boxed input 仍然可见。继续 `wait`；120 秒 provider 重试不是本地 CLI 或 tmux 故障。
 - **Helper 看起来卡住。** Attach 到 tmux session 看完整屏幕。可能出现了 driver 没自动处理的 prompt 或确认框。手动处理后，暗号协议仍然有效。
 - **`wait` 返回但没有 summary.md。** Helper 可能完成了但没写结果。用 `capture` 或 `logs` 看发生了什么。

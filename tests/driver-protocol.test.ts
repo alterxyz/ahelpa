@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { getDriver } from "../src/drivers/registry";
 import type { DriverRuntime } from "../src/drivers/types";
 
@@ -42,6 +43,174 @@ function probeRuntime(outputs: string[]): ProbeRuntime {
     },
   };
 }
+
+// Source-derived layouts from the adversarial review of Claude 2.1.291;
+// these are synthetic screens, not recordings of a live helper.
+const claudeTrustFixtures: Record<string, string> = JSON.parse(
+  readFileSync(new URL("./fixtures/claude-trust.json", import.meta.url), "utf8"),
+);
+
+describe("claude-code adversarial readiness and turn isolation", () => {
+  describe.each([
+    "backstop-no-selected",
+    "backstop-yes-selected",
+    "option-wrap-24-no-selected",
+    "option-wrap-24-yes-selected",
+  ])("live trust fixture %s", (name) => {
+    test.each(["prepareForTask", "prepareForResume"] as const)("%s rejects the consent dialog without sending input", async (prepare) => {
+      const runtime = probeRuntime([claudeTrustFixtures[name]]);
+      await expect(getDriver("claude-code")[prepare]("claude-test", runtime)).rejects.toThrow("has not trusted");
+      expect(runtime.captures).toHaveLength(1);
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+    });
+  });
+
+  test("indented post-option chevron does not establish a normal composer", async () => {
+    const screen = "Accessing workspace:\n/tmp/project\n ❯ No, exit\n   Yes, I trust this folder\n Enter to confirm\n  ❯ example";
+    const runtime = probeRuntime([screen]);
+    await expect(getDriver("claude-code").prepareForResume("claude-test", runtime)).rejects.toThrow("has not trusted");
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.keys).toEqual([]);
+  });
+
+  test("a single Yes trust option blocks readiness when there is no later real composer", async () => {
+    // Fail closed even if the overlapping label belongs to another menu.
+    const screen = "Select a phrase\n  ❯ Yes, I trust this folder\n Enter to confirm";
+    const runtime = probeRuntime([screen]);
+    const driver = getDriver("claude-code");
+    await expect(driver.prepareForResume("claude-test", runtime)).rejects.toThrow("has not trusted");
+    expect(driver.detectActivity(screen)).toBe("booting");
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.keys).toEqual([]);
+  });
+
+  test.each([
+    "Yes, I trust this folder",
+    "Accessing workspace:",
+    "Quick safety check:",
+    "Do you trust the files in this folder?",
+    "Do you trust the contents of this directory?",
+  ])("trust fragment '%s' survives character wrapping and only a later composer clears it", async (fragment) => {
+    const wrapped = [...fragment].join("\n\u00a0");
+    const driver = getDriver("claude-code");
+    for (const prepare of ["prepareForTask", "prepareForResume"] as const) {
+      const blocked = probeRuntime([`${wrapped}\n  ❯ 1. Example choice`]);
+      await expect(driver[prepare]("claude-test", blocked)).rejects.toThrow("has not trusted");
+      expect(blocked.sent).toEqual([]);
+      expect(blocked.keys).toEqual([]);
+      const ready = probeRuntime([`${wrapped}\n❯\u00a0\n  bypass permissions on`]);
+      await driver[prepare]("claude-test", ready);
+      expect(ready.captures).toHaveLength(1);
+      expect(ready.sent).toEqual([]);
+      expect(ready.keys).toEqual([]);
+    }
+  });
+
+  test("column-0 trust choices after the last fragment cannot clear a live dialog", async () => {
+    const driver = getDriver("claude-code");
+    for (const choice of [
+      "❯ No, exit",
+      "❯\u00a0No, continue without these permissions",
+      "❯ 2. No, exit",
+      "❯ N\n  o, exit",
+      "❯ Y\n  es, proceed",
+    ]) {
+      const runtime = probeRuntime([`Accessing workspace:\n  Yes, I trust this folder\n${choice}\nEnter to confirm`]);
+      await expect(driver.prepareForResume("claude-test", runtime)).rejects.toThrow("has not trusted");
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+    }
+  });
+
+  test("a composer before the last dialog fragment does not clear the later consent prompt", async () => {
+    const screen = "Accessing workspace:\n❯ Try asking about this codebase\nQuick safety check: Is this a project you created or one you trust?\n ❯ No, exit";
+    await expect(getDriver("claude-code").prepareForResume("claude-test", probeRuntime([screen])))
+      .rejects.toThrow("has not trusted");
+  });
+
+  test.each(["[AHELPA:DONE]", "[AHELPA:NEED_HELP:review]"])("NBSP composer excludes old %s from an unanswered turn and submission confirmation", async (old) => {
+    const driver = getDriver("claude-code");
+    for (const composer of ["❯\u00a0", "❯\u00a0Try asking about this codebase"]) {
+      for (const reply of ["", "我会读取本轮任务"]) {
+        const screen = [
+          "❯ Old task",
+          `⏺ ${old}`,
+          "❯ New task",
+          reply,
+          composer,
+          "  bypass permissions on",
+        ].join("\n");
+        expect(driver.detectOutcome(screen)).toEqual({ status: "running", needHelpTags: null });
+        const runtime = probeRuntime([screen]);
+        expect(await driver.afterTaskSubmitted("claude-test", runtime)).toBe(false);
+        expect(runtime.captures).toHaveLength(10);
+        expect(runtime.sent).toEqual([]);
+        expect(runtime.keys).toEqual([]);
+      }
+    }
+  });
+
+  test.each(["prepareForTask", "prepareForResume"] as const)("%s rejects a line-wrapped safety dialog regardless of cursor selection", async (prepare) => {
+    const driver = getDriver("claude-code");
+    for (const screen of [
+      claudeTrustFixtures["narrow-52-no-selected"],
+      claudeTrustFixtures["narrow-52-yes-selected"],
+      claudeTrustFixtures["narrow-52-no-selected"].replace("❯ No, exit", "  No, exit"),
+      "  No, exit\n  Yes, I trust this folder\nEnter to confirm · Esc to cancel",
+    ]) {
+      const runtime = probeRuntime([screen]);
+      await expect(driver[prepare]("claude-test", runtime)).rejects.toThrow(
+        "Claude Code has not trusted the project directory; run `claude` there once and choose 'Yes, I trust this folder', then relaunch",
+      );
+      expect(runtime.captures).toHaveLength(1);
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+      expect(driver.detectActivity(screen)).toBe("booting");
+    }
+  });
+
+  test.each(["quickSafetyCheck.ts", "accessingWorkspace.ts", "yesItrustthisfolder.md"])(
+    "the default placeholder quoting a repo file such as %s is an ordinary composer",
+    async (file) => {
+      const driver = getDriver("claude-code");
+      const screen = `Claude Code v2.1.291\nOpus | 0 tokens\n❯ Try "how does ${file} work?"\n  bypass permissions on (shift+tab to cycle)`;
+      for (const prepare of ["prepareForTask", "prepareForResume"] as const) {
+        const runtime = probeRuntime([screen]);
+        await driver[prepare]("claude-test", runtime);
+        expect(runtime.sent).toEqual([]);
+      }
+    },
+  );
+
+  test("resume accepts a trusted screen discussing the dialog text or showing old menu scrollback", async () => {
+    const driver = getDriver("claude-code");
+    const quoted = [
+      "❯ Explain the safety dialog",
+      "⏺ It says:",
+      "  Quick safety check: Is this a project you created or one you trust?",
+      "  No, exit",
+      "  Yes, I trust this folder",
+      "❯\u00a0",
+      "  bypass permissions on",
+    ].join("\n");
+    const legacy = "Do you trust the files in this folder?\n❯ 1. Yes, proceed\n  2. No, exit\n❯ Try asking about this codebase";
+    for (const screen of [
+      quoted,
+      legacy,
+      claudeTrustFixtures["normal-reply-quoting-dialog"],
+      claudeTrustFixtures["trusted-scrollback"],
+    ]) {
+      for (const prepare of ["prepareForTask", "prepareForResume"] as const) {
+        const runtime = probeRuntime([screen]);
+        await driver[prepare]("claude-test", runtime);
+        expect(runtime.captures).toHaveLength(1);
+        expect(runtime.sent).toEqual([]);
+        expect(runtime.keys).toEqual([]);
+      }
+    }
+  });
+});
 
 describe("driver launch protocol", () => {
   test("codex nudges directory trust prompt before task submission", async () => {
@@ -223,11 +392,36 @@ describe("driver launch protocol", () => {
     ]);
 
     await expect(driver.prepareForTask("claude-test", runtime)).rejects.toThrow(
-      "did not reach its input prompt",
+      "Claude Code has not trusted the project directory",
     );
 
     expect(runtime.sent).toEqual([]);
-    expect(runtime.captures).toHaveLength(15);
+    expect(runtime.keys).toEqual([]);
+    expect(runtime.captures).toHaveLength(1);
+  });
+
+  test.each(["prepareForTask", "prepareForResume"] as const)("claude-code %s fails fast without typing into the workspace safety dialog", async (prepare) => {
+    const dialog = [
+      "  Accessing workspace:",
+      "  /tmp/project with spaces",
+      "  Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or",
+      "  work from your team). If not, take a moment to review what's in this folder first.",
+      "  Claude Code'll be able to read, edit, and execute files here.",
+      "  Security guide",
+      "  ❯ No, exit",
+      "    Yes, I trust this folder",
+      "  Enter to confirm · Esc to cancel",
+    ].join("\n");
+    const driver = getDriver("claude-code");
+    const runtime = probeRuntime([dialog]);
+
+    await expect(driver[prepare]("claude-test", runtime)).rejects.toThrow(
+      "Claude Code has not trusted the project directory; run `claude` there once and choose 'Yes, I trust this folder', then relaunch",
+    );
+    expect(runtime.captures).toHaveLength(1);
+    expect(runtime.sent).toEqual([]);
+    expect(runtime.keys).toEqual([]);
+    expect(driver.detectActivity(dialog)).toBe("booting");
   });
 
   test("claude-code nudges when the submitted task remains queued", async () => {
@@ -481,6 +675,35 @@ describe("detectActivity", () => {
 });
 
 describe("resumed turn status", () => {
+  test.each(["[AHELPA:DONE]", "[AHELPA:NEED_HELP:review]"])("claude-code never reuses an older %s while the new task has no recognized evidence", (sentinel) => {
+    const driver = getDriver("claude-code");
+    for (const reply of ["", "╭─ Pending response ─╮\n╰────────────────────╯", "我会读取本轮任务"]) {
+      for (const composer of ["❯ Try asking about this codebase", "❯"]) {
+        const screen = [
+          "❯ Previous review task",
+          `⏺ ${sentinel}`,
+          "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-x.md. Use /p/.ahelpa/x as your",
+          "  result directory. Tags: see the end of the task file.",
+          reply,
+          composer,
+        ].join("\n");
+        expect(driver.detectStatus(screen)).toBe("running");
+        expect(driver.detectOutcome(screen)).toEqual({ status: "running", needHelpTags: null });
+      }
+    }
+  });
+
+  test.each(["❯ Try asking about this codebase", "❯"])("claude-code settles on DONE when only the composer %s is on screen", (composer) => {
+    expect(getDriver("claude-code").detectStatus(`⏺ Wrote the review.\n  [AHELPA:DONE]\n${composer}`)).toBe("idle");
+  });
+
+  test.each([
+    "❯ Complete the review\n⏺ Completed it.\n  [AHELPA:DONE]\n  ❯ transcript example A\n  ❯ transcript example B\n❯ Try asking about this codebase",
+    "❯ Complete the review\n⏺ Completed it.\n  [AHELPA:DONE]\n❯ Draft transcript for later\n  ❯ example A\n  ❯ example B",
+  ])("claude-code ignores indented literal chevrons when finding the current turn", (screen) => {
+    expect(getDriver("claude-code").detectStatus(screen)).toBe("idle");
+  });
+
   test("claude-code ignores a DONE sentinel from an earlier turn", () => {
     const driver = getDriver("claude-code");
     expect(driver.detectStatus(

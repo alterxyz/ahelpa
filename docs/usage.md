@@ -269,6 +269,8 @@ tmux capture-pane -t "$session_id" -p  # dump pane content without attaching
 
 Common situations:
 
+- **Claude Code has not trusted the project directory.** Run `claude` once in the project directory, choose **Yes, I trust this folder**, then relaunch; ahelpa never accepts Claude's workspace trust dialog automatically.
+- **Claude pane crops trust-dialog labels.** Panes so narrow that labels are cropped instead of wrapped are unsupported; widen the pane before launching or resuming.
 - **Kimi shows a moon or `Retrying`.** The cycling moon and provider backoff countdown are active work signals, even though Kimi keeps its boxed input visible. Re-run `wait`; a 120-second provider retry is not a local CLI or tmux failure.
 - **Helper seems stuck.** Attach to the tmux session to see the full screen. A prompt or confirmation dialog may have appeared that the driver didn't auto-handle. Manually dismiss it — the sentinel protocol still works afterward.
 - **`wait` returned but no summary.md.** The helper may have completed without writing results. Check `capture` or `logs` to see what happened.

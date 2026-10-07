@@ -16,12 +16,36 @@ function claudeIsWorking(captureOutput: string): boolean {
 }
 
 function claudeNeedsFolderTrust(captureOutput: string): boolean {
-  return /Do you trust (?:the files in this folder|the contents of this directory)\?/i
-    .test(captureOutput);
+  // Both words and individual characters can wrap. Any stable fragment is
+  // enough to block: typing into a live consent dialog is worse than an error.
+  // Case and colons are part of the fragments: the default composer placeholder
+  // quotes repo file names such as quickSafetyCheck.ts.
+  const normalized = captureOutput.replace(/\s/gu, "");
+  const fragments = [...normalized.matchAll(/Yes,Itrustthisfolder|Accessingworkspace:|Quicksafetycheck:|Doyoutrustthefilesinthisfolder\?|Doyoutrustthecontentsofthisdirectory\?/gu)];
+  const lastFragment = fragments.at(-1);
+  if (!lastFragment) return false;
+  const dialogEnd = lastFragment.index! + lastFragment[0].length;
+  // Only a column-0 composer after the LAST fragment establishes that the
+  // dialog is now scrollback. Its own selected option is not a composer.
+  return !userTurnMatches(captureOutput).some((prompt) =>
+    captureOutput.slice(0, prompt.index).replace(/\s/gu, "").length >= dialogEnd
+    && !claudeIsTrustOption(prompt[0]),
+  );
+}
+
+function claudeIsTrustOption(prompt: string): boolean {
+  const label = prompt.replace(/\s/gu, "").replace(/^❯(?:\d+\.)?/, "").toLowerCase();
+  // A wrapped option may expose only the beginning of its label on this row.
+  // Keep such ambiguous rows blocked, while an empty composer remains valid.
+  return label.length > 0 && (/^(?:yes|no),/.test(label)
+    || ["yes,itrustthisfolder", "yes,proceed", "no,exit", "no,continuewithoutthesepermissions"]
+      .some((option) => option.startsWith(label)));
 }
 
 function userTurnMatches(captureOutput: string) {
-  return [...captureOutput.matchAll(/^\s*❯\s+\S.*$/gmu)];
+  // User turns and the composer start at column 0; continuation rows are
+  // indented. Include the empty composer, but not literal ❯ in continuations.
+  return [...captureOutput.matchAll(/^❯(?:[^\S\r\n]+.*)?$/gmu)];
 }
 
 function claudeTurnEvidence(segment: string): "working" | "idle" | "error" | null {
@@ -46,16 +70,22 @@ function evidencedUserTurns(captureOutput: string): string[] {
 
 function currentTurnOutput(captureOutput: string): string {
   const turns = userTurnMatches(captureOutput);
-  for (let index = turns.length - 1; index >= 0; index--) {
-    const turn = turns[index];
+  // Step back over the idle composer at most once. A new task without evidence
+  // must never inherit an older turn's DONE or NEED_HELP.
+  const candidates = turns.slice(-2);
+  for (let index = candidates.length - 1; index >= 0; index--) {
+    const turn = candidates[index];
     if (turn.index === undefined) continue;
-    const end = turns[index + 1]?.index ?? captureOutput.length;
+    const end = candidates[index + 1]?.index ?? captureOutput.length;
     const segment = captureOutput.slice(turn.index, end);
     if (claudeTurnEvidence(segment)) {
       return captureOutput.slice(turn.index);
     }
   }
-  return captureOutput;
+  // If only the composer is visible, the task row has scrolled off screen.
+  return candidates.length === 2 && candidates[0].index !== undefined
+    ? captureOutput.slice(candidates[0].index)
+    : captureOutput;
 }
 
 function claudeHasInputPrompt(captureOutput: string): boolean {
@@ -77,6 +107,9 @@ async function waitForInput(sessionId: string, runtime: DriverRuntime): Promise<
   for (let attempt = 0; attempt < 15; attempt++) {
     await runtime.sleep(1000);
     const recentOutput = await runtime.capture(sessionId, 30);
+    if (claudeNeedsFolderTrust(recentOutput)) {
+      throw new Error("Claude Code has not trusted the project directory; run `claude` there once and choose 'Yes, I trust this folder', then relaunch");
+    }
     if (claudeHasInputPrompt(recentOutput)) {
       return;
     }
