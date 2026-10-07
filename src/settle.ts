@@ -11,11 +11,12 @@ export async function settle(
   status: SessionStatus,
   archived: ArchivedSession,
   expectedStatus?: SessionStatus,
+  expectedVersion?: number,
 ): Promise<boolean> {
   let settled = false;
   db.transaction(() => {
     if (expectedStatus !== undefined) {
-      if (!db.compareAndSetStatus(sessionId, expectedStatus, status)) return;
+      if (!db.compareAndSetStatus(sessionId, expectedStatus, status, expectedVersion)) return;
     } else {
       db.updateStatus(sessionId, status);
     }

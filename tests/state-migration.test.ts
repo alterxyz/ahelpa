@@ -99,13 +99,13 @@ describe("state schema migrations", () => {
     try {
       expect(db.listSessions()).toHaveLength(workers + (kind === "legacy" ? 1 : 0));
       for (let index = 0; index < workers; index++) {
-        expect(db.getSession(`worker-${index}`)).toMatchObject({ role: "worker", model: "test-model", effort: "high", safe: true, depth: 1 });
+        expect(db.getSession(`worker-${index}`)).toMatchObject({ role: "worker", model: "test-model", effort: "high", safe: true, depth: 1, version: 0 });
       }
       if (kind === "legacy") {
         expect(db.getSession("legacy")).toMatchObject({
           task: "synthetic saved task", status: "idle", ownerToken: "test-token", projectPath: root,
           createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z", label: "saved label",
-          depth: 1, agentResumeId: null, resumedFrom: null, role: null, model: null, effort: null, safe: false,
+          depth: 1, agentResumeId: null, resumedFrom: null, role: null, model: null, effort: null, safe: false, version: 0,
         });
       }
     } finally {
@@ -130,6 +130,36 @@ describe("state schema migrations", () => {
       expect(migrated.getSession("saved")?.role).toBeNull();
     } finally {
       migrated.close();
+    }
+  });
+
+  test("adding a version preserves existing records and reopening preserves subsequent increments", () => {
+    const previous = new StateDB(dbPath);
+    previous.createSession({ id: "saved", parentId: "p", agentType: "codex", task: "original task", ownerToken: "tok", projectPath: root,
+      role: "worker", model: "saved-model", effort: "low", safe: true });
+    previous.updateStatus("saved", "error");
+    const original = previous.getSession("saved")!;
+    previous.close();
+    const legacy = new Database(dbPath);
+    legacy.exec("ALTER TABLE sessions DROP COLUMN version");
+    legacy.close();
+
+    const migrated = new StateDB(dbPath);
+    try {
+      expect(migrated.getSession("saved")).toEqual({ ...original, version: 0 });
+      expect(migrated.compareAndSetStatus("saved", "error", "running", 0)).toBe(true);
+      expect(migrated.getSession("saved")?.version).toBe(1);
+    } finally {
+      migrated.close();
+    }
+    const reopened = new StateDB(dbPath);
+    try {
+      expect(reopened.getSession("saved")?.version).toBe(1);
+      expect(reopened.compareAndSetStatus("saved", "running", "error", 0)).toBe(false);
+      expect(reopened.compareAndSetStatus("saved", "running", "error", 1)).toBe(true);
+      expect(reopened.getSession("saved")?.version).toBe(2);
+    } finally {
+      reopened.close();
     }
   });
 

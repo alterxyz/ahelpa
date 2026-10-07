@@ -13,6 +13,7 @@ export interface SessionRecord {
   projectPath: string;
   createdAt: string;
   updatedAt: string;
+  version: number;
   label?: string | null;
   depth: number;
   agentResumeId?: string | null;
@@ -49,6 +50,7 @@ interface SessionRow {
   project_path: string;
   created_at: string;
   updated_at: string;
+  version: number;
   label: string | null;
   depth: number;
   agent_resume_id: string | null;
@@ -70,6 +72,7 @@ function rowToRecord(row: SessionRow): SessionRecord {
     projectPath: row.project_path,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    version: row.version,
     label: row.label,
     depth: row.depth,
     agentResumeId: row.agent_resume_id,
@@ -158,6 +161,10 @@ export class StateDB {
         if (!columns.some((column) => column.name === "role")) {
           this.db.exec("ALTER TABLE sessions ADD COLUMN role TEXT");
         }
+        // Keep the CAS version separate from timestamps used for drain timing.
+        if (!columns.some((column) => column.name === "version")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
+        }
       }).immediate();
     } catch (error) {
       try { this.db.close(); } catch {}
@@ -199,21 +206,25 @@ export class StateDB {
 
   updateStatus(id: string, status: SessionStatus): void {
     const now = new Date().toISOString();
-    this.db.prepare("UPDATE sessions SET status = ?, updated_at = ? WHERE id = ?").run(status, now, id);
+    this.db.prepare("UPDATE sessions SET status = ?, updated_at = ?, version = version + 1 WHERE id = ?")
+      .run(status, now, id);
   }
 
-  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus): boolean {
-    return this.db.prepare("UPDATE sessions SET status = ?, updated_at = ? WHERE id = ? AND status = ?")
-      .run(status, new Date().toISOString(), id, expected).changes > 0;
+  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus, expectedVersion?: number): boolean {
+    // Increment under SQLite's write lock: processes must not read/increment/write in JS.
+    return this.db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, version = version + 1
+      WHERE id = ? AND status = ? AND (? IS NULL OR version = ?)`)
+      .run(status, new Date().toISOString(), id, expected, expectedVersion ?? null, expectedVersion ?? null).changes > 0;
   }
 
   updateResumeId(id: string, agentResumeId: string): void {
     const now = new Date().toISOString();
-    this.db.prepare("UPDATE sessions SET agent_resume_id = ?, updated_at = ? WHERE id = ?").run(agentResumeId, now, id);
+    this.db.prepare("UPDATE sessions SET agent_resume_id = ?, updated_at = ?, version = version + 1 WHERE id = ?")
+      .run(agentResumeId, now, id);
   }
 
   updateModel(id: string, model: string, effort: string | null): void {
-    this.db.prepare("UPDATE sessions SET model = ?, effort = ?, updated_at = ? WHERE id = ?")
+    this.db.prepare("UPDATE sessions SET model = ?, effort = ?, updated_at = ?, version = version + 1 WHERE id = ?")
       .run(model, effort, new Date().toISOString(), id);
   }
 

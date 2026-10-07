@@ -52,10 +52,12 @@ function log(message: string): void {
 
 async function finishMissingSession(db: StateDB, archive: Archive, session: SessionRecord): Promise<void> {
   if (session.status === SESSION_STATUS.Running || session.status === SESSION_STATUS.NeedsAttention) {
-    await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.Dead, {
+    const settled = await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.Dead, {
       status: SESSION_STATUS.Dead,
       reason: "tmux session gone",
-    }, session.status);
+    }, session.status, session.version);
+    // A stale liveness result must also leave the new turn's runtime files intact.
+    if (!settled) return;
   } else if (session.status === SESSION_STATUS.Draining) {
     // Draining is cleanup after successful settlement, not a new result.
     db.compareAndSetStatus(session.id, SESSION_STATUS.Draining, SESSION_STATUS.Idle);
@@ -127,7 +129,7 @@ export async function refreshSessionStatuses(
         const settled = await settle(db, archive, defaultWakeup, session.id, newStatus, {
           status: newStatus,
           lastOutput: output.slice(-500),
-        }, SESSION_STATUS.Running);
+        }, SESSION_STATUS.Running, session.version);
         if (!settled) continue;
         if (newStatus === SESSION_STATUS.Error && outcome.needHelpTags !== null) {
           try {
@@ -169,7 +171,7 @@ export async function refreshSessionStatuses(
           const settled = await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
             status: SESSION_STATUS.NeedsAttention,
             lastOutput: output.slice(-500),
-          }, SESSION_STATUS.Running);
+          }, SESSION_STATUS.Running, session.version);
           if (settled) log(`${session.id}: needs attention (idle ${count} polls)`);
         }
       }

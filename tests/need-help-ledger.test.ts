@@ -77,11 +77,19 @@ describe("need-help ledger refresh", () => {
   test("ledger metadata reflects a completed model switch during capture", async () => {
     createSession();
     db.updateModel("ledger-session", "before-switch", "low");
-    spyOn(Tmux, "capture").mockImplementation(async () => {
+    const output = "› Current task\n[AHELPA:NEED_HELP:input]";
+    spyOn(Tmux, "capture").mockResolvedValue(output).mockImplementationOnce(async () => {
       db.updateModel("ledger-session", "after-switch", "high");
-      return "› Current task\n[AHELPA:NEED_HELP:input]";
+      return output;
     });
 
+    await refreshSessionStatuses(db);
+
+    // A changed row invalidates the observed version; the next poll captures
+    // against the new version and indexes the completed model switch.
+    expect(db.getSession("ledger-session")?.status).toBe("running");
+    expect(ledgerLines()).toEqual([]);
+    expect(defaultWakeup.notify).not.toHaveBeenCalled();
     await refreshSessionStatuses(db);
 
     expect(db.getSession("ledger-session")).toMatchObject({ status: "error", model: "after-switch", effort: "high" });
