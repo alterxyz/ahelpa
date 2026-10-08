@@ -1,7 +1,8 @@
 import { describe, test, expect, afterEach, spyOn, mock } from "bun:test";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
-import { executeLaunch, launch, planLaunch, resume } from "../src/commands/launch";
+import { createWorktree, executeLaunch, launch, planLaunch, removeWorktree, resume, tempPointerWarning, worktreePathFor } from "../src/commands/launch";
+import { $ } from "bun";
 import { FIFO } from "../src/fifo";
 import * as daemon from "../src/daemon";
 import { unlinkSync, existsSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -210,6 +211,113 @@ describe("launch", () => {
     expect(plan.input.task).toBe("plan only");
     expect(existsSync(`${TEST_PROJECT}/.ahelpa`)).toBe(false);
     expect(db.listSessions()).toHaveLength(0);
+  });
+
+  test("short tasks pointing at temp files get a traceability warning; long tasks do not", () => {
+    expect(tempPointerWarning("请完整读取 /private/tmp/review-task.md 并执行")).toMatch(/--file/);
+    expect(tempPointerWarning("read /tmp/x.md")).toMatch(/--file/);
+    expect(tempPointerWarning(`see ${process.env.HOME}/scratchpad/task.md`)).toMatch(/--file/);
+    expect(tempPointerWarning("Refactor the auth module and add tests")).toBeUndefined();
+    expect(tempPointerWarning("Fix cleanup of /tmp/out.log", true)).toBeUndefined();
+    expect(tempPointerWarning(`${"x".repeat(700)} output goes to /tmp/out.log`)).toBeUndefined();
+  });
+
+  test("planLaunch with --worktree targets a sibling worktree and records the source", () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+
+    const plan = planLaunch({
+      db, agentType: "codex", task: "isolated", projectPath: TEST_PROJECT, parentId: "test-parent", worktree: true,
+    });
+
+    expect(plan.worktreeSource).toBe(TEST_PROJECT);
+    expect(plan.input.projectPath).toBe(worktreePathFor(TEST_PROJECT, plan.sessionId));
+    expect(plan.input.projectPath).toBe(`/tmp/ahelpa-launch-test-project-worktrees/${plan.sessionId}`);
+    expect(plan.fileHandoff.sessionDeliveryDir).toStartWith(plan.input.projectPath);
+    expect(plan.launchCmd).toContain(shellEscape(plan.input.projectPath));
+  });
+
+  test("planLaunch with --after links the previous hand and rejects an unknown one", () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "codex-prev", parentId: "p", agentType: "codex", task: "first", ownerToken: "tok", projectPath: TEST_PROJECT });
+
+    const plan = planLaunch({
+      db, agentType: "codex", task: "second", projectPath: TEST_PROJECT, parentId: "test-parent", after: "codex-prev", check: "bun test",
+    });
+    expect(plan.handoffContext).toEqual({
+      role: "worker",
+      check: "bun test",
+      previous: {
+        sessionId: "codex-prev",
+        taskCopyPath: `${TEST_PROJECT}/.ahelpa/codex-prev/task.md`,
+        summaryPath: `${TEST_PROJECT}/.ahelpa/codex-prev/summary.md`,
+        artifactsDir: `${TEST_PROJECT}/.ahelpa/codex-prev/artifacts`,
+      },
+    });
+
+    expect(() => planLaunch({
+      db, agentType: "codex", task: "second", projectPath: TEST_PROJECT, parentId: "test-parent", after: "codex-nope",
+    })).toThrow("--after session not found: codex-nope");
+
+    db.createSession({ id: "codex-legacy", parentId: "p", agentType: "codex", task: "old", ownerToken: "tok", projectPath: "." });
+    expect(() => planLaunch({
+      db, agentType: "codex", task: "second", projectPath: TEST_PROJECT, parentId: "test-parent", after: "codex-legacy",
+    })).toThrow("stores a relative project path");
+  });
+
+  test("a worktree created for a launch is reclaimed when tmux creation fails", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    await $`git -C ${TEST_PROJECT} init -q`.quiet();
+    await $`git -C ${TEST_PROJECT} -c user.email=t@t -c user.name=t commit -q --allow-empty -m init`.quiet();
+    db = new StateDB(TEST_DB);
+    const plan = planLaunch({ db, agentType: "kimi", task: "isolated", projectPath: TEST_PROJECT, parentId: "test-parent", worktree: true });
+    spyOn(Tmux, "create").mockRejectedValue(new Error("tmux create failed"));
+
+    try {
+      await expect(executeLaunch(plan)).rejects.toThrow("tmux create failed");
+      expect(existsSync(plan.input.projectPath)).toBe(false);
+      expect((await $`git -C ${TEST_PROJECT} branch --list ${`ahelpa/${plan.sessionId}`}`.text()).trim()).toBe("");
+      expect(await $`git -C ${TEST_PROJECT} worktree list`.text()).not.toContain(plan.sessionId);
+    } finally {
+      rmSync(`${TEST_PROJECT}-worktrees`, { recursive: true, force: true });
+    }
+  });
+
+  test("a worktree whose checkout hook fails leaves no directory, registration, or branch behind", async () => {
+    mkdirSync(`${TEST_PROJECT}/.git-hooks`, { recursive: true });
+    await $`git -C ${TEST_PROJECT} init -q`.quiet();
+    await $`git -C ${TEST_PROJECT} -c user.email=t@t -c user.name=t commit -q --allow-empty -m init`.quiet();
+    writeFileSync(`${TEST_PROJECT}/.git/hooks/post-checkout`, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const path = worktreePathFor(TEST_PROJECT, "codex-hook");
+
+    try {
+      await expect(createWorktree(TEST_PROJECT, path, "codex-hook")).rejects.toThrow("git worktree add failed");
+      expect(existsSync(path)).toBe(false);
+      expect((await $`git -C ${TEST_PROJECT} branch --list ahelpa/codex-hook`.text()).trim()).toBe("");
+      expect(await $`git -C ${TEST_PROJECT} worktree list`.text()).not.toContain("codex-hook");
+    } finally {
+      rmSync(`${TEST_PROJECT}-worktrees`, { recursive: true, force: true });
+    }
+  });
+
+  test("createWorktree adds a branch-backed sibling worktree and removeWorktree reclaims it", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    await $`git -C ${TEST_PROJECT} init -q`.quiet();
+    await $`git -C ${TEST_PROJECT} -c user.email=t@t -c user.name=t commit -q --allow-empty -m init`.quiet();
+    const path = worktreePathFor(TEST_PROJECT, "codex-wt1");
+    try {
+      await createWorktree(TEST_PROJECT, path, "codex-wt1");
+      expect(existsSync(`${path}/.git`)).toBe(true);
+      expect((await $`git -C ${path} branch --show-current`.text()).trim()).toBe("ahelpa/codex-wt1");
+      await expect(createWorktree(TEST_PROJECT, path, "codex-wt1")).rejects.toThrow("Worktree path already exists");
+    } finally {
+      await removeWorktree(TEST_PROJECT, path, "codex-wt1");
+      rmSync(`${TEST_PROJECT}-worktrees`, { recursive: true, force: true });
+    }
+    expect(existsSync(path)).toBe(false);
+    expect((await $`git -C ${TEST_PROJECT} branch --list ahelpa/codex-wt1`.text()).trim()).toBe("");
+    await expect(createWorktree("/tmp", "/tmp/ahelpa-never", "x")).rejects.toThrow("--worktree requires a git repository");
   });
 
   test("planLaunch safe mode omits danger flags", () => {

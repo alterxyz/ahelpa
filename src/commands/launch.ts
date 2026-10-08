@@ -5,10 +5,11 @@ import { getDriver } from "../drivers/registry";
 import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
 import { getPendingLaunchNestingInfo, getMaxNestingDepth } from "../nesting";
-import { mkdirSync, existsSync, rmSync, unlinkSync, statSync } from "fs";
-import { isAbsolute, resolve } from "path";
+import { $ } from "bun";
+import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync } from "fs";
+import { basename, dirname, isAbsolute, join, resolve } from "path";
 import { defaultRuntimeLayout } from "../runtime-layout";
-import { isTaskInstructionEcho, planFileHandoff, prepareFileHandoff, type FileHandoffPlan } from "../file-handoff";
+import { isTaskInstructionEcho, planFileHandoff, prepareFileHandoff, type FileHandoffPlan, type HandoffContext } from "../file-handoff";
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
@@ -25,12 +26,21 @@ export interface LaunchInput {
   model?: string;
   effort?: string;
   role?: HelperRole;
+  // Acceptance command rerun by `wait` on the helper's final state.
+  check?: string;
+  // Session this hand follows; its task and summary paths go into the task file.
+  after?: string;
+  // Run in a fresh git worktree beside the project so one worktree has one writer.
+  worktree?: boolean;
+  // The task text came from --file, so a temp path inside it is content, not a pointer.
+  taskFromFile?: boolean;
 }
 
 export interface LaunchResult {
   sessionId: string;
   ownerToken: string;
   tmuxSession: string;
+  projectPath: string;
   role?: HelperRole;
   model?: string;
   effort?: string;
@@ -38,6 +48,8 @@ export interface LaunchResult {
   // confirm it started a new turn. The session is kept alive as
   // needs_attention instead of being killed.
   warning?: string;
+  // The task text looks like a pointer to a temp file that will not survive.
+  taskWarning?: string;
 }
 
 export interface LaunchPlan {
@@ -49,7 +61,34 @@ export interface LaunchPlan {
   tmpDir: string;
   launchCmd: string;
   fileHandoff: FileHandoffPlan;
+  handoffContext: HandoffContext;
+  // Set when --worktree asked for a new worktree of this repository.
+  worktreeSource?: string;
   input: LaunchInput;
+}
+
+const TEMP_POINTER = /(^|[\s"'`(])(\/private)?\/tmp\/|scratchpad\//;
+
+export function tempPointerWarning(task: string, taskFromFile = false): string | undefined {
+  // ponytail: short --task + temp path = "go read that file"; --file content and long tasks that mention /tmp are fine.
+  if (!taskFromFile && task.length < 600 && TEMP_POINTER.test(task)) {
+    return "task points at a temp file that may not survive the session; pass the content with --file so the ask stays traceable";
+  }
+  return undefined;
+}
+
+export function worktreePathFor(projectPath: string, sessionId: string): string {
+  return join(dirname(projectPath), `${basename(projectPath)}-worktrees`, sessionId);
+}
+
+function previousHandContext(db: StateDB, afterId: string): NonNullable<HandoffContext["previous"]> {
+  const previous = db.getSession(afterId);
+  if (!previous) throw new Error(`--after session not found: ${afterId}`);
+  if (!isAbsolute(previous.projectPath)) {
+    throw new Error(`--after session ${afterId} stores a relative project path; its result files cannot be located from another directory`);
+  }
+  const plan = planFileHandoff(previous.projectPath, previous.id);
+  return { sessionId: previous.id, taskCopyPath: plan.taskCopyPath, summaryPath: plan.summaryPath, artifactsDir: plan.artifactsDir };
 }
 
 function generateAvailableSessionId(db: StateDB, prefix: string): string {
@@ -100,6 +139,16 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
   const maxDepth = getMaxNestingDepth();
   const nesting = getPendingLaunchNestingInfo(input.db, input.parentId);
+  const handoffContext: HandoffContext = {
+    role: input.role,
+    check: input.check,
+    previous: input.after ? previousHandContext(input.db, input.after) : null,
+  };
+  let worktreeSource: string | undefined;
+  if (input.worktree) {
+    worktreeSource = input.projectPath;
+    input = { ...input, projectPath: worktreePathFor(input.projectPath, sessionId) };
+  }
 
   if (nesting.depth > maxDepth) {
     const chain = nesting.lineage.join(" -> ");
@@ -128,8 +177,35 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     tmpDir: defaultRuntimeLayout.tmpDir,
     launchCmd,
     fileHandoff,
+    handoffContext,
+    worktreeSource,
     input,
   };
+}
+
+export async function createWorktree(source: string, path: string, sessionId: string): Promise<void> {
+  const inRepo = await $`git -C ${source} rev-parse --is-inside-work-tree`.quiet().nothrow();
+  if (inRepo.exitCode !== 0) throw new Error(`--worktree requires a git repository: ${source}`);
+  if (existsSync(path)) throw new Error(`Worktree path already exists: ${path}`);
+  mkdirSync(dirname(path), { recursive: true });
+  const added = await $`git -C ${source} worktree add -b ${`ahelpa/${sessionId}`} ${path}`.quiet().nothrow();
+  if (added.exitCode !== 0) {
+    // A failing post-checkout hook leaves the directory, registration and
+    // branch behind. The path did not exist before us, so reclaiming is safe.
+    await removeWorktree(source, path, sessionId);
+    throw new Error(`git worktree add failed: ${added.stderr.toString().trim()}`);
+  }
+}
+
+export async function removeWorktree(source: string, path: string, sessionId: string): Promise<void> {
+  await $`git -C ${source} worktree remove --force ${path}`.quiet().nothrow();
+  await $`git -C ${source} branch -D ${`ahelpa/${sessionId}`}`.quiet().nothrow();
+  try { rmdirSync(dirname(path)); } catch {} // only succeeds when we left it empty
+}
+
+async function currentCommit(projectPath: string): Promise<string | null> {
+  const head = await $`git -C ${projectPath} rev-parse HEAD`.quiet().nothrow();
+  return head.exitCode === 0 ? head.text().trim() : null;
 }
 
 const driverRuntime: DriverRuntime = {
@@ -146,19 +222,25 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   let handoffOwned = false;
   let dbCreated = false;
   let wakeupOwned = false;
+  let worktreeCreated = false;
   let submissionUnconfirmed = false;
   try {
     if (plan.input.db.getSession(plan.sessionId)) {
       throw new Error(`Session ID already exists: ${plan.sessionId}`);
     }
     assertFileHandoffAvailable(plan.fileHandoff);
+    if (plan.worktreeSource) {
+      await createWorktree(plan.worktreeSource, plan.input.projectPath, plan.sessionId);
+      worktreeCreated = true;
+    }
+    const baseCommit = await currentCommit(plan.input.projectPath);
     await Tmux.create(plan.sessionId, plan.launchCmd);
     tmuxCreated = true;
     // Re-check after tmux creation so a concurrent/stale handoff is never
     // overwritten by this launch. We own the tmux, but not those files.
     assertFileHandoffAvailable(plan.fileHandoff);
     handoffOwned = true;
-    prepareFileHandoff(plan.fileHandoff, plan.input.task);
+    prepareFileHandoff(plan.fileHandoff, plan.input.task, plan.handoffContext);
     await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
     const submissionContext: TaskSubmissionContext = {};
     try {
@@ -211,6 +293,9 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       effort: plan.input.effort,
       role: plan.input.role,
       safe: plan.input.safe,
+      checkCmd: plan.input.check,
+      baseCommit,
+      afterId: plan.input.after,
     });
     dbCreated = true;
     if (initialResumeId) {
@@ -239,16 +324,26 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       try { unlinkSync(plan.fileHandoff.taskFilePath); } catch {}
       try { rmSync(plan.fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
     }
+    if (worktreeCreated && plan.worktreeSource) {
+      await removeWorktree(plan.worktreeSource, plan.input.projectPath, plan.sessionId);
+    }
     throw error;
   }
 
-  const result: LaunchResult = { sessionId: plan.sessionId, ownerToken: plan.ownerToken, tmuxSession: plan.sessionId };
+  const result: LaunchResult = {
+    sessionId: plan.sessionId,
+    ownerToken: plan.ownerToken,
+    tmuxSession: plan.sessionId,
+    projectPath: plan.input.projectPath,
+  };
   if (plan.input.role !== undefined) result.role = plan.input.role;
   if (plan.input.model !== undefined) result.model = plan.input.model;
   if (plan.input.effort !== undefined) result.effort = plan.input.effort;
   if (submissionUnconfirmed) {
     result.warning = `${plan.driver.name} received the task but did not confirm a new turn; session marked needs_attention`;
   }
+  const taskWarning = tempPointerWarning(plan.input.task, plan.input.taskFromFile);
+  if (taskWarning) result.taskWarning = taskWarning;
   return result;
 }
 
@@ -341,6 +436,9 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       effort: oldSession.effort,
       role: oldSession.role,
       safe,
+      checkCmd: oldSession.checkCmd,
+      baseCommit: oldSession.baseCommit,
+      afterId: oldSession.afterId,
     });
     dbCreated = true;
     input.db.updateResumeId(sessionId, oldSession.agentResumeId);

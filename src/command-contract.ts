@@ -113,7 +113,7 @@ export function renderModelsText(agent?: string): string {
 export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "launch",
-    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor] [--label \"...\"] [--project <path>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]",
+    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--after <id>] [--worktree]",
     description: "Launch a helper agent",
     minPositionals: 1,
     flags: {
@@ -126,6 +126,9 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       role: { kind: "string" },
       model: { kind: "string" },
       effort: { kind: "string" },
+      check: { kind: "string" },
+      after: { kind: "string" },
+      worktree: { kind: "boolean" },
     },
     async run(ctx) {
       const result = await launch({
@@ -139,6 +142,10 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         role: parseHelperRole(ctx.flags.strings.role),
         model: ctx.flags.strings.model,
         effort: ctx.flags.strings.effort,
+        check: ctx.flags.strings.check,
+        after: ctx.flags.strings.after,
+        worktree: ctx.flags.booleans.worktree,
+        taskFromFile: Boolean(ctx.flags.strings.file),
       });
       ctx.print(JSON.stringify(result, null, 2));
     },

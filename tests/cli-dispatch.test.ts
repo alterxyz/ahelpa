@@ -356,6 +356,33 @@ describe("cli dispatch", () => {
     unlinkSync(defaultRuntimeLayout.taskFilePath(result.sessionId));
   });
 
+  test("a temp path inside --file content is not flagged, the same text via --task is", async () => {
+    db = new StateDB(TEST_DB);
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(Tmux, "create").mockResolvedValue();
+    spyOn(Tmux, "capture").mockResolvedValue("ready");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(FIFO, "create").mockResolvedValue();
+    const driver = getDriver("claude-code");
+    spyOn(driver, "prepareForTask").mockResolvedValue();
+    spyOn(driver, "afterTaskSubmitted").mockResolvedValue(true);
+    const taskPath = `${TEST_PROJECT}/durable-task.md`;
+    writeFileSync(taskPath, "Fix cleanup of /tmp/out.log\n");
+
+    const viaFile: Captured = { out: [], err: [] };
+    expect(await runCli(db, ["launch", "claude-code", "--file", taskPath, "--project", TEST_PROJECT], io(viaFile))).toBe(0);
+    const fromFile = JSON.parse(viaFile.out[0]);
+    expect(fromFile.taskWarning).toBeUndefined();
+    unlinkSync(defaultRuntimeLayout.taskFilePath(fromFile.sessionId));
+
+    const viaTask: Captured = { out: [], err: [] };
+    expect(await runCli(db, ["launch", "claude-code", "--task", "Fix cleanup of /tmp/out.log", "--project", TEST_PROJECT], io(viaTask))).toBe(0);
+    const fromTask = JSON.parse(viaTask.out[0]);
+    expect(fromTask.taskWarning).toMatch(/--file/);
+    unlinkSync(defaultRuntimeLayout.taskFilePath(fromTask.sessionId));
+  });
+
   test.each([
     ["claude-code", "normal"], ["codex", "advisor"], ["kimi", "worker"],
   ])("rejects unsupported %s role %s before creating a terminal", async (agent, role) => {
@@ -392,7 +419,7 @@ describe("cli dispatch", () => {
     expect(db.getSession(result.sessionId)?.task).toBe(task);
     const handoffPath = defaultRuntimeLayout.taskFilePath(result.sessionId);
     const handedOffTask = readFileSync(handoffPath, "utf-8");
-    expect(handedOffTask).toStartWith(`${task}\n\n---\n\n## ahelpa signals\n\n`);
+    expect(handedOffTask).toStartWith(`${task}\n\n---\n\n## ahelpa contract\n\n`);
     expect(handedOffTask).toContain("[AHELPA:NEED_HELP:review,input]");
     expect(sendSpy.mock.calls[0][1]).toContain(handoffPath);
     expect(sendSpy.mock.calls[0][1]).not.toContain("Keep literal");
@@ -456,7 +483,7 @@ describe("cli dispatch", () => {
     expect(code).toBe(0);
     expect(captured.out[0]).toBe("task sent");
     expect(readFileSync(defaultRuntimeLayout.taskFilePath("task-cli-1"), "utf-8"))
-      .toStartWith("new task body\n\n---\n\n## ahelpa signals\n\n");
+      .toStartWith("new task body\n\n---\n\n## ahelpa contract\n\n");
     expect(existsSync(`${TEST_PROJECT}/.ahelpa/task-cli-1/artifacts`)).toBe(true);
     expect(sendKeysSpy).toHaveBeenCalledTimes(1);
     const instruction = sendKeysSpy.mock.calls[0]?.[1];

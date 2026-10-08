@@ -73,7 +73,8 @@ describe("file handoff", () => {
     const { plan, content } = readPreparedTask(task);
 
     expect(content.slice(0, task.length)).toBe(task);
-    expect(content.slice(task.length)).toStartWith("\n\n---\n\n## ahelpa signals\n\n");
+    expect(content.slice(task.length)).toStartWith("\n\n---\n\n## ahelpa contract\n\n");
+    expect(content).toContain("\n\n## ahelpa signals\n\n");
     expect(existsSync(plan.sessionDeliveryDir)).toBe(true);
     expect(existsSync(plan.artifactsDir)).toBe(true);
     prepareFileHandoff(plan, task);
@@ -122,6 +123,71 @@ describe("file handoff", () => {
     }
     expect(instruction).not.toMatch(/\][ \t]*\[AHELPA:/);
     expect(scanSentinels(instruction)).toEqual([]);
+  });
+
+  test("contract demands evidence on the final diff and forbids bending tests", () => {
+    const { plan, content } = readPreparedTask();
+    const contract = content.slice(content.indexOf("## ahelpa contract"), content.indexOf("## ahelpa signals"));
+
+    expect(contract).toContain(plan.summaryPath);
+    expect(contract).toContain(plan.artifactsDir);
+    expect(contract).toMatch(/exit code/);
+    expect(contract).toMatch(/final diff/);
+    expect(contract).toMatch(/-count=1/);
+    expect(contract).toMatch(/Not done \/ not verified/);
+    expect(contract).toMatch(/Do not change tests or assertions/);
+    expect(contract).toMatch(/test that fails without your change/);
+    expect(contract).toMatch(/reread the full diff/);
+    expect(contract).toMatch(/Read-only or review tasks: write "N\/A"/);
+    expect(scanSentinels(contract)).toEqual([]);
+  });
+
+  test("reviewer role swaps the contract for a review-only one with its own evidence rules", () => {
+    const plan = planFileHandoff(TEST_PROJECT, "codex-rev", new RuntimeLayout({ homeDir: TEST_HOME, tmpDir: TEST_TMP }));
+    prepareFileHandoff(plan, "review the diff", { role: "reviewer" });
+    const content = readFileSync(plan.taskFilePath, "utf-8");
+    const contract = content.slice(content.indexOf("## ahelpa contract"), content.indexOf("## ahelpa signals"));
+
+    expect(contract).toContain(`Do not modify, create, stash, or check out any file outside ${plan.sessionDeliveryDir}`);
+    expect(contract).toMatch(/Verdict first/);
+    expect(contract).toMatch(/at least 3 temporary mutations/);
+    expect(contract).toMatch(/The author's summary is a claim, not evidence/);
+    expect(contract).toMatch(/Changed files: N\/A/);
+    expect(contract).not.toMatch(/New behavior needs a test/);
+    expect(scanSentinels(contract)).toEqual([]);
+  });
+
+  test("an acceptance command is announced in the contract", () => {
+    const plan = planFileHandoff(TEST_PROJECT, "codex-chk", new RuntimeLayout({ homeDir: TEST_HOME, tmpDir: TEST_TMP }));
+    prepareFileHandoff(plan, "implement", { check: "bun test" });
+
+    expect(readFileSync(plan.taskFilePath, "utf-8")).toContain("Acceptance command (the host reruns it on your final state; make it pass or explain in summary.md why it cannot): bun test");
+  });
+
+  test("a previous hand is linked by its task, summary, and artifacts before the contract", () => {
+    const plan = planFileHandoff(TEST_PROJECT, "codex-two", new RuntimeLayout({ homeDir: TEST_HOME, tmpDir: TEST_TMP }));
+    const previous = planFileHandoff(TEST_PROJECT, "codex-one", new RuntimeLayout({ homeDir: TEST_HOME, tmpDir: TEST_TMP }));
+    prepareFileHandoff(plan, "rework", {
+      previous: { sessionId: "codex-one", taskCopyPath: previous.taskCopyPath, summaryPath: previous.summaryPath, artifactsDir: previous.artifactsDir },
+    });
+    const content = readFileSync(plan.taskFilePath, "utf-8");
+
+    expect(content.indexOf("## ahelpa previous hand")).toBeLessThan(content.indexOf("## ahelpa contract"));
+    expect(content).toContain("This task follows session codex-one.");
+    expect(content).toContain(`- Its task: ${previous.taskCopyPath}`);
+    expect(content).toContain(`- Its summary: ${previous.summaryPath}`);
+    expect(content).toMatch(/Treat its claims as claims/);
+  });
+
+  test("keeps a durable copy of every task beside the summary, appending follow-ups", () => {
+    const { plan, content } = readPreparedTask("first ask");
+    expect(readFileSync(plan.taskCopyPath, "utf-8")).toBe(content);
+
+    prepareFileHandoff(plan, "second ask");
+    const copy = readFileSync(plan.taskCopyPath, "utf-8");
+    expect(copy).toStartWith("first ask");
+    expect(copy).toContain("\n\n===== follow-up task =====\n\nsecond ask");
+    expect(readFileSync(plan.taskFilePath, "utf-8")).toStartWith("second ask");
   });
 
   test("review help applies only when a refusal blocks the helper and records it before signaling", () => {

@@ -9,7 +9,7 @@ import { getDriver } from "./drivers/registry";
 import { SESSION_STATUS, outcomeFromCapture } from "./session-lifecycle";
 import { defaultRuntimeLayout } from "./runtime-layout";
 import { shellEscape } from "./shell";
-import type { DriverRuntime } from "./drivers/types";
+import type { AgentDriver, DriverRuntime } from "./drivers/types";
 import { planFileHandoff } from "./file-handoff";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
@@ -33,6 +33,20 @@ const drainingAt = new Map<string, number>();
 // prepareForTask, so the daemon only polls once the agent should be working.
 const idleCount = new Map<string, number>();
 const IDLE_DEBOUNCE = 4;
+// One completion nudge per session (persisted on the row). Deliberately names
+// no sentinel token so the echoed prompt can never be mistaken for the signal.
+export const COMPLETION_NUDGE = "If your task is finished, print the done signal from the task file alone on a line; if not, continue working.";
+
+export function shouldNudgeForCompletion(db: StateDB, session: SessionRecord, driver: AgentDriver, output: string): boolean {
+  if (!driver.acceptsInput?.(output)) return false;
+  if (!existsSync(planFileHandoff(session.projectPath, session.id).summaryPath)) return false;
+  // Re-read: the host may have sent a new turn since this capture was taken.
+  const fresh = db.getSession(session.id);
+  return fresh !== null
+    && fresh.status === SESSION_STATUS.Running
+    && fresh.version === session.version
+    && fresh.nudgedAt == null;
+}
 
 const driverRuntime: DriverRuntime = {
   sleep: (ms) => Bun.sleep(ms),
@@ -168,6 +182,16 @@ export async function refreshSessionStatuses(
         idleCount.set(session.id, count);
         if (count >= IDLE_DEBOUNCE) {
           idleCount.delete(session.id);
+          // Archived Claude sessions: 47 of 63 needs_attention had already written
+          // summary.md and simply never printed the signal. Ask once before settling,
+          // but only into a composer that is really ready: a menu, approval, or trust
+          // dialog also reads as idle, and sendKeys ends with Enter.
+          if (shouldNudgeForCompletion(db, session, driver, output)) {
+            db.markNudged(session.id);
+            await Tmux.sendKeys(session.id, COMPLETION_NUDGE);
+            log(`${session.id}: summary present without signal, nudged for completion`);
+            continue;
+          }
           const settled = await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
             status: SESSION_STATUS.NeedsAttention,
             lastOutput: output.slice(-500),

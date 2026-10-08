@@ -7,6 +7,7 @@ describe("helper role parsing", () => {
     expect(parseHelperRole()).toBeUndefined();
     expect(parseHelperRole("worker")).toBe("worker");
     expect(parseHelperRole("advisor")).toBe("advisor");
+    expect(parseHelperRole("reviewer")).toBe("reviewer");
   });
 
   test.each(["", "strategist", "Worker", " worker "])("rejects an unknown role: %s", (role) => {
@@ -53,6 +54,15 @@ describe("launch profiles", () => {
   test("explicit model and effort take precedence over the Codex preset", () => {
     expect(resolveLaunchProfile(getDriver("codex"), { model: "gpt-5.5", effort: "xhigh" })).toEqual({
       role: "worker", model: "gpt-5.5", effort: "xhigh",
+    });
+  });
+
+  test("reviewers get the strongest preset of each driver", () => {
+    expect(resolveLaunchProfile(getDriver("claude-code"), { role: "reviewer" })).toEqual({
+      role: "reviewer", model: "claude-opus-5-5", effort: "xhigh",
+    });
+    expect(resolveLaunchProfile(getDriver("codex"), { role: "reviewer" })).toEqual({
+      role: "reviewer", model: "gpt-6.1-sol", effort: "xhigh",
     });
   });
 

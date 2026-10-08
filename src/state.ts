@@ -22,6 +22,10 @@ export interface SessionRecord {
   effort?: string | null;
   role?: HelperRole | null;
   safe: boolean;
+  checkCmd?: string | null;
+  baseCommit?: string | null;
+  afterId?: string | null;
+  nudgedAt?: string | null;
 }
 
 export interface CreateSessionInput {
@@ -38,6 +42,9 @@ export interface CreateSessionInput {
   effort?: string | null;
   role?: HelperRole | null;
   safe?: boolean;
+  checkCmd?: string | null;
+  baseCommit?: string | null;
+  afterId?: string | null;
 }
 
 interface SessionRow {
@@ -59,6 +66,10 @@ interface SessionRow {
   effort: string | null;
   role: HelperRole | null;
   safe: number;
+  check_cmd: string | null;
+  base_commit: string | null;
+  after_id: string | null;
+  nudged_at: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -81,6 +92,10 @@ function rowToRecord(row: SessionRow): SessionRecord {
     effort: row.effort,
     role: row.role,
     safe: row.safe === 1,
+    checkCmd: row.check_cmd,
+    baseCommit: row.base_commit,
+    afterId: row.after_id,
+    nudgedAt: row.nudged_at,
   };
 }
 
@@ -165,6 +180,12 @@ export class StateDB {
         if (!columns.some((column) => column.name === "version")) {
           this.db.exec("ALTER TABLE sessions ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
         }
+        // Migration: acceptance command, launch baseline, and hand lineage for evidence.
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at"]) {
+          if (!columns.some((existing) => existing.name === column)) {
+            this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
+          }
+        }
       }).immediate();
     } catch (error) {
       try { this.db.close(); } catch {}
@@ -176,8 +197,8 @@ export class StateDB {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -195,6 +216,9 @@ export class StateDB {
       input.effort ?? null,
       input.safe ? 1 : 0,
       input.role ?? null,
+      input.checkCmd ?? null,
+      input.baseCommit ?? null,
+      input.afterId ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
   }
@@ -221,6 +245,13 @@ export class StateDB {
     const now = new Date().toISOString();
     this.db.prepare("UPDATE sessions SET agent_resume_id = ?, updated_at = ?, version = version + 1 WHERE id = ?")
       .run(agentResumeId, now, id);
+  }
+
+  // Persisted, not in-process: a restarted daemon or an inline refresh from
+  // another process must not nudge the same helper twice.
+  markNudged(id: string): void {
+    this.db.prepare("UPDATE sessions SET nudged_at = ?, updated_at = ?, version = version + 1 WHERE id = ?")
+      .run(new Date().toISOString(), new Date().toISOString(), id);
   }
 
   updateModel(id: string, model: string, effort: string | null): void {

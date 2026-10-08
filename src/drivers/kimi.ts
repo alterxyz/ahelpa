@@ -349,6 +349,10 @@ export const kimiDriver: AgentDriver = {
     return "idle";
   },
 
+  acceptsInput(captureOutput: string): boolean {
+    return !kimiNeedsFolderTrust(captureOutput) && kimiIsReady(captureOutput);
+  },
+
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
     await runtime.sendKeys(sessionId, "/exit");
   },

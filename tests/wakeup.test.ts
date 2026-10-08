@@ -79,7 +79,11 @@ describe("wakeup protocol", () => {
     const result = await waiting;
     const latency = Date.now() - notified;
 
-    expect(result).toEqual({ sessionId: "wake-session", status: "idle" });
+    expect(result).toEqual({
+      sessionId: "wake-session",
+      status: "idle",
+      evidence: expect.objectContaining({ summaryBytes: 0 }),
+    });
     // Well under the 5s slice fallback: proves the pipe woke us, not polling.
     expect(latency).toBeLessThan(1500);
 

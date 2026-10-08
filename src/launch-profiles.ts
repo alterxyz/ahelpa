@@ -1,8 +1,8 @@
 import type { AgentDriver, HelperRole } from "./drivers/types";
 
 export function parseHelperRole(value?: string): HelperRole | undefined {
-  if (value === undefined || value === "worker" || value === "advisor") return value;
-  throw new Error(`Unknown helper role "${value}". Available roles: worker, advisor`);
+  if (value === undefined || value === "worker" || value === "advisor" || value === "reviewer") return value;
+  throw new Error(`Unknown helper role "${value}". Available roles: worker, advisor, reviewer`);
 }
 
 // Only new launches resolve presets. Native resume commands must reuse the

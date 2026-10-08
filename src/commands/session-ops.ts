@@ -89,7 +89,7 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   }
   const content = readTaskFile(filePath);
   const fileHandoff = planFileHandoff(session.projectPath, session.id);
-  prepareFileHandoff(fileHandoff, content);
+  prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd });
   const submissionContext = canResumeMonitoring(session)
     ? await captureSubmissionContext(session.id)
     : {};
@@ -152,6 +152,7 @@ export function check(db: StateDB, parentId?: string) {
     role: s.role ?? null, model: s.model ?? null, effort: s.effort ?? null,
     task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
     agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
+    afterId: s.afterId ?? null, checkCmd: s.checkCmd ?? null, projectPath: s.projectPath,
   }));
 }
 

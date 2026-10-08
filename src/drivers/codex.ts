@@ -254,6 +254,7 @@ export const codexDriver: AgentDriver = {
     defaultRole: "worker",
     profiles: {
       worker: { model: "gpt-6.1-sol", effort: "high" },
+      reviewer: { model: "gpt-6.1-sol", effort: "xhigh" },
     },
   },
   resumeTokenAvailableAfterSubmit: false,
@@ -408,6 +409,14 @@ export const codexDriver: AgentDriver = {
     // Config banner visible = CLI just opened, not yet ready
     if (/OpenAI Codex/i.test(current)) return "booting";
     return "idle";
+  },
+
+  acceptsInput(captureOutput: string): boolean {
+    return codexHasInputPrompt(captureOutput)
+      && !codexNeedsPromptNudge(captureOutput)
+      && !codexNeedsHooksTrustEscape(captureOutput)
+      && !codexNeedsUpdateSkip(captureOutput)
+      && !codexHasStartedTask(captureOutput);
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {

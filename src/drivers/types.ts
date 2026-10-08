@@ -1,7 +1,7 @@
 export interface LaunchOptions { cwd: string; safe?: boolean; model?: string; effort?: string; }
 export interface ResumeOptions { cwd: string; resumeId: string; safe?: boolean; model?: string; effort?: string; }
 export interface ModelSwitchOptions { model: string; effort?: string; persist?: boolean; }
-export type HelperRole = "worker" | "advisor";
+export type HelperRole = "worker" | "advisor" | "reviewer";
 
 // The helper accepted the new model, but restoring the CLI defaults failed.
 // Callers must retain the applied choice while still reporting the failure.
@@ -67,5 +67,8 @@ export interface AgentDriver {
   detectStatus(captureOutput: string): DetectedStatus;
   detectOutcome(captureOutput: string): DetectedOutcome;
   detectActivity(captureOutput: string): ActivitySignal;
+  // True only when the chat composer is the thing that would receive typed
+  // text: no menu, approval, or trust dialog. Idle alone is not enough.
+  acceptsInput?(captureOutput: string): boolean;
   gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void>;
 }

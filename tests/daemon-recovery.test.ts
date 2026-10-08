@@ -162,7 +162,11 @@ describe("daemon recovery", () => {
     expect(db.listActiveSessions()).toHaveLength(0);
     expect(new Archive(join(root, "archive")).get(id)?.status).toBe("idle");
     spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
-    expect(await wait(db, [id], false, 50)).toEqual({ sessionId: id, status: "idle" });
+    expect(await wait(db, [id], false, 50)).toEqual({
+      sessionId: id,
+      status: "idle",
+      evidence: expect.objectContaining({ summaryBytes: expect.any(Number) }),
+    });
     expect(await logs(db, id, "tok")).toBe("[AHELPA:DONE]");
 
     const create = spyOn(Tmux, "create").mockImplementation(async () => { alive = true; });

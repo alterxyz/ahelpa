@@ -182,6 +182,7 @@ export const claudeCodeDriver: AgentDriver = {
     profiles: {
       advisor: { model: "claude-opus-5-5", effort: "xhigh" },
       worker: { model: "claude-sonnet-5-5", effort: "high" },
+      reviewer: { model: "claude-opus-5-5", effort: "xhigh" },
     },
   },
   resumeTokenAvailableAfterSubmit: false,
@@ -316,6 +317,20 @@ export const claudeCodeDriver: AgentDriver = {
     // Header/banner appearing = CLI still loading
     if (/Claude Code v/i.test(current)) return "booting";
     return "idle";
+  },
+
+  acceptsInput(captureOutput: string): boolean {
+    const current = currentTurnOutput(captureOutput);
+    if (claudeIsWorking(current) || !claudeHasInputPrompt(current)) return false;
+    // The chat composer at rest is an empty ❯ in column 0. Permission, trust
+    // and question menus indent their ❯ cursor and number the row; an echoed
+    // user turn has text after it. A long preview can push the ⏺ tool header
+    // out of the capture, so the cursor row is the only thing left to go on,
+    // and only the empty composer may receive typed text plus Enter.
+    const cursors = [...current.matchAll(/^([^\S\n]*)❯(?:[^\S\n]+(.*))?$/gmu)];
+    const latest = cursors.at(-1);
+    if (!latest) return false;
+    return latest[1].length === 0 && (latest[2] ?? "").trim() === "";
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
