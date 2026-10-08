@@ -274,7 +274,7 @@ Both sources forbid this and ahelpa has never had it. The case for adding it is 
 
 The case against it is the one ClawWork states: broadcast makes "every Performer try to respond to the same sentence". So the design is bounded on four sides, and each bound is a rule, not a hope.
 
-**Shape: mail, not chat.**
+**Shape: the same file handoff, pointed sideways.** Nothing new is invented. The host already talks to a helper through files it writes into the helper's result directory; a peer does the same. The "yellow pages" a helper needs in order to know who else is on the job is not a new registry either: it is `check --job <id>` (A3), which already lists session ID, role, label, status, and project path. The task file tells each helper its job ID and that one command; the rest is the existing shape.
 
 - A helper sends with `ahelpa mail <to-id | --peers> --file <path>` (or `--text` for one line). The sender is identified from the session ID the helper already carries in its environment; no owner token is involved, because mail is not a mutating session operation.
 - The message lands as a file: `.ahelpa/<to-id>/inbox/<seq>-from-<from-id>.md`. Delivery is the write. There is no injection into the receiver's terminal.
@@ -291,7 +291,7 @@ The case against it is the one ClawWork states: broadcast makes "every Performer
 
 **What stays out.** No shared transcript. No automatic replies. No `NEED_HELP` to a peer (unblocking is the host's job). No mail after a session has printed a signal. No mail to a session the sender's job does not contain, including the host; the host already has `summary.md` and the signals.
 
-**Cost.** One table or column (`job_id` from A3), one directory convention, one command with two subcommands, one contract paragraph, one evidence field, daemon nudge reuse. The risk is social rather than technical: helpers may start coordinating instead of working. The budget and the ledger exist so the host can see that happening and tighten the task split next time, which is how every other ahelpa rule was arrived at.
+**Cost.** One column (`job_id` from A3), one directory convention under the existing result directory, one command with two subcommands, one contract paragraph, one evidence field, daemon nudge reuse. No new entity, no new process, no new file format: a peer message is a markdown file in a directory that already exists. The risk is social rather than technical: helpers may start coordinating instead of working. The budget and the ledger exist so the host can see that happening and tighten the task split next time, which is how every other ahelpa rule was arrived at.
 
 **Open design point.** Whether a *claims* convention is worth adding on top: a worker mails `--peers` "claiming `src/parser/*`" before editing, and A1's writer guard treats an unclaimed overlap as a warning. This is cheap once mail exists, and it is the smallest possible version of the teammate's shared task list without a board that makes decisions.
 
@@ -317,6 +317,18 @@ The harness that runs Claude Code sessions hands the model explicit rules about 
 | "Do NOT schedule a short-interval wakeup to poll for background work; when tracked work finishes, you are re-invoked automatically." | FIFO wait; "polling is an anti-pattern" | Already covered; keep. |
 
 Three of these are code, not text: blind review by default (`--unblind`), the relationship column in `status`/`check` (§9), and peer mail (§10). The rest are edits to `skill/SKILL.md`, `skill/references/profiles.md`, and `CONTEXT.md`, and belong in Phase 1.
+
+## 12. Recursion limits (implemented in this PR)
+
+Helpers launching helpers was already bounded by chain depth (default 4, `AHELPA_MAX_NESTING_DEPTH`, exported into every helper's environment). Depth alone does not bound a tree: a helper at a legal depth could fan out sideways without limit. Both sources avoid the question by forbidding recursion outright (Confer duo: "a partner must not expand scope, delegate recursively, or contact others"; ClawWork performers are leaves). ahelpa allows it, so it needs a width bound and a role bound as well. Both are small, both are checked in `planLaunch` before any side effect, and both are now in `src/nesting.ts` and `src/commands/launch.ts`:
+
+| Bound | Default | Why this number |
+| --- | --- | --- |
+| Chain depth | 4 (unchanged) | Four hands deep is already past anything the archive shows being useful |
+| Active sessions per tree (root helper plus descendants, counting `running`, `draining`, `needs_attention`) | 8 | Twice the five-hand flow's widest realistic fan-out; the Claude Code harness guides its own workflows to "under 10 agents" |
+| Launches from a `reviewer` session | refused | The reviewer contract is read-only; a launched worker is an edit by proxy, and a worker it briefs has seen the author's reasoning |
+
+The host's own direct launches are outside any tree and uncounted: the host answers to a human. A refused launch names the active sessions holding the slots so the caller can wait for or kill one. Documented in `docs/architecture.md`, `docs/security.md` (both languages), `skill/SKILL.md` rule 5, and `CONTEXT.md`.
 
 ## Appendix: quotes that carry the argument
 

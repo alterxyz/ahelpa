@@ -24,7 +24,7 @@
 
 **Owner token** — The operation credential returned by `launch`. All mutating session operations require it.
 
-**Nesting** — The lineage depth of helper sessions. Launch validates a maximum depth (default 4).
+**Nesting** — The lineage of helper sessions. Launch validates a maximum chain depth (default 4), a maximum number of active sessions per tree (default 8, the root helper and its descendants), and refuses launches from `reviewer` sessions. The host's own direct launches are outside any tree.
 
 **Messenger** — A lightweight polling subagent that checks helper status and reports results. A usage pattern, not a daemon component.
 

@@ -135,7 +135,17 @@ Kimi 打印 `[AHELPA:DONE]` 后，旧 helper 仍在 draining 时 `resume` 会被
 
 ## Nesting
 
-Helper 可以继续启动自己的 helper，形成 session lineage。`launch` 会校验最大深度，默认 4，可通过 `AHELPA_MAX_NESTING_DEPTH` 配置。每个 child session 会记录 parent ID，但 owner 权限不传递：host 只能控制自己直接启动的 session。
+Helper 可以继续启动自己的 helper，形成 session lineage。每个 child session 会记录 parent ID，但 owner 权限不传递：host 只能控制自己直接启动的 session。
+
+递归从三个方向被限制，全部在 `planLaunch` 中校验，发生在创建任何 tmux session 或文件之前：
+
+| 限制 | 默认值 | 覆盖方式 | 防止什么 |
+| --- | --- | --- | --- |
+| 链的深度 | 4 | `AHELPA_MAX_NESTING_DEPTH` | helper 不断向下委派 |
+| 一棵树中的活跃 session 数（根 helper 及其全部后代，计入 `running`、`draining`、`needs_attention`） | 8 | `AHELPA_MAX_ACTIVE_PER_TREE` | helper 在合法深度上横向无限展开 |
+| 从 `reviewer` session 发起 launch | 拒绝 | 无 | 只读的 review hand 借他人之手修改，或让作者的推理进入 review |
+
+Host 自己直接发起的 launch 不属于任何树：host 对人负责，helper 的树对这个上限负责。两个数值都会导出到每个 helper 的环境变量中，嵌套的 `ahelpa launch` 使用相同的值。
 
 ## Archives
 
