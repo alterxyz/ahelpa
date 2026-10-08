@@ -10,7 +10,8 @@ session_id=$(echo "$result" | jq -r .sessionId)
 token=$(echo "$result" | jq -r .ownerToken)
 ```
 
-`launch` 返回 JSON，包含 `sessionId`、`ownerToken` 和 `tmuxSession`。请保存 token；所有写操作都需要它。
+`launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同）。请保存 token；所有写操作都需要它。
+- `taskWarning`（可选）：`--task` 文本较短且含 `/tmp/`、`/private/tmp/` 或 `scratchpad/` 路径，通常意味着任务引用了可能消失的临时文件。请把内容放进持久文件，改用 `--file`。
 
 多行任务可以从 UTF-8 文件直接启动，替代 `--task`：
 
@@ -43,6 +44,28 @@ ahelpa launch kimi --project /path/to/project --task "Review the CLI parser"
 ahelpa launch claude-code --task "Fix auth bug" --label "auth-fix"
 ```
 
+用 `--check` 给 helper 一条验收命令，并由 ahelpa 独立复验：
+
+```bash
+ahelpa launch codex --file ./task.md --check "bun test --no-cache"
+```
+
+该命令会写入任务文件合同（"Acceptance command (the host reruns it on your final state...)"）。`wait` 返回已结束会话时，ahelpa 自己在项目目录用 `sh -c` 再跑一遍（超时 600 秒），结果记在 `evidence.check`（见[读取结果](#读取结果)）。`resume` 沿用同一条 `--check`。
+
+用 `--after <id>` 串联前后手。新任务文件开头会加一段 `## ahelpa previous hand`，列出上一手的 `task.md`、`summary.md` 和 `artifacts/` 路径，并要求 helper 把其结论当作"声称"而非事实。ID 不存在时 `launch` 报错。关联记录在会话的 `afterId`。
+
+```bash
+ahelpa launch claude-code --role reviewer --after "$impl_id" --file ./review.md
+```
+
+用 `--worktree` 把 helper 隔离在独立的 git worktree 里：
+
+```bash
+ahelpa launch codex --worktree --file ./task.md --project /path/to/project
+```
+
+ahelpa 会在 `<project 的父目录>/<project 名>-worktrees/<session-id>` 创建 worktree，分支为 `ahelpa/<session-id>`，从 `HEAD` 分出（未提交的改动不在其中）。helper 的 `projectPath` 就是该 worktree，结果也落在其 `.ahelpa/<id>/`。项目必须是 git 仓库，否则 `launch` 报错。ahelpa 不会删除已交付的 worktree（launch 在返回前失败时会回滚自己建的那个）；用完后执行 `git worktree remove <path> && git branch -D ahelpa/<session-id>`。新 worktree 里没有安装依赖，安装步骤要写进任务或放在 `--check` 命令最前面。
+
 headless host 需要显式追踪 ID 时，用 `--parent`：
 
 ```bash
@@ -61,17 +84,19 @@ Kimi 默认以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` 启动。这个 canonica
 
 ## 启动时选择模型
 
-先按任务选择角色。Claude 默认 `advisor`，用于分析、规划和审阅；目标明确的实现或执行任务使用 `--role worker`。Codex 只支持 `worker`，显式选择其他模型也不会改变这一角色归属。
+先按任务选择角色。Claude 默认 `advisor`，用于分析、规划和审阅；目标明确的实现或执行任务使用 `--role worker`；只读的对抗式审阅使用 `--role reviewer`（Claude 和 Codex 均支持）。Codex 支持 `worker` 与 `reviewer`，仍拒绝 `advisor`，显式选择其他模型也不会改变这一点。
 
 | 启动方式 | 实际默认值 |
 | --- | --- |
 | `launch codex` | `worker`、`gpt-6.1-sol`、`high` |
 | `launch claude-code` | `advisor`、`claude-opus-5-5`、`xhigh` |
 | `launch claude-code --role worker` | `worker`、`claude-sonnet-5-5`、`high` |
+| `launch claude-code --role reviewer` | `reviewer`、`claude-opus-5-5`、`xhigh` |
+| `launch codex --role reviewer` | `reviewer`、`gpt-6.1-sol`、`xhigh` |
 
 口语中的 extra-high 在 CLI 中写作 `xhigh`；`extra` 不是 Claude 接受的 effort 值。完整模型 ID 固定选择 5.5，避免不同提供方的 `opus`、`sonnet` 别名指向不同版本。两款模型均支持 `high`、`xhigh`。依据见 [Claude 模型配置](https://code.claude.com/docs/en/model-config)与 [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)。
 
-显式 `--model`、`--effort` 分别覆盖对应默认值。角色不改变权限，也不改写任务。`launch` 返回最终选择，`check` 包含 `role`、`model`、`effort`，`status` 显示角色列。旧会话未知的字段保持 `null`；resume 沿用记录，不重新套用新启动预设。Kimi 不接受 `--role`，保持原有 CLI 默认设置。
+显式 `--model`、`--effort` 分别覆盖对应默认值。角色不改变权限；只有 `reviewer` 会改变任务文件，它使用只审不改的合同（见[读取结果](#读取结果)）。`launch` 返回最终选择，`check` 包含 `role`、`model`、`effort`，`status` 显示角色列。旧会话未知的字段保持 `null`；resume 沿用记录，不重新套用新启动预设。Kimi 不接受 `--role`，保持原有 CLI 默认设置。
 
 ```bash
 ahelpa models
@@ -135,6 +160,31 @@ Helper 完成后，输出位于项目目录：
 cat ".ahelpa/$session_id/summary.md"
 ls ".ahelpa/$session_id/artifacts/"
 ```
+
+`wait` 结果里每个已结束的条目都带 `evidence`：`summaryBytes`、`baseCommit`（launch 时的 `HEAD`）、`changedFiles`（未提交改动加上相对 `baseCommit` 已提交的改动）、其中的 `testFilesChanged`（这些 git 字段在非 git 仓库内省略），以及用 `--check` 启动时的 `check`：`{command, exitCode, timedOut, output, logPath}`。`output` 是尾部 4000 字；完整日志在 `.ahelpa/<id>/check.log`。check 与 `wait` 共用同一个 deadline（多个会话的 check 并行跑，各自只拿剩余时间，最多 600 秒），所以 `wait` 只会在自己的超时之外多出很短的读取缓冲（约 2 秒）和 git status 的耗时；若已没有剩余时间，`check.skipped` 会说明，下一次 `wait` 用新的预算再跑。命令在独立进程组中运行；超时会杀掉整棵进程树，命令留在后台的进程在 check 结束时也会被杀掉，所以 `--check` 不能用来启动一个活过 `wait` 的服务。`baseCommitMissing: true` 表示 launch 时的基线已不可解析（被 rebase 或 gc），已提交的 helper 改动无法列出。先拿它对照 summary 再决定信不信：summary 说测试通过却没写命令，或 diff 动了任务没要求动的测试文件，都应该由你自己关掉缓存重跑验证。
+
+ahelpa 交给 helper 的任务文件末尾附有 `## ahelpa contract`：要求列出带 `path:line` 锚点的改动文件、在最终 diff 上跑过的每条验证命令及退出码、明确的"未做 / 未验证"清单，并禁止改测试去适配实现。你的任务文本仍然要说清*为什么*重要和验收标准。
+
+`--role reviewer` 的合同换成只审不改的版本：禁止修改、创建、stash、checkout 结果目录之外的任何文件；`summary.md` 先给结论（`ship` 或 `needs rework`）；findings 带 `path:line` 和 `P1`/`P2`；必须自己关闭缓存复跑验证命令并贴出退出码；审代码时至少做 3 处临时变异并逐一还原；列出未检查项；Changed files 写 `N/A`。
+
+每个会话还保留 `.ahelpa/<id>/task.md`：helper 实际收到的完整任务文件（含合同和信号段）。用 `task` 追加的后续任务以 `===== follow-up task =====` 分隔追加进去。
+
+### 五道手流程
+
+重要改动串联独立的几手，并亲自读每份 diff：
+
+```bash
+impl=$(ahelpa launch codex --file ./impl.md --check "go test -count=1 ./..." | jq -r .sessionId)
+ahelpa wait "$impl"                                   # 看 evidence.check，不只看 summary
+rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)
+ahelpa wait "$rev"
+fix=$(ahelpa launch codex --after "$rev" --file ./rework.md --check "go test -count=1 ./..." | jq -r .sessionId)
+ahelpa wait "$fix"
+final=$(ahelpa launch claude-code --role reviewer --after "$fix" --file ./recheck.md | jq -r .sessionId)
+ahelpa wait "$final"
+```
+
+实现用 `--check`；审阅用 `--role reviewer --after`；返工的 `--after` 指向审阅；最后聚焦复审增量。审阅者用与实现者不同的模型。
 
 这是主要通信通道：文件，而不是终端 scraping。
 
@@ -272,6 +322,7 @@ tmux capture-pane -t "$session_id" -p  # 不 attach，直接 dump pane 内容
 - **Claude pane 裁剪了信任对话框标签。** 不支持窄到将标签裁剪而非换行的 pane；启动或恢复前请加宽 pane。
 - **Kimi 显示月相或 `Retrying`。** 循环月相和 provider backoff 倒计时都表示仍在工作，即使 boxed input 仍然可见。继续 `wait`；120 秒 provider 重试不是本地 CLI 或 tmux 故障。
 - **Helper 看起来卡住。** Attach 到 tmux session 看完整屏幕。可能出现了 driver 没自动处理的 prompt 或确认框。手动处理后，暗号协议仍然有效。
+- **Session 显示 `needs_attention` 但 `summary.md` 已存在。** Helper 往往已完成却没输出暗号。会话空闲、没有暗号、但 `summary.md` 已存在时，daemon 会先催一次（"If your task is finished, print the done signal from the task file alone on a line; if not, continue working."），再次空闲才标为 `needs_attention`。催促只会发给 driver 判定为就绪的聊天输入框（绝不发进菜单、审批或信任对话框），会记录在会话行上以免 daemon 重启后重复，且在截屏之后会话行有变化时跳过。先读 `summary.md`，不要直接当作失败。
 - **`wait` 返回但没有 summary.md。** Helper 可能完成了但没写结果。用 `capture` 或 `logs` 看发生了什么。
 - **Session 显示 `error`。** 先检查 `capture` 或 `logs`：NEED_HELP 或 Codex 模型/账号错误都可能导致此状态。若输出了 `[AHELPA:NEED_HELP]` 或 `[AHELPA:NEED_HELP:<payload>]`，读取 `summary.md`，再用 `send` 介入，不绕过拒绝。逗号分隔标签：`review` 表示拒绝导致阻塞；`input` 表示任务输入缺失、截断或矛盾；两者合用 `review,input`。
 - **Session 显示 `dead`。** tmux session 意外消失。用 `logs` 查看 archived output。

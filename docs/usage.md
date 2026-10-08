@@ -10,7 +10,8 @@ session_id=$(echo "$result" | jq -r .sessionId)
 token=$(echo "$result" | jq -r .ownerToken)
 ```
 
-The `launch` command returns JSON with `sessionId`, `ownerToken`, and `tmuxSession`. Save the token — you need it for all mutating operations on this session.
+The `launch` command returns JSON with `sessionId`, `ownerToken`, `tmuxSession`, and `projectPath` (the directory the helper actually works in; it differs from `--project` under `--worktree`). Save the token — you need it for all mutating operations on this session.
+- `taskWarning` (optional): the `--task` text is short and mentions a `/tmp/`, `/private/tmp/`, or `scratchpad/` path, which is usually a temp file that may vanish. Put the content in a durable file and pass it with `--file` instead.
 - `warning` (optional): the task was delivered, but the driver has not confirmed a new turn. The session stays `needs_attention`, so `wait` returns immediately and the daemon does not inspect completion markers. Use `capture` to inspect the prompt: if the task is still in the input box, submit it with `send ""`; if it is already running, wait for that turn to finish before sending another. Keep the helper alive while checking delivery.
 
 For a multiline task, pass a UTF-8 file instead of `--task`:
@@ -44,6 +45,28 @@ Use `--label` to tag sessions for easier identification:
 ahelpa launch claude-code --task "Fix auth bug" --label "auth-fix"
 ```
 
+Use `--check` to give the helper an acceptance command, and let ahelpa verify it independently:
+
+```bash
+ahelpa launch codex --file ./task.md --check "bun test --no-cache"
+```
+
+The command is written into the task file contract ("Acceptance command (the host reruns it on your final state...)"). When `wait` returns a finished session, ahelpa itself reruns it with `sh -c` in the project directory (600 second timeout) and records the result under `evidence.check` (see [Read Results](#read-results)). `resume` keeps the same `--check`.
+
+Use `--after <id>` to chain hands. The new task file starts with an `## ahelpa previous hand` section listing the previous session's `task.md`, `summary.md`, and `artifacts/` paths, and tells the helper to treat its claims as claims. An unknown ID makes `launch` fail. The link is stored as `afterId` on the session.
+
+```bash
+ahelpa launch claude-code --role reviewer --after "$impl_id" --file ./review.md
+```
+
+Use `--worktree` to isolate a helper in its own git worktree:
+
+```bash
+ahelpa launch codex --worktree --file ./task.md --project /path/to/project
+```
+
+ahelpa creates `<parent of project>/<project name>-worktrees/<session-id>` on branch `ahelpa/<session-id>`, branching from `HEAD` (uncommitted changes are not included). The helper's `projectPath` is that worktree, and results land in its `.ahelpa/<id>/`. The project must be a git repository, otherwise `launch` fails. ahelpa never deletes a worktree it handed over (a launch that fails before returning rolls its own worktree back); when done, `git worktree remove <path> && git branch -D ahelpa/<session-id>`. A fresh worktree has no installed dependencies, so put the install step in the task or at the front of `--check`.
+
 Use `--parent` when a headless host needs an explicit trace ID:
 
 ```bash
@@ -62,17 +85,19 @@ Kimi launches as `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` by default. The canoni
 
 ## Choose a Model at Launch
 
-Choose the role first. Claude defaults to `advisor` for analysis, planning, and review. Use `--role worker` for implementation or other execution with a clear objective. Codex supports only `worker`, regardless of which model you explicitly choose.
+Choose the role first. Claude defaults to `advisor` for analysis, planning, and review. Use `--role worker` for implementation or other execution with a clear objective. Use `--role reviewer` for read-only adversarial review (Claude and Codex). Codex supports `worker` and `reviewer`, and still rejects `advisor`, regardless of which model you explicitly choose.
 
 | Launch | Effective defaults |
 | --- | --- |
 | `launch codex` | `worker`, `gpt-6.1-sol`, `high` |
 | `launch claude-code` | `advisor`, `claude-opus-5-5`, `xhigh` |
 | `launch claude-code --role worker` | `worker`, `claude-sonnet-5-5`, `high` |
+| `launch claude-code --role reviewer` | `reviewer`, `claude-opus-5-5`, `xhigh` |
+| `launch codex --role reviewer` | `reviewer`, `gpt-6.1-sol`, `xhigh` |
 
 `xhigh` is the CLI spelling for the intended extra-high effort; `extra` is not an accepted Claude effort value. The full Claude model IDs pin 5.5 instead of relying on provider-specific `opus` and `sonnet` aliases. Both models support `high` and `xhigh`. See [Claude model configuration](https://code.claude.com/docs/en/model-config) and [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
 
-Explicit `--model` and `--effort` override defaults independently. Roles do not impose different permissions or rewrite the task. `launch` reports the effective selection, `check` includes `role`, `model`, and `effort`, and `status` shows the role column. Old sessions keep unknown values as `null`; resume uses the stored selection without applying new launch presets. Kimi does not accept `--role` and retains its existing native defaults.
+Explicit `--model` and `--effort` override defaults independently. Roles do not impose different permissions. Only `reviewer` changes the task file: its contract is the review-only version (see [Read Results](#read-results)). `launch` reports the effective selection, `check` includes `role`, `model`, and `effort`, and `status` shows the role column. Old sessions keep unknown values as `null`; resume uses the stored selection without applying new launch presets. Kimi does not accept `--role` and retains its existing native defaults.
 
 ```bash
 ahelpa models
@@ -136,6 +161,31 @@ After a helper completes, its output lives in the project directory:
 cat ".ahelpa/$session_id/summary.md"
 ls ".ahelpa/$session_id/artifacts/"
 ```
+
+Each settled entry in the `wait` result carries `evidence`: `summaryBytes`, `baseCommit` (`HEAD` at launch), `changedFiles` (uncommitted changes plus changes committed since `baseCommit`), the `testFilesChanged` subset (these git fields are omitted outside a git repository), and, when the session was launched with `--check`, `check`: `{command, exitCode, timedOut, output, logPath}`. `output` is the last 4000 characters; the full log is `.ahelpa/<id>/check.log`. The check shares the `wait` deadline (checks for several sessions run in parallel, each bounded by the time left, 600 seconds at most) so `wait` stays within its own timeout plus a short read grace (about 2 seconds) and the git status calls; if no time is left, `check.skipped` says so and the next `wait` runs it with a fresh budget. The command runs in its own process group; a timeout kills the whole tree, and anything the command left running in the background is killed when the check ends, so a `--check` cannot start a server that outlives `wait`. `baseCommitMissing: true` means the launch baseline no longer resolves (rebased or garbage-collected), so committed helper work could not be listed. Hold it against the summary before trusting it: a summary that claims tests pass but names no command, or a diff that touches tests the task did not ask for, is a reason to rerun the verification yourself with caches disabled.
+
+The task file ahelpa hands to the helper ends with an `## ahelpa contract` section asking for changed files with `path:line` anchors, every verification command run on the final diff with its exit code, and an explicit "not done / not verified" list; it forbids changing tests to fit the implementation. Your task text should still say *why* the work matters and what acceptance looks like.
+
+For `--role reviewer`, the contract is replaced by a review-only version: do not modify, create, stash, or check out anything outside the result directory; start `summary.md` with a verdict (`ship` or `needs rework`); give findings with `path:line` and `P1`/`P2`; rerun the verification commands yourself, with caches off, and paste the exit codes; when reviewing code, try at least 3 temporary mutations and revert each one; list what was not checked; write `N/A` under Changed files.
+
+Every session also keeps `.ahelpa/<id>/task.md`: the full task file the helper actually received, including contract and signal sections. Follow-ups sent with `task` are appended, separated by `===== follow-up task =====`.
+
+### Five-hand flow
+
+For important changes, chain independent hands and read each diff yourself:
+
+```bash
+impl=$(ahelpa launch codex --file ./impl.md --check "go test -count=1 ./..." | jq -r .sessionId)
+ahelpa wait "$impl"                                   # read evidence.check, not just the summary
+rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)
+ahelpa wait "$rev"
+fix=$(ahelpa launch codex --after "$rev" --file ./rework.md --check "go test -count=1 ./..." | jq -r .sessionId)
+ahelpa wait "$fix"
+final=$(ahelpa launch claude-code --role reviewer --after "$fix" --file ./recheck.md | jq -r .sessionId)
+ahelpa wait "$final"
+```
+
+Implement with `--check`, review as `reviewer` with `--after`, rework with `--after` pointing at the review, then a focused re-review of the delta. Use a different model for the reviewer than the implementer.
 
 This is the primary communication channel — files, not terminal scraping.
 
@@ -273,6 +323,7 @@ Common situations:
 - **Claude pane crops trust-dialog labels.** Panes so narrow that labels are cropped instead of wrapped are unsupported; widen the pane before launching or resuming.
 - **Kimi shows a moon or `Retrying`.** The cycling moon and provider backoff countdown are active work signals, even though Kimi keeps its boxed input visible. Re-run `wait`; a 120-second provider retry is not a local CLI or tmux failure.
 - **Helper seems stuck.** Attach to the tmux session to see the full screen. A prompt or confirmation dialog may have appeared that the driver didn't auto-handle. Manually dismiss it — the sentinel protocol still works afterward.
+- **Session shows `needs_attention` but `summary.md` exists.** The helper often finished without printing the sentinel. When a session goes idle with no sentinel but `summary.md` already exists, the daemon first nudges the helper once ("If your task is finished, print the done signal from the task file alone on a line; if not, continue working."); only if it goes idle again is it marked `needs_attention`. The nudge is sent only when the driver reports a ready chat composer (never into a menu, approval, or trust dialog), is recorded on the session so a restarted daemon does not repeat it, and is skipped if the row changed since the capture. Read `summary.md` before treating it as a failure.
 - **`wait` returned but no summary.md.** The helper may have completed without writing results. Check `capture` or `logs` to see what happened.
 - **Session shows `error`.** Check `capture` or `logs` first: NEED_HELP or a Codex model/account error can cause it. For `[AHELPA:NEED_HELP]` or `[AHELPA:NEED_HELP:<payload>]`, read `summary.md`, then intervene with `send` without bypassing refusals. Comma-separated tags: `review` for a blocking refusal; `input` for missing, truncated, or contradictory task input; `review,input` for both.
 - **Session shows `dead`.** The tmux session disappeared unexpectedly. Check `logs` for archived output.

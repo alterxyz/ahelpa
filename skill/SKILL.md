@@ -58,15 +58,17 @@ Verify prerequisites with `command -v claude`, `command -v codex`, or `command -
 3. **`wait` blocks until completion or timeout.** Default 500 seconds. If it returns `still_running`, re-wait — this is normal, not an error.
 4. **Wait on multiple helpers at once.** Use `ahelpa wait id1 id2 id3`, not one-at-a-time waits.
 5. **Ownership is non-transitive.** You can only manage sessions you launched. Your helper's helpers are not yours to control.
-6. **Results land in files.** After completion: `.ahelpa/<session-id>/summary.md` for the summary, `.ahelpa/<session-id>/artifacts/` for supporting files.
-7. **Use files for long instructions.** Start with `ahelpa launch <type> --file <path>`; follow up with `ahelpa task <id> --file <path> --token <tok>`. Launch requires exactly one of `--task` and `--file` and snapshots the file contents.
+6. **Results land in files, and evidence comes first.** After completion: `.ahelpa/<session-id>/summary.md` for the summary, `artifacts/` for supporting files, `task.md` for what the helper was actually asked. `wait` returns `evidence` for every settled session: `summaryBytes`, `changedFiles` (uncommitted plus committed since the launch `baseCommit`; `baseCommitMissing: true` means that baseline no longer resolves and committed work could not be listed), `testFilesChanged`, and `check` (the `--check` command's `exitCode`, `timedOut`, output tail and `check.log` path). Checks share the wait's own deadline (one run per project and command, its process group killed when it ends) so `wait` stays within its timeout plus a ~2s read grace; `check.skipped` means the budget ran out first, and a re-wait runs it with a fresh budget. Read in this order: evidence, then summary, then the diff. A summary that claims passing tests but names no command, test files changed that the task never asked for, or a failing `check` is a finding, not a detail.
+7. **Use files for long instructions.** Start with `ahelpa launch <type> --file <path>`; follow up with `ahelpa task <id> --file <path> --token <tok>`. Launch requires exactly one of `--task` and `--file` and snapshots the file contents. Do not pass `--task "read /tmp/x.md"`: temp files vanish and the task becomes untraceable (launch returns `taskWarning` when it sees this). ahelpa appends an `## ahelpa contract` to every task file (changed files with anchors, verification commands on the final diff with exit codes and caches off, explicit not-done list, no bending tests to fit code, a failing test for each new behavior); your text still owes the helper the *why*, the acceptance criteria, and the forbidden list.
 8. **`capture` is for debugging only.** Not a communication channel.
 9. **Tidy up.** After reading results, move useful outputs to the project tree and keep `.ahelpa/` clean.
-10. **Helpers have full permissions by default.** They run as the local user. Use `--project` to scope working directories, `--safe` to omit or bound default danger flags, or git worktrees for isolation. `--project` sets the task boundary but is not a filesystem sandbox, so prompts should explicitly forbid unrelated home directories, global ahelpa archives, and other projects unless the task truly needs them. For Kimi, `--safe` only restores native approvals by omitting `--yolo`; it still auto-trusts the project and is not a sandbox.
+10. **Helpers have full permissions by default.** They run as the local user. Use `--project` to scope working directories, `--safe` to omit or bound default danger flags, or `--worktree` for isolation (a fresh git worktree beside the project on branch `ahelpa/<session-id>`, created from HEAD; the returned `projectPath` is where its `.ahelpa/` results land; ahelpa never deletes a worktree it handed back — only a launch that fails before returning rolls its own back — so run `git worktree remove <path> && git branch -D ahelpa/<session-id>` when you are done). A new worktree holds committed files only: uncommitted work is not there, and neither are installed dependencies, so put the install step (`bun install`, `go mod download`, …) in the task or at the front of `--check`. `--project` sets the task boundary but is not a filesystem sandbox, so prompts should explicitly forbid unrelated home directories, global ahelpa archives, and other projects unless the task truly needs them. For Kimi, `--safe` only restores native approvals by omitting `--yolo`; it still auto-trusts the project and is not a sandbox.
 11. **Inline refresh works without daemon.** `wait`, `check`, and `status` refresh session state even if the daemon isn't running.
 12. **Don't re-derive the CLI.** Follow this document for normal helper delegation. Only inspect `src/` or `tests/` when debugging ahelpa itself.
 13. **Trust prompt handling depends on the driver.** The Codex and Kimi drivers handle their directory trust prompts. On Kimi's first launch, ahelpa selects **Trust this folder**; Kimi persists that trust and may start project MCP servers from the directory. Claude Code fails fast if its workspace is untrusted: run `claude` there once and choose **Yes, I trust this folder**, then relaunch. Never auto-accept Claude's workspace trust dialog.
-14. **Choose a role by the task.** Use Claude's default `advisor` for analysis, plans, and review; pass `--role worker` for execution with a clear objective. Codex is always a `worker`. Roles choose model defaults, not permissions. Kimi does not accept `--role`.
+14. **Choose a role by the task.** Use Claude's default `advisor` for analysis and plans; `--role worker` for execution with a clear objective; `--role reviewer` (Claude or Codex) for adversarial review. The reviewer role swaps the task-file contract for a review-only one: no edits outside its result directory, verdict first, findings with `path:line` and severity, its own reruns with exit codes, at least three temporary mutations restored, and an explicit not-checked list. Codex accepts `worker` and `reviewer`, never `advisor`. Roles choose model defaults and contract, not permissions. Kimi does not accept `--role`.
+15. **One worktree, one writer.** Never let two helpers, or a helper and yourself, edit the same worktree at once: evidence can no longer say whose change is whose. Review hands get a frozen target (a commit, or `--worktree`) or a worktree nobody else touches while they run.
+16. **Chain hands explicitly.** When a task follows another helper's work, pass `--after <id>`. The new task file then opens with the previous hand's `task.md`, `summary.md` and `artifacts/` paths and the instruction to treat its claims as claims. Give the implementing hand `--check "<cmd>"` so the acceptance command is in its contract and rerun by `wait` on the final state; a rework hand gets a narrow mandate (one change per finding, full rerun after the last edit).
 
 ## Timing and Patience
 
@@ -82,7 +84,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 | Command | Description |
 |---------|-------------|
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--label] [--project] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Spawn a helper. Returns identity and known effective `role`, `model`, `effort`. |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--label] [--project] [--parent <id>] [--safe] [--model <model>] [--effort <level>] [--check "<cmd>"] [--after <id>] [--worktree]` | Spawn a helper. Returns identity, `projectPath`, effective `role`/`model`/`effort`, and `taskWarning` when the task looks like a temp-file pointer. |
 | `wait <id...> [--all] [--timeout <seconds>]` | Block until sessions complete or timeout (default 500s). |
 | `check [--parent <id>]` | Non-blocking status poll. |
 | `models [agent]` | List launch-time model options. |
@@ -105,11 +107,13 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 | Helper / role | Default model | Effort |
 | --- | --- | --- |
-| Codex `worker` (default and only role) | `gpt-6.1-sol` | `high` |
+| Codex `worker` (default) | `gpt-6.1-sol` | `high` |
+| Codex `reviewer` | `gpt-6.1-sol` | `xhigh` |
 | Claude `advisor` (default) | `claude-opus-5-5` | `xhigh` |
 | Claude `worker` | `claude-sonnet-5-5` | `high` |
+| Claude `reviewer` | `claude-opus-5-5` | `xhigh` |
 
-Use `--role worker` to select the Claude worker preset. `--model` and `--effort` override their defaults independently. Extra-high is spelled `xhigh`, not `extra`. Defaults are applied only to new launches; `resume` reuses stored settings, including unknown values in legacy sessions. `check` exposes the stored role/model/effort, while `status` shows the role. Kimi retains its native defaults.
+Use `--role worker` to select the Claude worker preset and `--role reviewer` for the review-only contract on either driver. `--model` and `--effort` override their defaults independently. Extra-high is spelled `xhigh`, not `extra`. Defaults are applied only to new launches; `resume` reuses stored settings, including unknown values in legacy sessions. `check` exposes the stored role/model/effort, while `status` shows the role. Kimi retains its native defaults.
 
 Use `ahelpa models` or `ahelpa models codex` to inspect the model information known to this ahelpa release. Pass `--model <model>` to `launch` when a helper should start on a specific model. For Codex, `gpt-5.6` is a stable convenience alias for `gpt-5.6-sol`; select `gpt-5.6-terra` or `gpt-5.6-luna` explicitly for those variants. Pass `--effort <level>` when the selected agent supports launch-time effort settings. `resume` reuses recorded launch settings that the selected driver supports, including a sticky safe posture; `resume --safe` can upgrade a default-posture record but omission cannot downgrade a safe one.
 
@@ -168,11 +172,33 @@ jq -r '.tags[]? // "untagged"' "${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl" |
 
 Find the transcript by grepping the agent's transcripts for the session ID from the ledger.
 
+## Running a Multi-hand Job
+
+The archive of past sessions says where delegated work goes wrong: implementers report "all green" from a cached or pre-final-edit run, their tests let most mutations survive, reviewers judge from the author's summary, and the host trusts the last voice it heard. Pair each hand's weakness with the next hand's contract:
+
+```bash
+# 1. Implement, with the acceptance command in the contract and rerun by wait.
+impl=$(ahelpa launch codex --role worker --file ./task-implement.md --check "go test -count=1 ./..." | jq -r .sessionId)
+ahelpa wait "$impl"            # read .evidence.check and .evidence.testFilesChanged before summary.md
+
+# 2. Adversarial review by a different model, chained to the implementation.
+rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./task-review.md | jq -r .sessionId)
+ahelpa wait "$rev"
+
+# 3. Rework with a narrow mandate, chained to the review.
+fix=$(ahelpa launch codex --role worker --after "$rev" --check "go test -count=1 ./..." --file ./task-rework.md | jq -r .sessionId)
+
+# 4. Focused re-review of the delta only.
+ahelpa launch codex --role reviewer --after "$fix" --file ./task-rereview.md
+```
+
+The host owns the ship decision. Form it from `evidence` and the diff, never from the last summary alone. See `references/profiles.md` for what each helper type's history says to watch for.
+
 ## Long-running Helpers
 
 Use `ahelpa wait` itself for long tasks; FIFO blocking is the efficient, durable waiting surface. Do not replace it with a one-shot helper or a polling messenger. If a wait returns `still_running`, re-wait on the same session. For parallel helpers, pass every ID to one `ahelpa wait` call (and use `--all` when all results are required).
 
-See `references/claude-code.md`, `references/codex.md`, and `references/kimi.md` for platform-specific setup.
+See `references/claude-code.md`, `references/codex.md`, and `references/kimi.md` for platform-specific setup, and `references/profiles.md` for which helper to pick per task type and what each one's archive history says to watch for.
 
 ## Troubleshooting
 

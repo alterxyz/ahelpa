@@ -94,17 +94,19 @@ Verify prerequisites with `command -v claude`, `command -v codex`, or `command -
 
 | Helper | Role | Default model | Effort |
 | --- | --- | --- | --- |
-| `codex` | `worker` (default and only role) | `gpt-6.1-sol` | `high` |
+| `codex` | `worker` (default) | `gpt-6.1-sol` | `high` |
+| `codex` | `reviewer` | `gpt-6.1-sol` | `xhigh` |
 | `claude-code` | `advisor` (default) | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
+| `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |
 
-Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
+Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Use `reviewer` for read-only adversarial review; its task contract forbids modifying files outside the result directory. Codex rejects `advisor`. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`) |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`) |
 | `wait <id...> [--all] [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>]` | Non-blocking status poll with inline refresh |
 | `models [agent]` | List launch-time model options |

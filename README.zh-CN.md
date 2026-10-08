@@ -94,17 +94,19 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 | Helper | 角色 | 默认模型 | Effort |
 | --- | --- | --- | --- |
-| `codex` | `worker`（默认且唯一角色） | `gpt-6.1-sol` | `high` |
+| `codex` | `worker`（默认） | `gpt-6.1-sol` | `high` |
+| `codex` | `reviewer` | `gpt-6.1-sol` | `xhigh` |
 | `claude-code` | `advisor`（默认） | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
+| `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |
 
-Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `ahelpa launch claude-code --role worker --file ./task.md` 会选择 Sonnet。显式 `--model`、`--effort` 分别覆盖对应默认值。角色只选择启动设置，不改变权限或任务范围。Kimi 保持原生模型默认值，不接受 `--role`。`models` 展示预设，`check` 展示已记录的角色、模型和 effort；resume 保留已记录设置，旧会话没有角色时也不会套用新默认。
+Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `ahelpa launch claude-code --role worker --file ./task.md` 会选择 Sonnet。显式 `--model`、`--effort` 分别覆盖对应默认值。`reviewer` 用于只读的对抗式审阅，其任务合同禁止修改结果目录之外的文件；Codex 仍拒绝 `advisor`。角色只选择启动设置，不改变权限或任务范围。Kimi 保持原生模型默认值，不接受 `--role`。`models` 展示预设，`check` 展示已记录的角色、模型和 effort；resume 保留已记录设置，旧会话没有角色时也不会套用新默认。
 
 ## 命令速览
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex` 或 `kimi`） |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex` 或 `kimi`） |
 | `wait <id...> [--all] [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>]` | 非阻塞状态查询，并做 inline refresh |
 | `models [agent]` | 列出启动时可选的模型 |
