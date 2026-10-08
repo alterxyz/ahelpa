@@ -3,15 +3,13 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
-const needsStateRoot = !process.env.AHELPA_HOME?.trim();
-const needsRuntimeRoot = !process.env.AHELPA_TMP_DIR?.trim();
-const testRoot = needsStateRoot || needsRuntimeRoot
-  ? mkdtempSync(join(tmpdir(), "ahelpa-tests-"))
-  : null;
-
-if (needsStateRoot) process.env.AHELPA_HOME = join(testRoot!, "state");
-if (needsRuntimeRoot) process.env.AHELPA_TMP_DIR = join(testRoot!, "runtime");
+// Always isolate. A helper launched by ahelpa inherits AHELPA_HOME pointing at
+// the real ~/.ahelpa, and a test run there once wrote fake sessions into the
+// real archive. Tests never get to use the inherited roots.
+const testRoot = mkdtempSync(join(tmpdir(), "ahelpa-tests-"));
+process.env.AHELPA_HOME = join(testRoot, "state");
+process.env.AHELPA_TMP_DIR = join(testRoot, "runtime");
 
 afterAll(() => {
-  if (testRoot) rmSync(testRoot, { recursive: true, force: true });
+  rmSync(testRoot, { recursive: true, force: true });
 });
