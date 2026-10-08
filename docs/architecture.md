@@ -143,7 +143,17 @@ After Kimi prints `[AHELPA:DONE]`, `resume` is rejected while the old helper is 
 
 ## Nesting
 
-Helpers can launch their own helpers, creating a session lineage. Launch validates a maximum depth (default 4, configurable via `AHELPA_MAX_NESTING_DEPTH`). Each child session records its parent ID, but ownership is not transitive — a host controls only the sessions it directly launched.
+Helpers can launch their own helpers, creating a session lineage. Each child session records its parent ID, but ownership is not transitive — a host controls only the sessions it directly launched.
+
+Recursion is bounded on three sides, all checked in `planLaunch` before any tmux session or file exists:
+
+| Bound | Default | Override | What it stops |
+| --- | --- | --- | --- |
+| Depth of a chain | 4 | `AHELPA_MAX_NESTING_DEPTH` | A helper that keeps delegating downward |
+| Active sessions in one tree (the root helper and all its descendants, counting `running`, `draining`, and `needs_attention`) | 8 | `AHELPA_MAX_ACTIVE_PER_TREE` | A helper that fans out sideways at a legal depth |
+| Launches from a `reviewer` session | refused | none | A read-only review hand delegating edits, or letting the author's reasoning reach the review |
+
+The host's own direct launches are not part of any tree: the host answers to a human, a helper's tree answers to the limit. Both numbers are exported into every helper's environment so nested `ahelpa launch` calls apply the same values.
 
 ## Archives
 

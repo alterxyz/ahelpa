@@ -1,4 +1,4 @@
-import { StateDB } from "./state";
+import { SessionRecord, StateDB } from "./state";
 
 export interface NestingInfo {
   depth: number;
@@ -8,6 +8,9 @@ export interface NestingInfo {
 }
 
 const DEFAULT_MAX_NESTING_DEPTH = 4;
+// Depth bounds how far a chain can go; this bounds how wide a tree can get.
+// Without it a single helper can fan out without limit at a legal depth.
+const DEFAULT_MAX_ACTIVE_PER_TREE = 8;
 
 function buildSessionLineage(db: StateDB, sessionId: string): string[] {
   const lineage: string[] = [];
@@ -54,19 +57,35 @@ export function getPendingLaunchNestingInfo(db: StateDB, parentId: string): Nest
     };
   }
 
+  const lineage = buildSessionLineage(db, parentId);
   return {
     depth: parentSession.depth + 1,
     parentSessionId: parentId,
-    rootSessionId: null,
-    lineage: [],
+    rootSessionId: lineage[0] || parentId,
+    lineage,
   };
 }
 
-export function getMaxNestingDepth(): number {
-  const raw = process.env.AHELPA_MAX_NESTING_DEPTH;
-  if (!raw) return DEFAULT_MAX_NESTING_DEPTH;
+// Every active session whose lineage starts at rootId, the root included.
+// Launches from the host itself have no root session and are not counted:
+// the host answers to a human, a helper's tree answers to this limit.
+export function listActiveSessionsInTree(db: StateDB, rootId: string): SessionRecord[] {
+  return db.listActiveSessions().filter((session) => {
+    try { return buildSessionLineage(db, session.id)[0] === rootId; } catch { return false; }
+  });
+}
 
+export function getMaxActivePerTree(): number {
+  return readPositiveInt(process.env.AHELPA_MAX_ACTIVE_PER_TREE, DEFAULT_MAX_ACTIVE_PER_TREE);
+}
+
+export function getMaxNestingDepth(): number {
+  return readPositiveInt(process.env.AHELPA_MAX_NESTING_DEPTH, DEFAULT_MAX_NESTING_DEPTH);
+}
+
+function readPositiveInt(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
   const parsed = parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_MAX_NESTING_DEPTH;
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
   return parsed;
 }

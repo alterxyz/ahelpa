@@ -4,7 +4,7 @@ import { defaultWakeup } from "../wakeup";
 import { getDriver } from "../drivers/registry";
 import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
-import { getPendingLaunchNestingInfo, getMaxNestingDepth } from "../nesting";
+import { getPendingLaunchNestingInfo, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
 import { $ } from "bun";
 import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve } from "path";
@@ -112,6 +112,7 @@ function helperEnvironmentPrefix(sessionId: string, maxDepth: number): string {
   const assignments = [
     `AHELPA_PARENT_ID=${sessionId}`,
     `AHELPA_MAX_NESTING_DEPTH=${maxDepth}`,
+    `AHELPA_MAX_ACTIVE_PER_TREE=${getMaxActivePerTree()}`,
     `AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`,
     `AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`,
   ];
@@ -158,6 +159,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
         : `Max nesting depth exceeded (${nesting.depth}/${maxDepth}).`,
     );
   }
+  assertParentMayLaunch(input.db, input.parentId, nesting.rootSessionId);
 
   const fileHandoff = planFileHandoff(input.projectPath, sessionId);
   const baseLaunchCmd = driver.buildLaunchCommand({
@@ -181,6 +183,26 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     worktreeSource,
     input,
   };
+}
+
+// A reviewer's contract is read-only; launching a worker would be an edit by
+// proxy and would let the author's reasoning reach the review. A helper's tree
+// is bounded in width as well as depth so a legal depth cannot fan out forever.
+function assertParentMayLaunch(db: StateDB, parentId: string, rootSessionId: string | null): void {
+  const parent = db.getSession(parentId);
+  if (!parent) return;
+  if (parent.role === "reviewer") {
+    throw new Error(`Session ${parentId} is a reviewer and may not launch helpers; review hands are read-only.`);
+  }
+  if (!rootSessionId) return;
+  const maxActive = getMaxActivePerTree();
+  const active = listActiveSessionsInTree(db, rootSessionId);
+  if (active.length >= maxActive) {
+    const ids = active.map((session) => `${session.id}(${session.status})`).join(", ");
+    throw new Error(
+      `Max active helpers per tree exceeded (${active.length}/${maxActive} under ${rootSessionId}). Wait for or kill one of: ${ids}`,
+    );
+  }
 }
 
 export async function createWorktree(source: string, path: string, sessionId: string): Promise<void> {

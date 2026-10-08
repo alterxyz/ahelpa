@@ -34,7 +34,7 @@ Ownership 不传递。如果 agent A 启动 helper B，helper B 又启动 helper
 
 ## Nesting limit
 
-Helper 可以继续启动 helper，但有最大深度限制，默认 4。这样可以避免无限递归 spawn。限制由 `AHELPA_MAX_NESTING_DEPTH` 配置，并在 launch 时校验。
+Helper 可以继续启动 helper。三个限制都在 launch 时、产生任何副作用之前校验，用于防止失控 spawn：链深度（默认 4，`AHELPA_MAX_NESTING_DEPTH`）、每棵树的活跃 session 数（默认 8，`AHELPA_MAX_ACTIVE_PER_TREE`），以及直接拒绝来自 `reviewer` session 的 launch，因为其契约是只读的。见[架构](architecture.md#nesting)。
 
 ## 暗号可信度
 

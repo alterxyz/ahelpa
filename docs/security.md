@@ -34,7 +34,7 @@ Ownership is not transitive. If agent A launches helper B, and helper B launches
 
 ## Nesting Limits
 
-Helpers can launch their own helpers up to a configurable maximum depth (default 4). This prevents runaway recursive spawning. The limit is set via `AHELPA_MAX_NESTING_DEPTH` and validated at launch time.
+Helpers can launch their own helpers. Three bounds, all validated at launch time before any side effect, prevent runaway spawning: chain depth (default 4, `AHELPA_MAX_NESTING_DEPTH`), active sessions per tree (default 8, `AHELPA_MAX_ACTIVE_PER_TREE`), and a flat refusal for launches from `reviewer` sessions, whose contract is read-only. See [Architecture](architecture.md#nesting).
 
 ## Sentinel Trust
 
