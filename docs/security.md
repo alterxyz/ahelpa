@@ -28,9 +28,9 @@ The owner token returned by `launch` gates all mutating operations:
 | --- | --- |
 | `send`, `task`, `model`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean` |
 
-Read-only status views intentionally do not expose owner tokens. This means any agent can observe session status (who's running, what state they're in), but only the launching agent can interact with or terminate a session.
+Read-only status views intentionally do not expose owner tokens. This means any agent can observe session status (who's running, what state they're in), but interaction requires the session's own token. Termination has the lineage exception below.
 
-Ownership is not transitive. If agent A launches helper B, and helper B launches helper C, agent A cannot control C — only B can. "Your friend's friend is not your friend."
+Ownership is not transitive. If agent A launches helper B, and helper B launches helper C, agent A cannot control C — only B can. The sole carve-out is **abort authority follows lineage; control does not**: `kill B --token <B-token> --tree` can stop B and its descendants, including C. It authenticates B's token before any kill; a wrong token stops nothing. A still cannot `send`, `task`, `model`, `logs`, `capture`, or `resume` C with B's token. Plain `kill` still affects only its target, and `--tree` grants no authority over sibling trees.
 
 ## Nesting Limits
 

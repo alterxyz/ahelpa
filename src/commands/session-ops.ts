@@ -1,6 +1,7 @@
 // Operations on an existing session: everything a caller can do to a helper
 // after launch, except waiting (wait.ts owns the wakeup protocol). The
-// token-gated ops all share the same access rule: only the owner may act.
+// token-gated ops authorize the exact target. kill --tree alone extends abort
+// authority to descendants; it grants no other control over those sessions.
 
 import { StateDB, type SessionRecord } from "../state";
 import { Tmux } from "../tmux";
@@ -8,7 +9,7 @@ import { Archive } from "../archive";
 import { defaultWakeup, Wakeup } from "../wakeup";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { requireAuthorizedSession } from "../session-access";
-import { activeSessionAncestorIds, getSessionNestingInfo } from "../nesting";
+import { activeSessionAncestorIds, getSessionNestingInfo, listActiveDescendants } from "../nesting";
 import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff } from "../file-handoff";
 import { getDriver } from "../drivers/registry";
@@ -123,15 +124,118 @@ export const switchModel = withAuth(async ({ db, session }, opts: ModelSwitchOpt
   return result;
 });
 
-export const kill = withAuth(async ({ db, session }) => {
+async function stopSession(db: StateDB, session: SessionRecord, descendant = false): Promise<boolean> {
+  let archive: Archive | undefined;
+  let archiveRevision: string | null = null;
+  let shouldCapture = false;
+  // Read the row and archive marker under the same lock so a separate
+  // settler cannot publish its archive between these two observations.
+  const observed = db.immediateTransaction(() => {
+    const current = db.getSession(session.id);
+    if (!current) return null;
+    try {
+      archive = new Archive(defaultRuntimeLayout.archiveDir());
+      archiveRevision = archive.revision(session.id);
+      // A previous turn's archive on a running session is not its final result.
+      shouldCapture = current.status === SESSION_STATUS.Running || !archive.get(session.id);
+    } catch {}
+    return current;
+  });
+  if (!observed) return false;
+  let lastOutput: string | undefined;
+  if (shouldCapture) {
+    try { lastOutput = await Tmux.capture(session.id, 500); } catch {}
+  }
+  const hasNewSettlement = (current: SessionRecord): boolean => {
+    if (!archive || current.status === SESSION_STATUS.Running || current.launchPid) return false;
+    const revision = archive.revision(session.id);
+    return revision !== null && revision !== archiveRevision;
+  };
+  if (descendant) {
+    const current = db.getSession(session.id);
+    // Settlement while capture awaited owns both the result and its cleanup.
+    if (!current || current.status === SESSION_STATUS.Idle
+      || current.status === SESSION_STATUS.Dead || current.status === SESSION_STATUS.Error
+      || (current.version !== observed.version && hasNewSettlement(current))) return false;
+  }
   try {
     await Tmux.kill(session.id);
   } catch (error) {
-    // Successful tasks may already have had their terminal reclaimed.
+    // Successful tasks may already have had their terminal reclaimed; a
+    // reserved launch may not have created it yet. Dead cancels its launch CAS.
     if (await Tmux.hasSession(session.id)) throw error;
   }
-  defaultWakeup.cleanup(session.id);
-  db.updateStatus(session.id, SESSION_STATUS.Dead);
+  // Capture precedes termination; only then can we commit dead + archive.
+  // A version conflict may be metadata, publication, or a re-armed turn.
+  // Re-arbitrate under the write lock, preserving only a newer settlement.
+  let expected = observed;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let committed = false;
+    let finished = false;
+    try {
+      db.immediateTransaction(() => {
+        if (attempt > 0) {
+          const current = db.getSession(session.id);
+          if (!current || hasNewSettlement(current)) { finished = true; return; }
+          expected = current;
+        }
+        if (!db.compareAndSetStatus(session.id, expected.status, SESSION_STATUS.Dead, expected.version)) return;
+        if (lastOutput !== undefined) archive!.save(session.id, {
+          status: SESSION_STATUS.Dead,
+          lastOutput,
+          agentResumeId: expected.agentResumeId ?? undefined,
+        });
+        committed = true;
+      });
+    } catch {
+      // Archive failure rolls the row back. Cancel the launch and record the
+      // termination only if this attempt's row has not changed meanwhile.
+      committed = db.compareAndSetStatus(session.id, expected.status, SESSION_STATUS.Dead, expected.version);
+    }
+    if (committed) defaultWakeup.cleanup(session.id);
+    if (committed || finished) return true;
+  }
+  throw new Error(`Session ${session.id} changed repeatedly after termination; kill status was not committed`);
+}
+
+export const MAX_TREE_KILL_PASSES = 4;
+
+export interface TreeKillResult { killed: string[]; missed: string[]; }
+
+export const kill = withAuth(async ({ db, session }, opts: { tree?: boolean } = {}): Promise<TreeKillResult | void> => {
+  if (!opts.tree) {
+    await stopSession(db, session);
+    return;
+  }
+
+  const killed: string[] = [];
+  const seen = new Set<string>();
+  for (let pass = 0; pass < MAX_TREE_KILL_PASSES; pass++) {
+    const descendants = listActiveDescendants(db, session.id).filter((child) => !seen.has(child.id));
+    if (pass > 0 && descendants.length === 0) break;
+    for (const child of descendants) {
+      seen.add(child.id);
+      const current = db.getSession(child.id);
+      // A daemon may have settled this child while another kill was awaiting tmux.
+      if (!current || current.status === SESSION_STATUS.Idle
+        || current.status === SESSION_STATUS.Dead || current.status === SESSION_STATUS.Error) continue;
+      try {
+        if (await stopSession(db, current, true)) killed.push(child.id);
+      } catch {
+        // A failed descendant must not prevent stopping its siblings or root.
+        // The final scan reports it if it is still active; each ID is tried once.
+      }
+    }
+    if (pass === 0 && db.getSession(session.id)?.status !== SESSION_STATUS.Dead) {
+      // Keep root failures authoritative as in plain kill. A dead root still
+      // authorizes sweeping its descendants, without another terminal kill.
+      await stopSession(db, session);
+      killed.push(session.id);
+    }
+  }
+  // Also includes children first registered during the last allowed pass.
+  return { killed, missed: listActiveDescendants(db, session.id)
+    .filter((child) => !killed.includes(child.id)).map((child) => child.id) };
 });
 
 export const logs = withAuth(async ({ session }) => {

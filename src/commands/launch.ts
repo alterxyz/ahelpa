@@ -4,7 +4,7 @@ import { defaultWakeup } from "../wakeup";
 import { getDriver } from "../drivers/registry";
 import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
-import { getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
+import { activeSessionAncestorIds, getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
 import { $ } from "bun";
 import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, relative, sep } from "path";
@@ -378,6 +378,18 @@ const driverRuntime: DriverRuntime = {
   sendKey: (sessionId, key) => Tmux.sendKey(sessionId, key),
 };
 
+function rollbackReservation(db: StateDB, sessionId: string): void {
+  db.immediateTransaction(() => {
+    // Remove the reservation from the active set before checking ancestry.
+    // A late child or active native resume still needs this lineage link;
+    // clean can reclaim the tombstone once those sessions no longer need it.
+    db.markLaunchRolledBack(sessionId);
+    if (db.listSessions(sessionId).length === 0 && !activeSessionAncestorIds(db).has(sessionId)) {
+      db.deleteSession(sessionId);
+    }
+  });
+}
+
 export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   let tmuxCreated = false;
   let handoffOwned = false;
@@ -489,7 +501,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }
     if (wakeupOwned) defaultWakeup.cleanup(plan.sessionId);
     if (dbCreated) {
-      try { plan.input.db.deleteSession(plan.sessionId); } catch {}
+      try { rollbackReservation(plan.input.db, plan.sessionId); } catch {}
     }
     if (handoffOwned) {
       try { unlinkSync(plan.fileHandoff.taskFilePath); } catch {}
@@ -650,7 +662,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       try { rmSync(fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
     }
     if (dbCreated) {
-      try { input.db.deleteSession(sessionId); } catch {}
+      try { rollbackReservation(input.db, sessionId); } catch {}
     }
     throw error;
   }

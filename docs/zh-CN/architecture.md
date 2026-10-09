@@ -39,7 +39,11 @@ SQLite 建表和 schema 迁移在同一个 immediate transaction 内执行。CLI
 4. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
 5. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、清理 pipe。
 6. **Wakeup**：`wait` 收到 FIFO 事件后返回，调用者从文件交接目录读取结果。
-7. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。显式 `kill` 后记录保持为 `dead`；已经开始的刷新不会在 capture 或终端清理结束后覆盖该状态。
+7. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。
+
+显式 `kill`（包括 `kill --tree` 的每次终止）保留已有 settlement archive。未结算 session 的处理顺序是：捕获最后 500 行 pane 输出 → 终止 tmux → 通过 compare-and-set 一起提交 `dead` 与快照，再清理 FIFO。记录版本变化时，kill 会重新读取并按新版本重试，最多尝试提交三次。元数据更新、启动发布或 follow-up 恢复监控不会导致已捕获结果丢失。如果存在更新的 settlement archive，则保留该次结算的状态和输出，包括 `idle` → `draining` 阶段；已被 `clean` 删除的记录不会重建。Tree 模式还会跳过捕获期间已结算的后代，同一 ID 不会同时列入 `killed` 和 `missed`。捕获或归档写入失败不会阻止终止；pane 不可用时保留已有 archive。终止失败且终端仍存在时，记录和归档保持不变。没有终端的预留记录也会被标为 `dead`，取消启动发布。
+
+启动或恢复失败、取消后的 rollback 通常删除预留记录；如果子记录或活跃的 resume 祖先关系仍需要该 lineage 链接，则保留清除了启动 PID 的 `dead` tombstone。Dead tombstone 不占活跃 session 配额。`clean` 保留仍被需要的祖先，等后代结算且终端退出后回收这些记录；archive 继续保留。
 
 ### 状态转换
 
@@ -155,7 +159,7 @@ Host 每次直接 launch 都创建独立的 helper tree；不会对 host 的不�
 
 ## Archives
 
-Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`。这样 tmux session 清理后，`logs` 仍能读取输出。Archive 由 daemon 或 inline refresh 在 settlement 中写入，不会自动裁剪。
+Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`。这样 tmux session 清理后，`logs` 仍能读取输出。Archive 由 daemon 或 inline refresh 在 settlement 中写入，显式 `kill` 也会在终止终端前写入；不会自动裁剪。
 
 保留的 SQLite 记录提供 owner 校验和 resume 设置。运行 `clean` 删除记录后，该 session 的带 token 的 `logs`、`resume` 调用不再可用；archive 和项目交接文件仍留在磁盘上。
 
