@@ -69,6 +69,12 @@ bun run closure:gate
 
 The gate runs tests, typechecks, builds, and launches all three drivers. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
 
+## Open Work
+
+Campaign records with unchecked boxes live in `docs/superpowers/plans/`. At the start of a session, check the newest one for open items before proposing new work:
+
+- `2026-10-08-helper-contract-and-evidence.md` — observation period for the v0.9.0 contract / evidence / `--check` / nudge mechanisms; the "Open work" section has the commands to run and the decisions to make.
+
 ## Guardrails
 
 - Preserve the skill distribution model: public repo skill source, generated runtime bundle for local packages, and GitHub Release assets for public installs.
