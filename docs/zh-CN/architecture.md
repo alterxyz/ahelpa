@@ -33,7 +33,7 @@ SQLite 建表和 schema 迁移在同一个 immediate transaction 内执行。CLI
 
 一个 session 从 `running` 开始，可以结算为 `idle`、`error`、`needs_attention` 或 `dead`。成功完成后，在回收终端期间会经过 `draining` 状态。
 
-1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid12}`）和 owner token。在 SQLite immediate transaction 中检查调用方和嵌套限制，并预留 session，记录 parent、job、适用时的 resume 关联，以及启动进程标记。之后才创建 worktree、tmux session 或交接文件，通过所选 driver 提交第一轮任务。因此 helper 读取任务前已能找到自身记录。任务准备和 FIFO 创建完成后，launch 清除标记，并在需要时启动 daemon。投递已可见、但尚未确认新回合时，会返回 warning，并把 helper 保留为 `needs_attention`。启动失败会回滚预留记录、tmux session、FIFO、交接文件及本次创建的 worktree。Resume 同样在外部副作用前执行这条检查并预留的路径。
+1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid12}`）和 owner token。在 SQLite immediate transaction 中检查调用方和嵌套限制，并预留 session，记录 parent、job、适用时的 resume 关联，以及启动进程标记。之后才创建 worktree、tmux session 或交接文件，通过所选 driver 提交第一轮任务。因此 helper 读取任务前已能找到自身记录。任务准备和 FIFO 创建完成后，仅当记录仍为 `running` 且启动 PID 仍属于本进程时，launch 才清除标记，并在需要时启动 daemon。tmux 创建完成后也会立即检查预留记录。预留记录被 kill 或删除时，启动取消，返回取消错误，并回收本次启动创建的资源。投递已可见、但尚未确认新回合时，会返回 warning，并把 helper 保留为 `needs_attention`。启动失败会回滚预留记录、tmux session、FIFO、交接文件及本次创建的 worktree。Resume 同样在外部副作用前执行这条检查并预留的路径，在事务内重新读取来源记录及当前 parent/resume 祖先关系；来源记录已被删除时拒绝恢复。
 2. **任务投递**：driver 的 `prepareForTask` 处理 agent-specific 启动流程，例如 ready 检查和 trust prompt。随后通过 `tmux send-keys` 发送任务指令，告诉 helper 读取哪个任务文件、把结果写到哪里。
 3. **提交后准备**：driver 的 `afterTaskSubmitted` hook 处理第一条消息后的 agent-specific 确认。Kimi 只有在收到该消息后才会创建原生 `session_*` ID，因此 launch 流程会在这里捕获 resume token。
 4. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
@@ -56,7 +56,7 @@ idle/dead + 原生 resume token ── resume ─► needs_attention ── send
 
 向 `needs_attention` session 发送输入后，driver 确认新用户回合已开始，才会恢复为 `running` 并继续监控。该转换有状态条件：即使输入投递已开始，并发执行的 `kill` 仍然优先，不会被重新标为运行中。如果终端消失，则转为 `dead`。
 
-预留记录从 `running` 开始，在 launch 或 resume 准备期间带有启动进程标记。该进程仍存活时，daemon 和 inline refresh 会跳过它，避免因 tmux 尚未创建或旧暗号而提前结算。启动进程退出却未清除标记时，refresh 会清除失效标记并恢复正常状态核对。`wait` 把准备阶段视为待完成，FIFO 尚未创建时也遵守原有 deadline。
+预留记录从 `running` 开始，在 launch 或 resume 准备期间带有启动进程标记。该进程仍存活且预留时间未超过三分钟启动租约（`LAUNCH_STARTUP_LEASE_MS`，从 `created_at` 计时）时，daemon 和 inline refresh 会跳过它，避免因 tmux 尚未创建或旧暗号而提前结算。租约超过最慢 driver 的预算：Codex 允许 82 秒 readiness 和 5 秒提交。启动进程退出或租约到期时，refresh 会以条件更新清除标记并恢复状态核对，即使 PID 已被复用。尚未发布的 resume 会进入 `needs_attention`，等待新任务，避免被原生会话的旧 DONE 提前结算。`wait` 把准备阶段视为待完成，FIFO 尚未创建时也遵守原有 deadline。
 
 `still_running` 是 `wait` 的返回值，不是 session 状态。它表示等待超时前 session 还没有 settle。
 
@@ -149,7 +149,7 @@ Launch 和 resume 在同一个 SQLite immediate transaction 中检查实际调�
 | 一棵树中的活跃 session 数（根 helper 及其全部后代，计入 `running`、`draining`、`needs_attention`） | 8 | `AHELPA_MAX_ACTIVE_PER_TREE` | helper 在合法深度上横向无限展开 |
 | 从 `reviewer` 调用方发起 launch 或 resume | 拒绝 | 无 | 只读的 review hand 借他人之手修改，或让作者的推理进入 review |
 
-Host 每次直接 launch 都创建独立的 helper tree；不会对 host 的不同 root 合并计数。`clean` 保留连接活跃后代所需的已结算祖先记录，因此清理不会拆散树配额。后代结算、终端退出后，这些记录才可删除。Resume 保留原 parent，不会降低记录深度；实际调用方更深时，可以提高该深度。被恢复的 root 通过现有 `resumed_from` 关联留在原树中。两个限制值都会导出到每个 helper 的环境变量中。
+Host 每次直接 launch 都创建独立的 helper tree；不会对 host 的不同 root 合并计数。`clean` 保留本轮所有存留 session 所需的 parent 和 resume 祖先，包括启动预留、running/draining/attention session，以及仍有终端的已结算 idle/error session。这也覆盖结算时 idle 转为 draining 的窗口，避免清理拆散树配额。后代结算、终端退出后，这些记录才可删除。Resume 保留原 parent，不会降低记录深度；实际调用方更深时，可以提高该深度。被恢复的 root 通过现有 `resumed_from` 关联留在原树中。两个限制值都会导出到每个 helper 的环境变量中。
 
 实际调用方由 `AHELPA_PARENT_ID` 对应的现存 SQLite session 确定，不受显式 `--parent` 覆盖。Reviewer 调用方一律拒绝；helper 的 `--parent` 必须留在自己的树内，深度检查同时覆盖实际调用方和指定 parent。Host 调用方仍可指定任意 parent 追踪 ID。Job 独立于树：显式 `--job` 优先于 `--after` session 保存的 job，再优先于实际调用方保存的 job；host shell 的 `AHELPA_JOB_ID` 不作为继承来源。
 

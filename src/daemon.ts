@@ -27,6 +27,10 @@ function cleanupSessionFiles(sessionId: string): void {
 
 // ponytail: 15s is generous for /exit or Escape; bump if a driver needs longer cleanup
 const DRAIN_TIMEOUT_MS = 15_000;
+// Codex is slowest: 2s grace + 20 input polls + 60 MCP polls + 10 x 0.5s
+// submission = 87s. Three minutes leaves room for tmux/file/worktree setup,
+// while bounding stale reservations whose numeric PID has been reused.
+export const LAUNCH_STARTUP_LEASE_MS = 180_000;
 const drainingAt = new Map<string, number>();
 // ponytail: debounce — only flag after N consecutive polls with no working signal.
 // 4 polls × 3s = ~12s of inactivity before escalating. Startup is handled by
@@ -99,10 +103,12 @@ export async function refreshSessionStatuses(
         try { process.kill(session.launchPid, 0); } catch (error) {
           launcherAlive = (error as NodeJS.ErrnoException).code !== "ESRCH";
         }
-        if (launcherAlive) continue;
-        // A crashed launcher no longer owns the startup window. The normal
-        // refresh can now reconcile its missing terminal or delivered task.
-        db.completeLaunch(session.id);
+        const leaseExpired = nowMs - Date.parse(session.createdAt) >= LAUNCH_STARTUP_LEASE_MS;
+        if (launcherAlive && !leaseExpired) continue;
+        // An exited launcher or expired lease no longer owns startup. Resume
+        // has no new task yet; ordinary launches resume normal monitoring.
+        if (!db.completeLaunch(session.id, session.launchPid, undefined,
+          session.resumedFrom ? SESSION_STATUS.NeedsAttention : undefined)) continue;
         const current = db.getSession(session.id);
         if (!current) continue;
         session = current;

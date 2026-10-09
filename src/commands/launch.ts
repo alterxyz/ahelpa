@@ -305,15 +305,34 @@ function assertCallerMayLaunch(db: StateDB, callerId: string | undefined, treeId
 
 // No await inside this write transaction: checks and the counted row are one
 // operation across CLI processes, before any external launch resource exists.
-function reserveSession(db: StateDB, input: CreateSessionInput, callerId: string | undefined, maxDepth: number, treeId?: string): void {
+function reserveSession(db: StateDB, input: CreateSessionInput, callerId: string | undefined, maxDepth: number): void {
   db.immediateTransaction(() => {
+    // Resume may have awaited terminal liveness while clean removed or changed
+    // its source. Resolve its current ancestry under the reservation lock.
+    const source = input.resumedFrom ? db.getSession(input.resumedFrom) : null;
+    if (input.resumedFrom && !source) {
+      throw new Error(`Cannot resume: source session ${input.resumedFrom} no longer exists`);
+    }
+    if (source) {
+      if (source.status !== SESSION_STATUS.Idle && source.status !== SESSION_STATUS.Dead) {
+        throw new Error(`Cannot resume: source session ${source.id} must be idle or dead`);
+      }
+      input = { ...input, parentId: source.parentId, depth: Math.max(input.depth ?? 1, source.depth) };
+    }
     const nesting = getPendingLaunchNestingInfo(db, input.parentId);
-    const rootId = treeId ?? nesting.rootSessionId ?? input.id;
+    const rootId = source ? getSessionTreeId(db, source.id) : nesting.rootSessionId ?? input.id;
     const depth = assertCallerMayLaunch(db, callerId, rootId, Math.max(input.depth ?? 1, nesting.depth));
     if (depth > maxDepth) throw new Error(`Max nesting depth exceeded (${depth}/${maxDepth}).`);
     assertParentMayLaunch(db, input.parentId, rootId);
     db.createSession({ ...input, depth, launchPid: process.pid });
   });
+}
+
+function assertLaunchReservation(db: StateDB, sessionId: string): void {
+  const session = db.getSession(sessionId);
+  if (session?.status !== SESSION_STATUS.Running || session.launchPid !== process.pid) {
+    throw new Error(`Launch cancelled: reservation ${sessionId} is no longer owned by this launcher`);
+  }
 }
 
 export async function createWorktree(source: string, path: string, sessionId: string): Promise<void> {
@@ -375,7 +394,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       checkCmd: plan.input.check,
       afterId: plan.input.after,
       jobId: plan.jobId,
-    }, plan.callerId, plan.maxDepth, plan.treeId);
+    }, plan.callerId, plan.maxDepth);
     dbCreated = true;
     if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
     assertFileHandoffAvailable(plan.fileHandoff);
@@ -386,6 +405,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     const baseCommit = await currentCommit(plan.input.projectPath);
     await Tmux.create(plan.sessionId, plan.launchCmd);
     tmuxCreated = true;
+    assertLaunchReservation(plan.input.db, plan.sessionId);
     // Re-check after tmux creation so a concurrent/stale handoff is never
     // overwritten by this launch. We own the tmux, but not those files.
     assertFileHandoffAvailable(plan.fileHandoff);
@@ -435,7 +455,9 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }
     await defaultWakeup.prepare(plan.sessionId);
     wakeupOwned = true;
-    plan.input.db.completeLaunch(plan.sessionId, baseCommit, submissionUnconfirmed ? SESSION_STATUS.NeedsAttention : undefined);
+    if (!plan.input.db.completeLaunch(plan.sessionId, process.pid, baseCommit, submissionUnconfirmed ? SESSION_STATUS.NeedsAttention : undefined)) {
+      throw new Error(`Launch cancelled: reservation ${plan.sessionId} is no longer owned by this launcher`);
+    }
 
     if (!daemon.isDaemonRunning()) {
       daemon.startDaemon();
@@ -563,11 +585,12 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       baseCommit: oldSession.baseCommit,
       afterId: oldSession.afterId,
       jobId: validateJobId(oldSession.jobId ?? null),
-    }, callerId, maxDepth, getSessionTreeId(input.db, oldSession.id));
+    }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
     await Tmux.create(sessionId, launchCmd);
     tmuxCreated = true;
+    assertLaunchReservation(input.db, sessionId);
     // Do not hand the new tmux session back until the driver's startup/trust
     // flow has had a chance to reach an input prompt. Otherwise an immediate
     // `send` can be typed into a loading or confirmation screen.
@@ -576,7 +599,9 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     await defaultWakeup.prepare(sessionId);
     wakeupOwned = true;
     // No new task yet: the host decides when the resumed hand starts a turn.
-    input.db.completeLaunch(sessionId, undefined, SESSION_STATUS.NeedsAttention);
+    if (!input.db.completeLaunch(sessionId, process.pid, undefined, SESSION_STATUS.NeedsAttention)) {
+      throw new Error(`Launch cancelled: reservation ${sessionId} is no longer owned by this launcher`);
+    }
 
     if (!daemon.isDaemonRunning()) {
       daemon.startDaemon();

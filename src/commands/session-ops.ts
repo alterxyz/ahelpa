@@ -184,22 +184,30 @@ export async function clean(db: StateDB, layout: RuntimeLayout = defaultRuntimeL
       || session.status === SESSION_STATUS.Idle
       || session.status === SESSION_STATUS.Error,
   );
-  let removed = 0;
+  // Decide terminal liveness before deleting any ancestor: settled children
+  // may still own a terminal, including the idle -> draining settle window.
+  const absent = new Set<string>();
   for (const session of cleanable) {
-    if (await Tmux.hasSession(session.id)) continue;
-    // Recheck under the same write lock used by launch reservations: a child
-    // may have registered while hasSession awaited its terminal result.
-    db.immediateTransaction(() => {
-      const current = db.getSession(session.id);
-      if (!current || (current.status !== SESSION_STATUS.Dead
-        && current.status !== SESSION_STATUS.Idle && current.status !== SESSION_STATUS.Error)) return;
-      if (activeSessionAncestorIds(db).has(session.id)) return;
-      wakeup.cleanup(session.id);
-      try { unlinkSync(layout.taskFilePath(session.id)); } catch {}
-      db.deleteSession(session.id);
-      removed++;
-    });
+    if (!await Tmux.hasSession(session.id)) absent.add(session.id);
   }
+  let removed = 0;
+  db.immediateTransaction(() => {
+    // Launch/settle may have changed records while liveness checks awaited.
+    const current = db.listSessions();
+    const deletable = new Set(current.filter((session) => absent.has(session.id)
+      && (session.status === SESSION_STATUS.Dead
+        || session.status === SESSION_STATUS.Idle || session.status === SESSION_STATUS.Error))
+      .map((session) => session.id));
+    const retained = activeSessionAncestorIds(db,
+      current.filter((session) => !deletable.has(session.id)).map((session) => session.id));
+    for (const id of deletable) {
+      if (retained.has(id)) continue;
+      wakeup.cleanup(id);
+      try { unlinkSync(layout.taskFilePath(id)); } catch {}
+      db.deleteSession(id);
+      removed++;
+    }
+  });
   return { removed, orphanFiles: await sweepOrphanFiles(db, layout) };
 }
 
