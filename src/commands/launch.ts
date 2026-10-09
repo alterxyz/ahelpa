@@ -6,14 +6,15 @@ import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } fr
 import * as daemon from "../daemon";
 import { getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
 import { $ } from "bun";
-import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync } from "fs";
+import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, relative, sep } from "path";
 import { defaultRuntimeLayout } from "../runtime-layout";
-import { isTaskInstructionEcho, planFileHandoff, prepareFileHandoff, type FileHandoffPlan, type HandoffContext } from "../file-handoff";
+import { isTaskInstructionEcho, ORIGINAL_ASK_UNAVAILABLE, planFileHandoff, prepareFileHandoff, type FileHandoffPlan, type HandoffContext } from "../file-handoff";
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
 import { resolveLaunchProfile } from "../launch-profiles";
+import { computeTargetFingerprint, LAUNCH_FINGERPRINT_TIMEOUT_MS } from "../evidence";
 
 export interface LaunchInput {
   db: StateDB;
@@ -28,8 +29,9 @@ export interface LaunchInput {
   role?: HelperRole;
   // Acceptance command rerun by `wait` on the helper's final state.
   check?: string;
-  // Session this hand follows; its task and summary paths go into the task file.
+  // Session this hand follows; reviewers receive its ask without its claims.
   after?: string;
+  unblind?: boolean;
   // Run in a fresh git worktree beside the project so one worktree has one writer.
   worktree?: boolean;
   // The task text came from --file, so a temp path inside it is content, not a pointer.
@@ -106,7 +108,14 @@ function previousHandContext(db: StateDB, afterId: string): NonNullable<HandoffC
     throw new Error(`--after session ${afterId} stores a relative project path; its result files cannot be located from another directory`);
   }
   const plan = planFileHandoff(previous.projectPath, previous.id);
-  return { sessionId: previous.id, taskCopyPath: plan.taskCopyPath, summaryPath: plan.summaryPath, artifactsDir: plan.artifactsDir };
+  return {
+    sessionId: previous.id,
+    taskCopyPath: plan.taskCopyPath,
+    ...(existsSync(plan.askPath) ? { askPath: plan.askPath, askIncomplete: readFileSync(plan.askPath, "utf8").startsWith(ORIGINAL_ASK_UNAVAILABLE) } : {}),
+    summaryPath: plan.summaryPath,
+    artifactsDir: plan.artifactsDir,
+    ...(previous.baseCommit ? { baseCommit: previous.baseCommit } : {}),
+  };
 }
 
 function generateAvailableSessionId(db: StateDB, prefix: string): string {
@@ -202,6 +211,7 @@ function resolveProjectPath(projectPath: string): string {
 }
 
 export function planLaunch(input: LaunchInput): LaunchPlan {
+  if (input.unblind && input.role !== "reviewer") throw new Error("--unblind requires --role reviewer");
   const driver = getDriver(input.agentType);
   // Resolve once in the caller's working directory. The helper changes cwd,
   // and a later resume may be invoked from an entirely different directory.
@@ -222,6 +232,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     role: input.role,
     check: input.check,
     previous: input.after ? previousHandContext(input.db, input.after) : null,
+    ...(input.unblind ? { unblind: true } : {}),
   };
   const jobId = resolveJobId(input.db, input.job, input.after);
   let worktreeSource: string | undefined;
@@ -394,6 +405,8 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       checkCmd: plan.input.check,
       afterId: plan.input.after,
       jobId: plan.jobId,
+      targetResultDirs: plan.input.role === "reviewer" ? [plan.fileHandoff.sessionDeliveryDir] : null,
+      unblind: plan.input.unblind,
     }, plan.callerId, plan.maxDepth);
     dbCreated = true;
     if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
@@ -403,6 +416,14 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       worktreeCreated = true;
     }
     const baseCommit = await currentCommit(plan.input.projectPath);
+    if (plan.input.role === "reviewer" && plan.handoffContext.previous) {
+      plan.handoffContext.previous.baseCommit ??= baseCommit;
+    }
+    const targetResultDirs = [plan.fileHandoff.sessionDeliveryDir];
+    const targetFingerprint = plan.input.role === "reviewer"
+      ? await computeTargetFingerprint(plan.input.projectPath, targetResultDirs, { deadline: Date.now() + LAUNCH_FINGERPRINT_TIMEOUT_MS })
+      : null;
+    plan.handoffContext.targetFingerprint = targetFingerprint;
     await Tmux.create(plan.sessionId, plan.launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(plan.input.db, plan.sessionId);
@@ -455,7 +476,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }
     await defaultWakeup.prepare(plan.sessionId);
     wakeupOwned = true;
-    if (!plan.input.db.completeLaunch(plan.sessionId, process.pid, baseCommit, submissionUnconfirmed ? SESSION_STATUS.NeedsAttention : undefined)) {
+    if (!plan.input.db.completeLaunch(plan.sessionId, process.pid, baseCommit, submissionUnconfirmed ? SESSION_STATUS.NeedsAttention : undefined, targetFingerprint)) {
       throw new Error(`Launch cancelled: reservation ${plan.sessionId} is no longer owned by this launcher`);
     }
 
@@ -542,10 +563,12 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     );
   }
   const projectPath = resolveProjectPath(oldSession.projectPath);
+  const sourceHandoff = planFileHandoff(projectPath, oldSession.id);
 
   const driver = getDriver(oldSession.agentType);
   const sessionId = generateAvailableSessionId(input.db, driver.sessionPrefix);
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
+  const fileHandoff = planFileHandoff(projectPath, sessionId);
   const maxDepth = getMaxNestingDepth();
   // Safe posture is sticky across native resumes. `--safe` may upgrade an
   // older/default session, but omission must never silently remove safety.
@@ -566,6 +589,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   let tmuxCreated = false;
   let dbCreated = false;
   let wakeupOwned = false;
+  let handoffOwned = false;
   try {
     reserveSession(input.db, {
       id: sessionId,
@@ -585,12 +609,23 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       baseCommit: oldSession.baseCommit,
       afterId: oldSession.afterId,
       jobId: validateJobId(oldSession.jobId ?? null),
+      targetFingerprint: oldSession.role === "reviewer" ? oldSession.targetFingerprint : null,
+      targetResultDirs: oldSession.role === "reviewer" && oldSession.targetFingerprint
+        ? [...(oldSession.targetResultDirs ?? [planFileHandoff(projectPath, oldSession.id).sessionDeliveryDir]), planFileHandoff(projectPath, sessionId).sessionDeliveryDir]
+        : null,
+      unblind: oldSession.unblind,
     }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
     await Tmux.create(sessionId, launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(input.db, sessionId);
+    assertFileHandoffAvailable(fileHandoff);
+    handoffOwned = true;
+    mkdirSync(fileHandoff.artifactsDir, { recursive: true });
+    writeFileSync(fileHandoff.askPath, existsSync(sourceHandoff.askPath)
+      ? readFileSync(sourceHandoff.askPath)
+      : `${ORIGINAL_ASK_UNAVAILABLE}\n`);
     // Do not hand the new tmux session back until the driver's startup/trust
     // flow has had a chance to reach an input prompt. Otherwise an immediate
     // `send` can be typed into a loading or confirmation screen.
@@ -611,6 +646,9 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       try { await Tmux.kill(sessionId); } catch {}
     }
     if (wakeupOwned) defaultWakeup.cleanup(sessionId);
+    if (handoffOwned) {
+      try { rmSync(fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
+    }
     if (dbCreated) {
       try { input.db.deleteSession(sessionId); } catch {}
     }
