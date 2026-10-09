@@ -94,10 +94,10 @@ test("a physical root outside the project yields no fingerprint, never unchanged
   expect(evidence.targetFingerprintIncomplete).toContain("unavailable");
 });
 
-test("wait bounds slow fingerprint git and kills its child process", async () => {
+test("wait bounds slow fingerprint git and kills the git process", async () => {
   const reviewer = await launchReviewer();
-  const pidFile = join(root, "child.pid");
-  shim(`case "$*" in *"rev-parse --show-toplevel"*) sleep 4 & echo $! > ${quote(pidFile)}; wait ;; esac`);
+  const pidFile = join(root, "git.pid");
+  shim(`case "$*" in *"rev-parse --show-toplevel"*) echo $$ > ${quote(pidFile)}; exec sleep 4 ;; esac`);
   const start = performance.now();
   const result = await wait(db, [reviewer.sessionId], false, 2000);
   expect(performance.now() - start).toBeLessThan(2800);
