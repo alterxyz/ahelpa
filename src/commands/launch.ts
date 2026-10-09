@@ -4,7 +4,7 @@ import { defaultWakeup } from "../wakeup";
 import { getDriver } from "../drivers/registry";
 import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
-import { activeSessionAncestorIds, getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
+import { activeSessionAncestorIds, getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree, readPositiveInt } from "../nesting";
 import { $ } from "bun";
 import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, relative, sep } from "path";
@@ -229,13 +229,14 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     ? process.env.AHELPA_PARENT_ID : undefined;
   const treeId = nesting.rootSessionId ?? sessionId;
   const depth = assertCallerMayLaunch(input.db, callerId, treeId, nesting.depth);
+  const jobId = resolveJobId(input.db, input.job, input.after);
   const handoffContext: HandoffContext = {
     role: input.role,
     check: input.check,
+    ...(jobId ? { jobId } : {}),
     previous: input.after ? previousHandContext(input.db, input.after) : null,
     ...(input.unblind ? { unblind: true } : {}),
   };
-  const jobId = resolveJobId(input.db, input.job, input.after);
   let worktreeSource: string | undefined;
   if (input.worktree) {
     worktreeSource = input.projectPath;
@@ -337,7 +338,9 @@ function reserveSession(db: StateDB, input: CreateSessionInput, callerId: string
     const depth = assertCallerMayLaunch(db, callerId, rootId, Math.max(input.depth ?? 1, nesting.depth));
     if (depth > maxDepth) throw new Error(`Max nesting depth exceeded (${depth}/${maxDepth}).`);
     assertParentMayLaunch(db, input.parentId, rootId);
-    db.createSession({ ...input, depth, launchPid: process.pid });
+    const caller = callerId ? db.getSession(callerId) : null;
+    const mailBudget = caller ? Math.min(input.mailBudget ?? 8, caller.mailBudget ?? 8) : input.mailBudget;
+    db.createSession({ ...input, depth, mailBudget, launchPid: process.pid });
   });
 }
 
@@ -422,6 +425,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       jobId: plan.jobId,
       targetResultDirs: plan.input.role === "reviewer" ? [plan.fileHandoff.sessionDeliveryDir] : null,
       unblind: plan.input.unblind,
+      mailBudget: readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8),
     }, plan.callerId, plan.maxDepth);
     dbCreated = true;
     if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
@@ -640,6 +644,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
         ? [...(oldSession.targetResultDirs ?? [planFileHandoff(projectPath, oldSession.id).sessionDeliveryDir]), planFileHandoff(projectPath, sessionId).sessionDeliveryDir]
         : null,
       unblind: oldSession.unblind,
+      mailBudget: readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8),
     }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });

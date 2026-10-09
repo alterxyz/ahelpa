@@ -9,6 +9,7 @@ import type { HelperRole } from "./drivers/types";
 // showed self-reported "all green" refuted by review often enough that the
 // claim should never be the only thing wait hands back.
 export interface Evidence {
+  peerMail?: { sent: number; received: number };
   summaryBytes: number;
   baseCommit?: string;
   // The launch baseline no longer resolves (rebased or gc'd), so committed
@@ -50,6 +51,7 @@ export interface EvidenceSubject {
 export type CheckRunner = (cwd: string, command: string, logPath: string, timeoutMs: number) => Promise<CheckResult>;
 
 export interface EvidenceOptions {
+  peerMail?: { sent: number; received: number };
   // Upper bound for the acceptance command. Shared with the caller's own
   // deadline so wait stays bounded; 0 or less skips the check.
   checkTimeoutMs?: number;
@@ -180,6 +182,9 @@ export async function collectEvidence(subject: EvidenceSubject, options: Evidenc
   let summaryBytes = 0;
   try { summaryBytes = statSync(summaryPath).size; } catch {}
   const evidence: Evidence = { summaryBytes };
+  if (options.peerMail && (options.peerMail.sent > 0 || options.peerMail.received > 0)) {
+    evidence.peerMail = options.peerMail;
+  }
 
   const status = await $`git -C ${subject.projectPath} status --porcelain -z --untracked-files=all`.quiet().nothrow();
   if (status.exitCode === 0) {

@@ -72,9 +72,22 @@ idle/dead + 原生 resume token ── resume ─► needs_attention ── send
 | --- | --- |
 | Host → helper | `/tmp/ahelpa/ahelpa-task-<id>.md` 任务文件 |
 | Helper → host | `<project>/.ahelpa/<id>/summary.md` 和 `artifacts/` |
+| Helper → job peer | `<recipient-project>/.ahelpa/<to-id>/inbox/<seq>-from-<from-id>.md` |
 | 完成信号 | stdout 中的暗号行：`[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP]` |
 
 发送给 helper 的任务指令包含读取任务和写入结果的精确路径。该指令由 `src/file-handoff.ts` 生成，并在所有 driver 间保持一致。
+
+## Peer mail
+
+`mail` 按 `AHELPA_PARENT_ID` 对应的现存 SQLite session 识别发送方，不使用 `AHELPA_JOB_ID` 或 owner token。收发双方必须是同一非空已保存 job 内的 running 非 reviewer。`--peers` 排除带启动预留标记的 session 和直接 parent/child（resume 链及其分支视为同一血缘节点）；显式指定这些收件人也会被拒绝。Host 对 child 使用带 token 的 `send`/`task`，child 通过 summary 和暗号协议向 host 报告。Host mail、已结算发送方和已结算收件方都会被拒绝。Daemon 未运行时，`mail` 会像 `check` 一样在投递前 inline refresh session 状态。`inbox` 列出调用 session 的全部消息及已读状态；`--read <seq>` 先将正文中每一处 `[AHELPA:` 替换为 `[AHELPA_:`，再给每行加上 `> ` 前缀后显示（末尾换行不额外生成空引用行），并标记已读。两种 mail 输入方式都会拒绝正文中能被现有暗号扫描器识别的行。
+
+投递先写临时文件，再 rename 到收件方自己项目的结果目录。序号按收件人递增；孤儿序号文件会保留并跳过，跳过的序号记在 ledger notes 中。`--file` 限于 1 MiB 的有效 UTF-8；检查项目 `.ahelpa` 到 inbox 和 ledger 目录的每一级，拒绝符号链接和非目录。符号链接形式的 ledger 和消息文件也会被拒绝；读取失败不标记已读。每次投递向 `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` 追加 `{ts, from, to, seq, bytes}`；跨 worktree 的 job 因此在各发送方项目内保存 ledger。Launch/resume 用 `readPositiveInt` 从启动方环境解析 `AHELPA_MAIL_BUDGET`，保存在预留 session 记录中；调用方自身为 helper 时，上限不得超过调用方已保存预算（旧版记录按 8）。`mail` 只使用保存的预算（旧版记录默认为 8），此设置不会导出到 helper 环境中。无效值回退到 8；解析接受至少为 1 的有限十进制整数前缀，详见[使用说明](usage.md#在-job-内交换-peer-mail)。广播按每个收件人占一个名额，切换项目或 ledger 位置不会重置预算。Resume 创建新的 session，使用全新 inbox 和尚未消耗的预算，预算按恢复调用方环境重新解析。有通信时，`wait` evidence 包含 `peerMail: { sent, received }`，不受已读状态影响。
+
+非 reviewer 的 job 任务文件给出 job ID、发现同伴用的 `check --job <id>`、mail/inbox 命令，以及验证前和发信号前的 inbox 检查点。Peer 消息可以询问、告知或提示，但不能重新分配工作、改变验收要求或让收件方停止；超出任务范围的消息记在 `summary.md` 的 "Peer messages" 下。Reviewer 不接收 peer-mail 合同段落，也不能发送或接收。没有终端注入、inbox nudge、自动回复、共享 transcript 或 peer `NEED_HELP` 通道。
+
+`status` 和 `check` 按与调用方的关系分类：先是直接 `child`，再是与实际 helper 调用方保存的 job 相同的其他 session（`job peer`），其余为 `other`。Host 依据 CLI 已解析的调用方 ID 显示 `child`/`other`。这些只是观察信息，不增加控制权限。
+
+Ledger 目录名沿用现有的文件名安全 job ID 约定。Job ID 在 runtime 数据库中跨项目共享全局命名空间，因此应选择唯一 ID，例如 `ahelpa-issue-14-parser-fix`。发送方记录被清理后，SQLite 仍保留 peer-mail 元数据（序号、已读状态和计数）；session 的 `mail_sent` 计数器负责限制发送预算。
 
 ## 唤醒协议
 
@@ -106,9 +119,9 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 
 下一次刷新收到有效事件、本轮尚无暗号时：已有 summary 且 composer 可接收输入，则立即执行 completion nudge。收到当前回合的有效 Stop 后，Claude 使用专用 readiness 检查：历史 `⏺` bullet 不再代表仍在工作，但最下方 column-0 composer 必须为空，且不能有活跃 spinner、中断提示或信任／权限／提问菜单。没有 hook 证据时，原有活动和输入检测逻辑不变。Stop 早于输入就绪时保留待处理事件；持续空闲的菜单仍使用四次 poll 的兜底。没有 summary，或收到 `StopFailure`，立即进入 `needs_attention`，失败类型记入日志。Hook 不代表成功。SQLite 可空字段 `turn_hook_offset` 和 row-version 条件更新避免重启重放及并发 monitor 重复处理；每次发送 launch 指令、host `send`／`task` 或两条 completion-nudge 分支的消息前，都通过 row-version 条件更新登记 `turn_started_at`、输入摘要及摘要历史。允许投递重叠；登记的条件更新失败，或发送失败时已有另一条登记，会在 SQLite 中把当前回合标为归属不明确。该回合的结束事件会被忽略，使用无活动兜底，避免一条投递的延迟事件结束另一条投递。SQLite 保存每条在途投递的 generation 和开始时间；投递成功或失败后，只移除自己的条目。只有没有其他在途投递时，新登记才会清除重叠造成的歧义。登记时会丢弃超过五分钟的条目，避免发送进程崩溃后永久停用快速路径；该界限超过约 88 秒的 driver 启动轮询预算和 180 秒的 launch lease。迟到成功的 host send 或 task 若发现当前状态为 `needs_attention` 或 `error`，会经 driver 确认本次提交，并按原有状态／版本条件恢复监控。发送成功只确认本次投递；记录已为 running 不能确认它。Claude 将 Stop 与原生 session 及 `prompt_id` 相同的 `UserPromptSubmit` 事件关联，其输入摘要必须匹配本次提交。Codex 要求已绑定主 thread 上最后一条 `input-messages` 的摘要匹配。输入规范化会去除首尾空白，并把 CRLF／CR 转为 LF，Claude prompt 事件还会移除完整配对的 `<pasted_content>` 外层标记；部分或混合粘贴布局保留无活动兜底。会话记录还保留已提交摘要的历史；重复提交规范化后相同的输入时，摘要无法区分延迟旧回合，因此保守地使用无活动兜底。无法归属的事件记录为 ignored，仍保留无活动兜底。没有通知时（中断、不支持的 CLI、Kimi），保留原有无活动判断。
 
-**Inline refresh**：daemon 未运行时，`wait`、`check`、`status` 会在返回前执行同样的刷新逻辑。短任务不依赖常驻 daemon。tmux 的权限或连接错误不代表会话死亡，monitor 会保留状态并重试。`clean` 会保留已预留的启动记录，并在清理孤立运行文件前检查终端是否存活。
+**Inline refresh**：daemon 未运行时，`wait`、`check`、`status`、`mail` 会在返回或投递邮件前执行同样的刷新逻辑。短任务不依赖常驻 daemon。tmux 的权限或连接错误不代表会话死亡，monitor 会保留状态并重试。`clean` 会保留已预留的启动记录，并在清理孤立运行文件前检查终端是否存活。
 
-**进程管理**：PID 文件为 `~/.ahelpa/daemon.pid`，日志为 `~/.ahelpa/daemon.log`。没有 supervisor 在 daemon 崩溃后立即重启它。下一次 launch 或 resume 在 PID 存活检查认定 daemon 已停止时启动它；未检测到 daemon 时，`wait`、`check`、`status` 使用 inline refresh。
+**进程管理**：PID 文件为 `~/.ahelpa/daemon.pid`，日志为 `~/.ahelpa/daemon.log`。没有 supervisor 在 daemon 崩溃后立即重启它。下一次 launch 或 resume 在 PID 存活检查认定 daemon 已停止时启动它；未检测到 daemon 时，`wait`、`check`、`status`、`mail` 使用 inline refresh。
 
 ## Drivers
 
@@ -176,6 +189,7 @@ Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`�
 | `commands/launch.ts` | Launch orchestration：plan + execute |
 | `commands/wait.ts` | Wait orchestration：FIFO block、timeout、multi-session |
 | `commands/session-ops.ts` | 已有 session 的操作 |
+| `commands/peer-mail.ts` | 有界 peer 投递、inbox 列表和已读标记 |
 | `daemon.ts` | 后台 monitor：poll loop、inline refresh、进程管理 |
 | `settle.ts` | 原子 settlement：更新 DB、archive、notify、cleanup |
 | `session-lifecycle.ts` | 状态 enum 和 capture-to-status 映射 |

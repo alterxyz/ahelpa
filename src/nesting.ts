@@ -134,7 +134,7 @@ export function getMaxNestingDepth(): number {
   return readPositiveInt(process.env.AHELPA_MAX_NESTING_DEPTH, DEFAULT_MAX_NESTING_DEPTH);
 }
 
-function readPositiveInt(raw: string | undefined, fallback: number): number {
+export function readPositiveInt(raw: string | undefined, fallback: number): number {
   if (!raw) return fallback;
   const parsed = parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed < 1) return fallback;

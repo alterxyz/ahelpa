@@ -30,15 +30,27 @@ The hook protects the log file against symlinks and hardlinks, but does not prot
 
 ## Owner Token Boundaries
 
-The owner token returned by `launch` gates all mutating operations:
+The owner token returned by `launch` gates session control and terminal access:
 
 | Requires token | Does not require token |
 | --- | --- |
-| `send`, `task`, `model`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean` |
+| `send`, `task`, `model`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean`, `mail`, `inbox` |
 
-Read-only status views intentionally do not expose owner tokens. This means any agent can observe session status (who's running, what state they're in), but interaction requires the session's own token. Termination has the lineage exception below.
+Read-only status views intentionally do not expose owner tokens. Any agent can observe session status and its `child`/`job peer`/`other` relationship; session control still requires the owner token. Peer mail is a separate, bounded file channel and grants no terminal access or control. Termination has the lineage exception below.
 
 Ownership is not transitive. If agent A launches helper B, and helper B launches helper C, agent A cannot control C — only B can. The sole carve-out is **abort authority follows lineage; control does not**: `kill B --token <B-token> --tree` can stop B and its descendants, including C. It authenticates B's token before any kill; a wrong token stops nothing. A still cannot `send`, `task`, `model`, `logs`, `capture`, or `resume` C with B's token. Plain `kill` still affects only its target, and `--tree` grants no authority over sibling trees.
+
+## Peer Mail Boundaries
+
+Peer mail has four bounds: the same nonempty stored job, requests rather than instructions, no reviewers as senders or recipients, and a per-session delivery budget. `mail` and `inbox` recognize only the existing SQLite session named by `AHELPA_PARENT_ID`; host-shell mail is refused, and `AHELPA_JOB_ID` cannot change that session's job. Job IDs are global across projects in the runtime database; choose a unique ID, for example `ahelpa-issue-14-parser-fix`. Resume-linked sessions count as the same lineage node, including chains and branches. Direct parent/child pairs cannot exchange peer mail: the host uses token-gated `send`/`task`, and the child uses its summary and sentinel protocol. Both sender and recipient must be `running` with launch completed; `--peers` skips sessions still launching, and an explicit recipient is refused. Mail after signalling or to a settled recipient is refused; inline refresh checks current status when no daemon is running.
+
+A peer may ask, inform, or flag; it cannot reassign the task, change acceptance commands, or tell the receiver to stop. Authority remains with the host's task file. Act only within that task; otherwise record the message under "Peer messages" in `summary.md`. Reviewers cannot send or receive and get no peer-mail contract paragraph, preserving their separation from the author's reasoning.
+
+Both mail input forms reject any body line recognized by the sentinel scanner. Before quoting each body line with `> `, `inbox --read` replaces every occurrence of `[AHELPA:` with `[AHELPA_:`. This includes older messages and inline mentions, so terminal wrapping or stripped control characters cannot expose an active sentinel from the displayed body. A final newline adds no empty quoted line; stored message bytes remain unchanged. `--file` accepts at most 1 MiB of valid UTF-8. Delivery checks every directory component from the project `.ahelpa` through the inbox and jobs ledger directory, refusing symlinks and non-directories; the ledger must be a regular file. Reading checks the inbox path and refuses a symlinked message file before marking it read. Orphan sequence files are preserved by skipping them and recording the skip in ledger notes.
+
+Whoever launches or resumes the helper sets `AHELPA_MAIL_BUDGET`; the resolved limit and per-session count are stored in SQLite. If the caller is itself a helper, launch and resume use the smaller of the environment budget and the caller's stored limit (8 for legacy rows). `mail` uses only the stored limit (legacy rows default to 8), and the setting is not exported into helper environments. Invalid values fall back to 8; `readPositiveInt` accepts a finite base-10 integer prefix at least 1, including `2.9` or `2extra` as 2. Each recipient delivery consumes one slot, including broadcasts and replies, so switching projects cannot reset it. Resume creates a fresh inbox and unused budget resolved from the resumer's environment. Each message lands atomically in the recipient's project inbox, and metadata `{ts, from, to, seq, bytes}` is ledgered at `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl`. `wait` exposes `evidence.peerMail` counts; `inbox --read <seq>` marks a message read, without changing those counts. There is no terminal injection or inbox nudge; helpers check at the contract's verification and signalling checkpoints.
+
+These bounds apply to cooperative agents using ahelpa. Like nesting limits, they do not restrict the local user's full filesystem permissions. Inbox bodies and ledgers are local artifacts under `.ahelpa/`; keep secrets out of messages and do not publish these files.
 
 ## Nesting Limits
 
