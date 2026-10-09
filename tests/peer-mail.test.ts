@@ -64,10 +64,10 @@ describe("bounded peer mail", () => {
     let listed = JSON.parse((await cli(["inbox"], "b")).out[0]);
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ from: "a", to: "b", seq: 1, readAt: null });
-    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe("> 接口说明：保留 UTF-8\n> ");
+    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe("> 接口说明：保留 UTF-8");
     listed = JSON.parse((await cli(["inbox"], "b")).out[0]);
     expect(listed[0].readAt).toBeString();
-    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe("> 接口说明：保留 UTF-8\n> ");
+    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe("> 接口说明：保留 UTF-8");
     expect((await cli(["mail", "a", "--text", "noted"], "b")).code).toBe(0);
     expect(readFileSync(join(a.projectPath, ".ahelpa/a/inbox/1-from-b.md"), "utf8")).toBe("noted");
     db.updateStatus("a", "idle"); db.updateStatus("b", "idle"); db.updateStatus(untouched.id, "idle");
@@ -110,7 +110,6 @@ describe("bounded peer mail", () => {
   test("broadcast excludes sender, reviewers, finished and other-job sessions and charges each recipient", async () => {
     const a = session("a", { mailBudget: 3 }); session("b"); session("c"); session("review", { role: "reviewer" });
     session("outside", { jobId: "elsewhere" }); session("done"); db.updateStatus("done", "idle");
-    process.env.AHELPA_MAIL_BUDGET = "3";
     const result = await cli(["mail", "--peers", "--text", "question"], "a");
     expect(result.code).toBe(0);
     const ledger = readFileSync(join(a.projectPath, ".ahelpa/jobs/job/mail.jsonl"), "utf8").trim().split("\n").map((line) => JSON.parse(line));

@@ -338,7 +338,9 @@ function reserveSession(db: StateDB, input: CreateSessionInput, callerId: string
     const depth = assertCallerMayLaunch(db, callerId, rootId, Math.max(input.depth ?? 1, nesting.depth));
     if (depth > maxDepth) throw new Error(`Max nesting depth exceeded (${depth}/${maxDepth}).`);
     assertParentMayLaunch(db, input.parentId, rootId);
-    db.createSession({ ...input, depth, launchPid: process.pid });
+    const caller = callerId ? db.getSession(callerId) : null;
+    const mailBudget = caller ? Math.min(input.mailBudget ?? 8, caller.mailBudget ?? 8) : input.mailBudget;
+    db.createSession({ ...input, depth, mailBudget, launchPid: process.pid });
   });
 }
 
