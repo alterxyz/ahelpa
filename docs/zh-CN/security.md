@@ -34,7 +34,9 @@ Ownership 不传递。如果 agent A 启动 helper B，helper B 又启动 helper
 
 ## Nesting limit
 
-Helper 可以继续启动 helper，但有最大深度限制，默认 4。这样可以避免无限递归 spawn。限制由 `AHELPA_MAX_NESTING_DEPTH` 配置，并在 launch 时校验。
+Helper 可以继续启动 helper。Launch 和 resume 在外部副作用前，原子检查并预留 SQLite session：链深度（默认 4，`AHELPA_MAX_NESTING_DEPTH`）、每棵树的活跃 session 数（默认 8，`AHELPA_MAX_ACTIVE_PER_TREE`，包含准备中的预留记录），以及拒绝实际 `reviewer` 调用方，因为其契约是只读的。调用方由 `AHELPA_PARENT_ID` 对应的现存 session 确定；`--parent` 不能把 helper 移到自己的树外，也不能重置其深度。`clean` 保留活跃后代所需的已结算祖先，维持配额和 lineage；resume 仍留在原树中。见[架构](architecture.md#nesting)。
+
+这些是协作式本地 agent 防止意外委派和展开的护栏，覆盖正常 ahelpa launch 和 resume 路径，包括并发调用。它们不能约束利用完整本地权限绕过 ahelpa 或直接修改 SQLite 的 helper。
 
 ## 暗号可信度
 

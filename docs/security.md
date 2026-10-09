@@ -34,7 +34,9 @@ Ownership is not transitive. If agent A launches helper B, and helper B launches
 
 ## Nesting Limits
 
-Helpers can launch their own helpers up to a configurable maximum depth (default 4). This prevents runaway recursive spawning. The limit is set via `AHELPA_MAX_NESTING_DEPTH` and validated at launch time.
+Helpers can launch their own helpers. Launch and resume atomically check and reserve a SQLite session before external side effects: chain depth (default 4, `AHELPA_MAX_NESTING_DEPTH`), active sessions per tree (default 8, `AHELPA_MAX_ACTIVE_PER_TREE`, including in-progress reservations), and refusal for an actual `reviewer` caller, whose contract is read-only. The caller is the existing session named by `AHELPA_PARENT_ID`; `--parent` cannot move a helper outside its own tree or reset its depth. `clean` keeps settled ancestors needed by active descendants, preserving the quota and lineage; resume remains in the original tree. See [Architecture](architecture.md#nesting).
+
+These are guardrails for cooperative local agents against accidental delegation and fan-out. They apply to normal ahelpa launch and resume paths, including concurrent calls, but do not restrict a helper that uses its full local permissions to bypass ahelpa or edit SQLite directly.
 
 ## Sentinel Trust
 

@@ -26,7 +26,7 @@ describe("command contract", () => {
     const help = renderHelpText();
 
     expect(help).toContain("ahelpa - Agent Help Agent");
-    expect(help).toContain("wait <id...> [--all] [--timeout <seconds>]");
+    expect(help).toContain("wait (<id...> | --job <id>) [--all] [--timeout <seconds>]");
     for (const command of COMMAND_CONTRACTS) {
       expect(help).toContain(command.usage);
       expect(help).toContain(command.description);

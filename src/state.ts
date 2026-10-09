@@ -26,6 +26,8 @@ export interface SessionRecord {
   baseCommit?: string | null;
   afterId?: string | null;
   nudgedAt?: string | null;
+  jobId?: string | null;
+  launchPid?: number | null;
 }
 
 export interface CreateSessionInput {
@@ -45,6 +47,8 @@ export interface CreateSessionInput {
   checkCmd?: string | null;
   baseCommit?: string | null;
   afterId?: string | null;
+  jobId?: string | null;
+  launchPid?: number | null;
 }
 
 interface SessionRow {
@@ -70,6 +74,8 @@ interface SessionRow {
   base_commit: string | null;
   after_id: string | null;
   nudged_at: string | null;
+  job_id: string | null;
+  launch_pid: number | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -96,6 +102,8 @@ function rowToRecord(row: SessionRow): SessionRecord {
     baseCommit: row.base_commit,
     afterId: row.after_id,
     nudgedAt: row.nudged_at,
+    jobId: row.job_id,
+    launchPid: row.launch_pid,
   };
 }
 
@@ -181,10 +189,14 @@ export class StateDB {
           this.db.exec("ALTER TABLE sessions ADD COLUMN version INTEGER NOT NULL DEFAULT 0");
         }
         // Migration: acceptance command, launch baseline, and hand lineage for evidence.
-        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at"]) {
+        // job_id groups the hands of one change so they can be checked and awaited together.
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id"]) {
           if (!columns.some((existing) => existing.name === column)) {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
+        }
+        if (!columns.some((column) => column.name === "launch_pid")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN launch_pid INTEGER");
         }
       }).immediate();
     } catch (error) {
@@ -197,8 +209,8 @@ export class StateDB {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id, launch_pid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -219,8 +231,22 @@ export class StateDB {
       input.checkCmd ?? null,
       input.baseCommit ?? null,
       input.afterId ?? null,
+      input.jobId ?? null,
+      input.launchPid ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
+  }
+
+  // Publish only while the running reservation still belongs to this launcher.
+  completeLaunch(id: string, launchPid: number, baseCommit?: string | null, status?: SessionStatus): boolean {
+    return this.db.prepare(`UPDATE sessions SET launch_pid = NULL, status = COALESCE(?, status),
+      base_commit = CASE WHEN ? THEN ? ELSE base_commit END,
+      updated_at = ?, version = version + 1 WHERE id = ? AND status = ? AND launch_pid = ?`)
+      .run(status ?? null, baseCommit !== undefined ? 1 : 0, baseCommit ?? null, new Date().toISOString(), id, SESSION_STATUS.Running, launchPid).changes > 0;
+  }
+
+  immediateTransaction<T>(fn: () => T): T {
+    return this.db.transaction(fn).immediate();
   }
 
   getSession(id: string): SessionRecord | null {
@@ -257,6 +283,11 @@ export class StateDB {
   updateModel(id: string, model: string, effort: string | null): void {
     this.db.prepare("UPDATE sessions SET model = ?, effort = ?, updated_at = ?, version = version + 1 WHERE id = ?")
       .run(model, effort, new Date().toISOString(), id);
+  }
+
+  listJobSessions(jobId: string): SessionRecord[] {
+    const rows = this.db.prepare("SELECT * FROM sessions WHERE job_id = ? ORDER BY created_at ASC").all(jobId) as SessionRow[];
+    return rows.map(rowToRecord);
   }
 
   listSessions(parentId?: string): SessionRecord[] {

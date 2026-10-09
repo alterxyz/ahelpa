@@ -11,6 +11,8 @@ token=$(echo "$result" | jq -r .ownerToken)
 ```
 
 The `launch` command returns JSON with `sessionId`, `ownerToken`, `tmuxSession`, and `projectPath` (the directory the helper actually works in; it differs from `--project` under `--worktree`). Save the token — you need it for all mutating operations on this session.
+- `jobId` (optional): the job this helper belongs to (see [Group hands into a job](#group-hands-into-a-job)).
+- `writerConflict` (optional): other active sessions working in the same tree (same physical project path, or one inside the other) where at least one side is not a `reviewer`. Paths are compared after resolving symlinks and filesystem aliases, including `/tmp` versus `/private/tmp` on macOS; `/` overlaps every project. Filesystem case rules are preserved rather than blindly lowercasing paths. If a stored directory no longer exists, its nearest existing ancestor is resolved and the missing suffix is retained. Each entry has `sessionId`, `role`, `status`, and `projectPath`. The launch still happens, but evidence can no longer say whose change is whose. Kill one of them, or relaunch with `--worktree`, unless the overlap is intended. Two reviewers in one tree are not reported, nor is the helper doing the launching (it delegates and waits); `--worktree` launches never conflict.
 - `taskWarning` (optional): the `--task` text is short and mentions a `/tmp/`, `/private/tmp/`, or `scratchpad/` path, which is usually a temp file that may vanish. Put the content in a durable file and pass it with `--file` instead.
 - `warning` (optional): the task was delivered, but the driver has not confirmed a new turn. The session stays `needs_attention`, so `wait` returns immediately and the daemon does not inspect completion markers. Use `capture` to inspect the prompt: if the task is still in the input box, submit it with `send ""`; if it is already running, wait for that turn to finish before sending another. Keep the helper alive while checking delivery.
 
@@ -67,11 +69,26 @@ ahelpa launch codex --worktree --file ./task.md --project /path/to/project
 
 ahelpa creates `<parent of project>/<project name>-worktrees/<session-id>` on branch `ahelpa/<session-id>`, branching from `HEAD` (uncommitted changes are not included). The helper's `projectPath` is that worktree, and results land in its `.ahelpa/<id>/`. The project must be a git repository, otherwise `launch` fails. ahelpa never deletes a worktree it handed over (a launch that fails before returning rolls its own worktree back); when done, `git worktree remove <path> && git branch -D ahelpa/<session-id>`. A fresh worktree has no installed dependencies, so put the install step in the task or at the front of `--check`.
 
+### Group hands into a job
+
+Use `--job <id>` to group the hands of one change, so they can be checked and awaited together:
+
+```bash
+impl=$(ahelpa launch codex --job parser-fix --file ./impl.md | jq -r .sessionId)
+rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)   # inherits parser-fix
+ahelpa check --job parser-fix
+ahelpa wait --job parser-fix --all
+```
+
+Job precedence is explicit `--job`, then the stored job of the `--after` session, then the stored job of the launching helper. A caller is recognized as a helper only when its `AHELPA_PARENT_ID` names an existing SQLite session; a stray host-shell `AHELPA_JOB_ID` is ignored. The selected job is validated regardless of its source. Every driver exports `AHELPA_JOB_ID` on launch and resume, empty when there is no job; the environment value does not override the caller's stored job. Job IDs are 1–64 letters, digits, `.`, `_`, or `-`, starting with a letter or digit. `wait --job` resolves to the job's sessions that are `running` when it starts; it takes either session IDs or `--job`, not both. `resume` keeps the job. `status` shows a JOB column, and `check` includes `jobId`. A job has no lifecycle of its own: it is a label with operations behind it, and it changes no permissions or ownership.
+
 Use `--parent` when a headless host needs an explicit trace ID:
 
 ```bash
 ahelpa launch codex --parent "bench-run-42" --task "Review this change"
 ```
+
+A helper may use `--parent` only within its own helper tree. The actual caller still determines reviewer and nesting restrictions, so changing `--parent` cannot let a reviewer delegate or escape tree limits. A host caller can keep using an arbitrary trace ID as above.
 
 Use `--safe` to omit or bound the default danger flags:
 
@@ -134,7 +151,7 @@ Claude Code rejects runtime `--effort` and `--persist`; set its effort at launch
 ahelpa wait "$session_id"
 ```
 
-`wait` blocks on a named pipe until the helper prints a sentinel or the timeout expires (default 500 seconds). If it returns `still_running`, the helper hasn't finished — call `wait` again:
+`wait` blocks on a named pipe until the helper prints a sentinel or the timeout expires (default 500 seconds). A session reserved by an in-progress launch or resume remains pending until setup completes; waiting still respects the same timeout, including before its FIFO exists. If it returns `still_running`, the helper hasn't finished — call `wait` again:
 
 ```bash
 ahelpa wait "$session_id"  # re-wait is normal, not an error
@@ -252,6 +269,8 @@ ahelpa resume "$session_id" --token "$token"
 
 If launch included a configured `--model` alias, the resumed helper reuses it; otherwise Kimi continues to use its configured default. A launch-time `--safe` posture is also inherited; `resume --safe` can upgrade an older default-posture record. The conversation persists through Kimi's native session ID in a new tmux session; `[AHELPA:DONE]` does not keep the original tmux session alive forever.
 
+`resume` reserves a new session atomically under the same reviewer, depth, and tree-width checks as launch, before creating runtime resources. It retains the resumed session's lineage; an existing resume link keeps a resumed root in its original tree.
+
 `resume` waits until the new driver reaches an input prompt, then returns a new helper in `needs_attention`. Send the next turn to the new session ID with `send` or `task`, then call `wait`. ahelpa waits for evidence that the new turn was accepted, recreates the FIFO, and resumes daemon monitoring; this prevents an old DONE/NEED_HELP marker from settling the follow-up.
 
 ## Reclaim Sessions
@@ -268,7 +287,7 @@ Clean up settled records whose tmux sessions have exited, and orphan runtime fil
 ahelpa clean
 ```
 
-Completed records remain available for `wait`, `logs`, and `resume` after terminal cleanup, until you explicitly run `clean`. `clean` does not remove archives or terminate live sessions, and preserves sessions that are still draining or need attention.
+Completed records remain available for `wait`, `logs`, and `resume` after terminal cleanup, until you explicitly run `clean`. `clean` retains settled ancestor records needed to connect active descendants, including resume links, so cleanup does not split their tree quota or lose lineage. These records can be removed once those descendants have settled and their terminals have exited. `clean` does not remove archives or terminate live sessions, and preserves sessions that are still draining or need attention.
 
 ## Daemon Management
 

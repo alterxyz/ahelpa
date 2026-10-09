@@ -145,6 +145,7 @@ describe("launch", () => {
     const launchCommand = tmuxCreateSpy.mock.calls[0]?.[1];
     expect(launchCommand).toContain(`export AHELPA_PARENT_ID=${result.sessionId}`);
     expect(launchCommand).toContain("AHELPA_MAX_NESTING_DEPTH=4");
+    expect(launchCommand).toContain("AHELPA_MAX_ACTIVE_PER_TREE=8");
     expect(launchCommand).toContain(" --dangerously-bypass-approvals-and-sandbox");
     expect(sendKeysSpy).toHaveBeenCalledTimes(1);
     const instruction = sendKeysSpy.mock.calls[0]?.[1];
@@ -739,6 +740,41 @@ describe("launch", () => {
       projectPath: TEST_PROJECT,
       parentId: "c3",
     })).toThrow(/Max nesting depth exceeded/);
+  });
+
+  test("planLaunch refuses a launch from a reviewer session", () => {
+    db = new StateDB(TEST_DB);
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db.createSession({ id: "rev", parentId: "cli", agentType: "claude-code", task: "review", ownerToken: "tok", projectPath: TEST_PROJECT, role: "reviewer" });
+    db.createSession({ id: "wrk", parentId: "cli", agentType: "codex", task: "implement", ownerToken: "tok", projectPath: TEST_PROJECT, role: "worker" });
+
+    expect(() => planLaunch({ db, agentType: "codex", task: "fix it", projectPath: TEST_PROJECT, parentId: "rev" }))
+      .toThrow(/reviewer and may not launch helpers/);
+    expect(() => planLaunch({ db, agentType: "codex", task: "fix it", projectPath: TEST_PROJECT, parentId: "wrk" }))
+      .not.toThrow();
+  });
+
+  test("planLaunch bounds the number of active helpers in one tree", () => {
+    db = new StateDB(TEST_DB);
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    db.createSession({ id: "root", parentId: "cli", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT, depth: 1 });
+    for (let i = 1; i <= 7; i++) {
+      db.createSession({ id: `c${i}`, parentId: "root", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT, depth: 2 });
+    }
+    // A sibling tree does not count against this one.
+    db.createSession({ id: "other-root", parentId: "cli", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT, depth: 1 });
+
+    // root + 7 children = 8 active: a launch from a grandchild position is refused.
+    expect(() => planLaunch({ db, agentType: "codex", task: "one more", projectPath: TEST_PROJECT, parentId: "c1" }))
+      .toThrow(/Max active helpers per tree exceeded \(8\/8 under root\)/);
+    // The host's own direct launches are not part of any tree.
+    expect(() => planLaunch({ db, agentType: "codex", task: "host launch", projectPath: TEST_PROJECT, parentId: "cli" }))
+      .not.toThrow();
+
+    // A settled sibling frees a slot.
+    db.updateStatus("c7", "idle");
+    expect(() => planLaunch({ db, agentType: "codex", task: "one more", projectPath: TEST_PROJECT, parentId: "c1" }))
+      .not.toThrow();
   });
 
   test("rejects launch beyond max nesting depth", async () => {

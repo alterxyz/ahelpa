@@ -106,9 +106,9 @@ Use advisors for analysis, plans, and review; use workers for execution against 
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`) |
-| `wait <id...> [--all] [--timeout <s>]` | Block until helpers settle or timeout |
-| `check [--parent <id>]` | Non-blocking status poll with inline refresh |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`) |
+| `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | Block until helpers settle or timeout |
+| `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh |
 | `models [agent]` | List launch-time model options |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
 | `capture <id> --token <tok>` | Snapshot terminal output (debugging only) |
