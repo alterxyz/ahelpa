@@ -74,7 +74,7 @@ describe("daemon recovery", () => {
     expect(db.getSession(id)?.status).toBe("dead");
     expect(db.listActiveSessions()).toHaveLength(0);
     expect(new Archive(join(root, "archive")).get(id)).toMatchObject({
-      status: "dead", lastOutput: "● [AHELPA:DONE]",
+      status: "idle", lastOutput: "● [AHELPA:DONE]",
     });
   });
 

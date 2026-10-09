@@ -284,7 +284,7 @@ ahelpa capture "$session_id" --token "$token" --lines 100  # 最近 100 行
 
 ## 查看日志
 
-读取 session 输出；结算或显式执行 `kill`（包括 `--tree`）后，tmux session 消失时读取 archived pane snapshot：
+读取 session 输出；结算或显式执行 `kill`（包括 `--tree`）后，tmux session 消失时读取 archived pane snapshot。kill 保留已有的结算归档，仅为未结算 session 记录终止时快照：
 
 ```bash
 ahelpa logs "$session_id" --token "$token"
@@ -315,7 +315,7 @@ ahelpa resume "$session_id" --token "$token"
 ahelpa kill "$session_id" --token "$token"
 ```
 
-`kill` 在终止 tmux 前捕获最后 500 行 pane 输出，并沿用现有格式保存 archive，让 `logs` 继续可用。捕获或归档写入失败不会阻止终止；pane 不可用时保留已有 archive。预留的启动记录即使尚未创建终端，也会被标为 `dead`，取消启动发布，让启动进程回滚。
+`kill` 保留已有的结算归档，包括终端仍在 draining 时。对于未结算 session，它在终止 tmux 前捕获最后 500 行 pane 输出，终止后仅在记录版本仍匹配时一起提交 `dead` 和快照。捕获或终止期间先完成的结算保留其状态和归档；tree 模式跳过捕获期间完成结算的后代。捕获或归档写入失败不会阻止终止；pane 不可用时保留已有 archive。终止失败且终端仍存在时，命令报错，不修改记录或归档。预留的启动记录即使尚未创建终端，也会被标为 `dead`，取消启动发布，让启动进程回滚。
 
 使用指定 helper 自身的 token，终止它及其后代：
 
