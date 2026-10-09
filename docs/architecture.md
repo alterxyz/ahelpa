@@ -45,7 +45,7 @@ A session starts as `running` and can settle as `idle`, `error`, `needs_attentio
 
 6. **Wakeup.** `wait` unblocks when the FIFO receives the settlement event. The caller reads results from the file handoff directory.
 
-7. **Runtime cleanup.** After success, the driver requests a graceful exit and the daemon records any resume token during `draining`. It allows up to 15 seconds before reclaiming the tmux session, then leaves the session `idle`. `wait` also reports `idle` during draining. Cleanup removes temporary runtime files while retaining the SQLite result, owner token, and resume metadata so later `wait`, `logs`, and `resume` calls still work. `clean` explicitly removes settled records only when their tmux sessions are gone; it leaves draining and attention states alone. An explicit `kill` keeps the record `dead`; a refresh already in progress cannot overwrite that state after capture or terminal cleanup.
+7. **Runtime cleanup.** After success, the driver requests a graceful exit and the daemon records any resume token during `draining`. It allows up to 15 seconds before reclaiming the tmux session, then leaves the session `idle`. `wait` also reports `idle` during draining. Cleanup removes temporary runtime files while retaining the SQLite result, owner token, and resume metadata so later `wait`, `logs`, and `resume` calls still work. `clean` explicitly removes settled records only when their tmux sessions are gone; it leaves draining and attention states alone. An explicit `kill`, including each stop in `kill --tree`, best-effort captures the last 500 pane lines and saves the settlement archive format before killing tmux. Capture or archive-write failures do not prevent termination, and an unavailable pane preserves any earlier archive. A reservation with no terminal is still marked `dead` to cancel launch publication. `kill` keeps the record `dead`; a refresh already in progress cannot overwrite that state after capture or terminal cleanup.
 
 ### State Transitions
 
@@ -161,7 +161,7 @@ The actual caller is the existing SQLite session named by `AHELPA_PARENT_ID`, in
 
 ## Archives
 
-When a session settles, a final snapshot is saved under `~/.ahelpa/archive/<session-id>/`. This keeps `logs` useful after the tmux session has been cleaned up. Archives are managed by the daemon (or inline refresh) during settlement and are not automatically pruned.
+When a session settles, a final snapshot is saved under `~/.ahelpa/archive/<session-id>/`. This keeps `logs` useful after the tmux session has been cleaned up. Archives are written by the daemon (or inline refresh) during settlement and by explicit `kill` before terminal termination; they are not automatically pruned.
 
 The retained SQLite record supplies ownership checks and resume settings. Running `clean` removes that record, so subsequent token-gated `logs` and `resume` calls for that session are no longer available; archive and project handoff files remain on disk.
 

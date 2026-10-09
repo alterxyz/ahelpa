@@ -125,10 +125,22 @@ export const switchModel = withAuth(async ({ db, session }, opts: ModelSwitchOpt
 });
 
 async function stopSession(db: StateDB, session: SessionRecord): Promise<void> {
+  // Keep the same snapshot format as settlement, while the pane still exists.
+  // A missing pane (including a launch reservation), or archive write failure,
+  // must not block termination or overwrite an earlier usable snapshot.
+  try {
+    const lastOutput = await Tmux.capture(session.id, 500);
+    new Archive(defaultRuntimeLayout.archiveDir()).save(session.id, {
+      status: SESSION_STATUS.Dead,
+      lastOutput,
+      agentResumeId: db.getSession(session.id)?.agentResumeId ?? undefined,
+    });
+  } catch {}
   try {
     await Tmux.kill(session.id);
   } catch (error) {
-    // Successful tasks may already have had their terminal reclaimed.
+    // Successful tasks may already have had their terminal reclaimed; a
+    // reserved launch may not have created it yet. Dead cancels its launch CAS.
     if (await Tmux.hasSession(session.id)) throw error;
   }
   defaultWakeup.cleanup(session.id);
