@@ -144,15 +144,17 @@ export const logs = withAuth(async ({ session }) => {
   return "(no logs available)";
 });
 
-export function check(db: StateDB, parentId?: string) {
-  const sessions = db.listSessions(parentId);
+export function check(db: StateDB, parentId?: string, jobId?: string) {
+  const sessions = jobId !== undefined
+    ? db.listJobSessions(jobId).filter((s) => parentId === undefined || s.parentId === parentId)
+    : db.listSessions(parentId);
   return sessions.map(s => ({
     ...getSessionNestingInfo(db, s.id),
     id: s.id, agentType: s.agentType, status: s.status,
     role: s.role ?? null, model: s.model ?? null, effort: s.effort ?? null,
     task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
     agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
-    afterId: s.afterId ?? null, checkCmd: s.checkCmd ?? null, projectPath: s.projectPath,
+    afterId: s.afterId ?? null, jobId: s.jobId ?? null, checkCmd: s.checkCmd ?? null, projectPath: s.projectPath,
   }));
 }
 
@@ -161,12 +163,12 @@ export function status(db: StateDB, daemonRunning: boolean): string {
   let output = `ahelpa daemon: ${daemonRunning ? "running" : "stopped"}\n`;
   output += `sessions: ${sessions.length}\n\n`;
   if (sessions.length === 0) { output += "(no sessions)\n"; return output; }
-  output += "ID                    TYPE          ROLE      STATUS    DEPTH PARENT                 LABEL         AGE\n";
-  output += "─".repeat(114) + "\n";
+  output += "ID                    TYPE          ROLE      STATUS    DEPTH PARENT                 JOB          LABEL         AGE\n";
+  output += "─".repeat(127) + "\n";
   for (const s of sessions) {
     const age = timeSince(s.createdAt);
     const nesting = getSessionNestingInfo(db, s.id);
-    output += `${s.id.padEnd(22)} ${s.agentType.padEnd(14)} ${(s.role ?? "-").padEnd(10)} ${s.status.padEnd(10)} ${String(nesting.depth).padEnd(5)} ${(nesting.parentSessionId || "-").padEnd(22)} ${(s.label || "").padEnd(14)} ${age}\n`;
+    output += `${s.id.padEnd(22)} ${s.agentType.padEnd(14)} ${(s.role ?? "-").padEnd(10)} ${s.status.padEnd(10)} ${String(nesting.depth).padEnd(5)} ${(nesting.parentSessionId || "-").padEnd(22)} ${(s.jobId || "-").padEnd(12)} ${(s.label || "").padEnd(14)} ${age}\n`;
   }
   return output;
 }

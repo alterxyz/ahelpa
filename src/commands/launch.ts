@@ -34,6 +34,16 @@ export interface LaunchInput {
   worktree?: boolean;
   // The task text came from --file, so a temp path inside it is content, not a pointer.
   taskFromFile?: boolean;
+  // Groups the hands of one change. Defaults to the --after session's job, then
+  // to the job the launching helper itself belongs to.
+  job?: string;
+}
+
+export interface WriterConflict {
+  sessionId: string;
+  role: HelperRole | null;
+  status: string;
+  projectPath: string;
 }
 
 export interface LaunchResult {
@@ -50,6 +60,10 @@ export interface LaunchResult {
   warning?: string;
   // The task text looks like a pointer to a temp file that will not survive.
   taskWarning?: string;
+  jobId?: string;
+  // Active sessions sharing this tree where at least one side may write. The
+  // launch proceeds; evidence can no longer say whose change is whose.
+  writerConflict?: WriterConflict[];
 }
 
 export interface LaunchPlan {
@@ -64,6 +78,8 @@ export interface LaunchPlan {
   handoffContext: HandoffContext;
   // Set when --worktree asked for a new worktree of this repository.
   worktreeSource?: string;
+  jobId: string | null;
+  writerConflict: WriterConflict[];
   input: LaunchInput;
 }
 
@@ -108,7 +124,37 @@ function assertFileHandoffAvailable(fileHandoff: FileHandoffPlan): void {
   }
 }
 
-function helperEnvironmentPrefix(sessionId: string, maxDepth: number): string {
+const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+
+// The job id may later name a directory, so it is held to a filename-safe shape.
+export function resolveJobId(db: StateDB, explicit: string | undefined, afterId: string | undefined, env = process.env): string | null {
+  const inherited = afterId ? db.getSession(afterId)?.jobId : null;
+  const job = explicit ?? inherited ?? (env.AHELPA_JOB_ID || null);
+  if (job !== null && !JOB_ID.test(job)) {
+    throw new Error(`Invalid job id "${job}": use 1-64 letters, digits, dot, underscore, or dash, starting with a letter or digit`);
+  }
+  return job;
+}
+
+function sharesTree(a: string, b: string): boolean {
+  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+}
+
+// One worktree, one writer. Reviewer beside reviewer is the only quiet pair:
+// any other pairing either collides on edits or reviews a moving tree. The
+// launching helper is not its own child's conflict: it is the one delegating,
+// and it is expected to wait rather than edit alongside.
+export function findWriterConflicts(db: StateDB, projectPath: string, role: HelperRole | undefined, launcherId?: string): WriterConflict[] {
+  const writer = role !== "reviewer";
+  return db.listActiveSessions()
+    .filter((session) => session.id !== launcherId)
+    .filter((session) => session.status !== SESSION_STATUS.Draining)
+    .filter((session) => sharesTree(session.projectPath, projectPath))
+    .filter((session) => writer || session.role !== "reviewer")
+    .map((session) => ({ sessionId: session.id, role: session.role ?? null, status: session.status, projectPath: session.projectPath }));
+}
+
+function helperEnvironmentPrefix(sessionId: string, maxDepth: number, jobId: string | null = null): string {
   const assignments = [
     `AHELPA_PARENT_ID=${sessionId}`,
     `AHELPA_MAX_NESTING_DEPTH=${maxDepth}`,
@@ -116,6 +162,10 @@ function helperEnvironmentPrefix(sessionId: string, maxDepth: number): string {
     `AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`,
     `AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`,
   ];
+  // Always set, empty when there is no job: an inherited value would silently
+  // put the helper in the job of whoever started the tmux server. An empty
+  // export (not `unset`) keeps the prefix valid in every shell tmux may run.
+  assignments.push(`AHELPA_JOB_ID=${jobId ? shellEscape(jobId) : "''"}`);
   return `export ${assignments.join(" ")};`;
 }
 
@@ -145,6 +195,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     check: input.check,
     previous: input.after ? previousHandContext(input.db, input.after) : null,
   };
+  const jobId = resolveJobId(input.db, input.job, input.after);
   let worktreeSource: string | undefined;
   if (input.worktree) {
     worktreeSource = input.projectPath;
@@ -161,6 +212,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   }
   assertParentMayLaunch(input.db, input.parentId, nesting.rootSessionId);
 
+  const writerConflict = input.worktree ? [] : findWriterConflicts(input.db, input.projectPath, input.role, input.parentId);
   const fileHandoff = planFileHandoff(input.projectPath, sessionId);
   const baseLaunchCmd = driver.buildLaunchCommand({
     cwd: input.projectPath,
@@ -168,7 +220,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     model: input.model,
     effort: input.effort,
   });
-  const launchCmd = `${helperEnvironmentPrefix(sessionId, maxDepth)} ${baseLaunchCmd}`;
+  const launchCmd = `${helperEnvironmentPrefix(sessionId, maxDepth, jobId)} ${baseLaunchCmd}`;
 
   return {
     sessionId,
@@ -181,6 +233,8 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     fileHandoff,
     handoffContext,
     worktreeSource,
+    jobId,
+    writerConflict,
     input,
   };
 }
@@ -318,6 +372,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       checkCmd: plan.input.check,
       baseCommit,
       afterId: plan.input.after,
+      jobId: plan.jobId,
     });
     dbCreated = true;
     if (initialResumeId) {
@@ -361,6 +416,8 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   if (plan.input.role !== undefined) result.role = plan.input.role;
   if (plan.input.model !== undefined) result.model = plan.input.model;
   if (plan.input.effort !== undefined) result.effort = plan.input.effort;
+  if (plan.jobId) result.jobId = plan.jobId;
+  if (plan.writerConflict.length > 0) result.writerConflict = plan.writerConflict;
   if (submissionUnconfirmed) {
     result.warning = `${plan.driver.name} received the task but did not confirm a new turn; session marked needs_attention`;
   }
@@ -428,7 +485,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     model: oldSession.model ?? undefined,
     effort: oldSession.effort ?? undefined,
   });
-  const launchCmd = `${helperEnvironmentPrefix(sessionId, maxDepth)} ${resumeCmd}`;
+  const launchCmd = `${helperEnvironmentPrefix(sessionId, maxDepth, oldSession.jobId ?? null)} ${resumeCmd}`;
 
   if (!existsSync(defaultRuntimeLayout.tmpDir)) {
     mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
@@ -461,6 +518,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       checkCmd: oldSession.checkCmd,
       baseCommit: oldSession.baseCommit,
       afterId: oldSession.afterId,
+      jobId: oldSession.jobId,
     });
     dbCreated = true;
     input.db.updateResumeId(sessionId, oldSession.agentResumeId);

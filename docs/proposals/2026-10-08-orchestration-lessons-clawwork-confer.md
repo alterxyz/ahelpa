@@ -135,6 +135,8 @@ Each item: the source, the gap, the smallest change, the files, and the risk. No
 
 ### A1. Writer-conflict guard at launch
 
+> **Implemented in this PR**, without the proposed `--sole-writer` flag: `writerConflict` in the launch JSON is machine-readable, so a host that wants refusal can act on it, and the CLI surface stays one flag smaller. Tree overlap is path equality or containment, which needs no git call and correctly treats `--worktree` siblings as separate. `draining` sessions are not counted (their work is done).
+
 **Source.** Confer seat leases; "message independence does not prove independent code state". ahelpa rule 15.
 
 **Gap.** `launch` into a `projectPath` that already has a running non-reviewer session succeeds silently. The host finds out when `changedFiles` cannot be attributed.
@@ -158,6 +160,8 @@ Each item: the source, the gap, the smallest change, the files, and the risk. No
 **Risk.** Low. Untracked large trees make the hash slow; bound it to tracked files plus `--untracked-files=all` names only (no contents) and document the choice. Outside git, omit the field like the other git evidence.
 
 ### A3. A job ID across hands
+
+> **Implemented in this PR.** Precedence: explicit `--job`, then the `--after` session's job, then `AHELPA_JOB_ID` from the launching helper's environment (always exported, empty when there is none, so a stale shell value cannot leak in). Job IDs are filename-safe (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`) because §10 may use them as directory names. `wait --job` resolves to the job's `running` sessions at call time. `kill --job` is deferred to A4.
 
 **Source.** ClawWork's planned single `traceId` "threaded through the Conductor and all Performers"; Confer's room as "one coordination context".
 
@@ -238,7 +242,7 @@ So the position is: keep the TUI in tmux, and take the structured signal from of
 
 | Phase | Items | Why this grouping |
 | --- | --- | --- |
-| 1 | A7, A1, A3 | Text and small code; no schema risk beyond one column; immediately useful in the five-hand flow |
+| 1 | A7, ~~A1~~, ~~A3~~ | A1 and A3 shipped in this PR; A7 remains (text only) |
 | 2 | A2, A4 | Both touch evidence and lineage; A4 is the one guardrail change and deserves its own review |
 | 3 | A5, A6 | Both need version-specific verification spikes before a plan |
 | 4 | §10 peer mail, §11 blind review flag | Peer mail depends on A3 (job) and A1 (writer guard); blind review depends on A2 |
@@ -247,9 +251,9 @@ Acceptance for every phase: `bun test`, `bun run typecheck`, `bun run closure:ga
 
 ## 8. Open questions for the maintainer
 
-1. **A1 default:** warn and proceed, or refuse unless `--allow-shared-tree`? Proposed: warn, because a false refusal blocks a legitimate reviewer-beside-worker case.
+1. ~~**A1 default:** warn and proceed, or refuse?~~ Resolved: warn and proceed, no flag.
 2. **A4:** accept "abort authority follows lineage; control does not" as a carve-out from non-transitive ownership? Proposed: yes, because the orphan runs with full permissions.
-3. **A3 inheritance:** should `--after` inherit the previous hand's job ID by default? Proposed: yes; an explicit `--job` always wins.
+3. ~~**A3 inheritance:**~~ Resolved: `--after` and the launching helper's job are both inherited; an explicit `--job` wins.
 4. **A6 scope:** is editing nothing outside the session (no global settings or config) a hard requirement? Proposed: yes; otherwise defer A6.
 5. **§10 peer mail:** accept the four constraints (same job only, requests not instructions, reviewers cannot receive, budgeted) as the price of helper-to-helper communication? Proposed: yes, and ship it after A3.
 6. **§11 blind review:** should `--role reviewer --after <id>` withhold the previous hand's `summary.md` by default and pass only its `task.md` plus the diff? Proposed: yes, with `--unblind` to opt back in.

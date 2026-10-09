@@ -80,6 +80,19 @@ export function resolveParentId(
     || `cli-${now()}`;
 }
 
+// A job is resolved to its sessions that are still working when wait starts,
+// so finished hands do not end the wait and later hands are not waited on.
+export function resolveWaitTargets(db: StateDB, ids: string[], job?: string): string[] {
+  if (job === undefined) {
+    if (ids.length === 0) throw new UsageError("Usage: ahelpa wait (<id...> | --job <id>) [--all] [--timeout <seconds>]");
+    return ids;
+  }
+  if (ids.length > 0) throw new UsageError("wait takes session ids or --job, not both");
+  const active = db.listJobSessions(job).filter((session) => session.status === "running");
+  if (active.length === 0) throw new Error(`Job ${job} has no running sessions`);
+  return active.map((session) => session.id);
+}
+
 function renderModelLine(model: ModelCatalogEntry): string {
   const details: string[] = [];
   if (model.efforts?.length) details.push(`effort: ${model.efforts.join(", ")}`);
@@ -113,7 +126,7 @@ export function renderModelsText(agent?: string): string {
 export const COMMAND_CONTRACTS: CommandContract[] = [
   {
     name: "launch",
-    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--after <id>] [--worktree]",
+    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--job <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--after <id>] [--worktree]",
     description: "Launch a helper agent",
     minPositionals: 1,
     flags: {
@@ -129,6 +142,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       check: { kind: "string" },
       after: { kind: "string" },
       worktree: { kind: "boolean" },
+      job: { kind: "string" },
     },
     async run(ctx) {
       const result = await launch({
@@ -145,6 +159,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         check: ctx.flags.strings.check,
         after: ctx.flags.strings.after,
         worktree: ctx.flags.booleans.worktree,
+        job: ctx.flags.strings.job,
         taskFromFile: Boolean(ctx.flags.strings.file),
       });
       ctx.print(JSON.stringify(result, null, 2));
@@ -152,15 +167,14 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   },
   {
     name: "wait",
-    usage: "wait <id...> [--all] [--timeout <seconds>]",
+    usage: "wait (<id...> | --job <id>) [--all] [--timeout <seconds>]",
     description: "Wait for helper(s) to finish",
-    minPositionals: 1,
     maxPositionals: Infinity,
-    flags: { all: { kind: "boolean" }, timeout: { kind: "number" } },
+    flags: { all: { kind: "boolean" }, timeout: { kind: "number" }, job: { kind: "string" } },
     async run(ctx) {
       const result = await wait(
         ctx.db,
-        ctx.positionals,
+        resolveWaitTargets(ctx.db, ctx.positionals, ctx.flags.strings.job),
         ctx.flags.booleans.all,
         resolveWaitTimeoutMs(ctx.flags.numbers.timeout),
       );
@@ -169,14 +183,14 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   },
   {
     name: "check",
-    usage: "check [--parent <id>]",
+    usage: "check [--parent <id>] [--job <id>]",
     description: "Check session status (non-blocking)",
-    flags: { parent: { kind: "string" } },
+    flags: { parent: { kind: "string" }, job: { kind: "string" } },
     async run(ctx) {
       if (!isDaemonRunning()) {
         await refreshSessionStatuses(ctx.db);
       }
-      ctx.print(JSON.stringify(check(ctx.db, ctx.flags.strings.parent), null, 2));
+      ctx.print(JSON.stringify(check(ctx.db, ctx.flags.strings.parent, ctx.flags.strings.job), null, 2));
     },
   },
   {
