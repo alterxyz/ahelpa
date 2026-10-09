@@ -139,8 +139,8 @@ test("clean retains a settled middle ancestor so tree kill still reaches its act
   expect(Tmux.kill).toHaveBeenNthCalledWith(2, "root");
 });
 
-describe("archive before kill", () => {
-  test.each([false, true])("kill tree=%s archives each pane before termination and logs reads it afterwards", async (tree) => {
+describe("capture before kill, archive after termination", () => {
+  test.each([false, true])("kill tree=%s captures each pane before termination and logs reads its archive afterwards", async (tree) => {
     session("root");
     session("child", "root");
     session("grandchild", "child");
@@ -154,14 +154,19 @@ describe("archive before kill", () => {
     const order: string[] = [];
     spyOn(Tmux, "kill").mockImplementation(async (id) => {
       const archived = new Archive(defaultRuntimeLayout.archiveDir()).get(id);
-      expect(archived).toMatchObject({ status: "dead", lastOutput: `pane-${id}` });
-      expect(archived?.archivedAt).toBeString();
+      expect(Tmux.capture).toHaveBeenCalledWith(id, 500);
+      expect(archived).toBeNull();
       order.push(id);
       alive.delete(id);
     });
     await kill(db, "root", "root-token", { tree });
     expect(order).toEqual(tree ? ["grandchild", "child", "root"] : ["root"]);
-    for (const id of order) expect(await logs(db, id, `${id}-token`)).toBe(`pane-${id}`);
+    for (const id of order) {
+      const archived = new Archive(defaultRuntimeLayout.archiveDir()).get(id);
+      expect(archived).toMatchObject({ status: "dead", lastOutput: `pane-${id}` });
+      expect(archived?.archivedAt).toBeString();
+      expect(await logs(db, id, `${id}-token`)).toBe(`pane-${id}`);
+    }
     expect(new Archive(defaultRuntimeLayout.archiveDir()).get("root")?.agentResumeId).toBe("native-root");
     if (!tree) expect(alive).toEqual(new Set(["child", "grandchild"]));
   });

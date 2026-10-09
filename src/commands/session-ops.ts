@@ -124,18 +124,27 @@ export const switchModel = withAuth(async ({ db, session }, opts: ModelSwitchOpt
   return result;
 });
 
-async function stopSession(db: StateDB, session: SessionRecord): Promise<void> {
-  // Keep the same snapshot format as settlement, while the pane still exists.
-  // A missing pane (including a launch reservation), or archive write failure,
-  // must not block termination or overwrite an earlier usable snapshot.
+async function stopSession(db: StateDB, session: SessionRecord, descendant = false): Promise<boolean> {
+  // The root may have changed while its descendants were being stopped.
+  const observed = db.getSession(session.id);
+  if (!observed) return false;
+  let archive: Archive | undefined;
+  let lastOutput: string | undefined;
   try {
-    const lastOutput = await Tmux.capture(session.id, 500);
-    new Archive(defaultRuntimeLayout.archiveDir()).save(session.id, {
-      status: SESSION_STATUS.Dead,
-      lastOutput,
-      agentResumeId: db.getSession(session.id)?.agentResumeId ?? undefined,
-    });
+    archive = new Archive(defaultRuntimeLayout.archiveDir());
+    // Settlement includes attention/error and the idle -> draining window.
+    // A previous turn's archive on a running session is not its final result.
+    if (observed.status === SESSION_STATUS.Running || !archive.get(session.id)) {
+      lastOutput = await Tmux.capture(session.id, 500);
+    }
   } catch {}
+  if (descendant) {
+    const current = db.getSession(session.id);
+    // Settlement while capture awaited owns both the result and its cleanup.
+    if (!current || current.status === SESSION_STATUS.Idle
+      || current.status === SESSION_STATUS.Dead || current.status === SESSION_STATUS.Error
+      || (current.version !== observed.version && current.status !== SESSION_STATUS.Running)) return false;
+  }
   try {
     await Tmux.kill(session.id);
   } catch (error) {
@@ -143,8 +152,26 @@ async function stopSession(db: StateDB, session: SessionRecord): Promise<void> {
     // reserved launch may not have created it yet. Dead cancels its launch CAS.
     if (await Tmux.hasSession(session.id)) throw error;
   }
-  defaultWakeup.cleanup(session.id);
-  db.updateStatus(session.id, SESSION_STATUS.Dead);
+  // Mirror settle's transaction: a stale kill cannot relabel its winner or
+  // overwrite its archive. Capture must precede termination, commit must follow.
+  let committed = false;
+  try {
+    db.transaction(() => {
+      if (!db.compareAndSetStatus(session.id, observed.status, SESSION_STATUS.Dead, observed.version)) return;
+      if (lastOutput !== undefined) archive!.save(session.id, {
+        status: SESSION_STATUS.Dead,
+        lastOutput,
+        agentResumeId: observed.agentResumeId ?? undefined,
+      });
+      committed = true;
+    });
+  } catch {
+    // Archive failure rolls the row back; still cancel an unpublished launch
+    // and record the successful termination, using the same observed version.
+    committed = db.compareAndSetStatus(session.id, observed.status, SESSION_STATUS.Dead, observed.version);
+  }
+  if (committed) defaultWakeup.cleanup(session.id);
+  return true;
 }
 
 export const MAX_TREE_KILL_PASSES = 4;
@@ -152,7 +179,10 @@ export const MAX_TREE_KILL_PASSES = 4;
 export interface TreeKillResult { killed: string[]; missed: string[]; }
 
 export const kill = withAuth(async ({ db, session }, opts: { tree?: boolean } = {}): Promise<TreeKillResult | void> => {
-  if (!opts.tree) return stopSession(db, session);
+  if (!opts.tree) {
+    await stopSession(db, session);
+    return;
+  }
 
   const killed: string[] = [];
   const seen = new Set<string>();
@@ -166,8 +196,7 @@ export const kill = withAuth(async ({ db, session }, opts: { tree?: boolean } = 
       if (!current || current.status === SESSION_STATUS.Idle
         || current.status === SESSION_STATUS.Dead || current.status === SESSION_STATUS.Error) continue;
       try {
-        await stopSession(db, current);
-        killed.push(child.id);
+        if (await stopSession(db, current, true)) killed.push(child.id);
       } catch {
         // A failed descendant must not prevent stopping its siblings or root.
         // The final scan reports it if it is still active; each ID is tried once.

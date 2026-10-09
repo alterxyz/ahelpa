@@ -285,7 +285,7 @@ ahelpa capture "$session_id" --token "$token" --lines 100  # last 100 lines
 
 ## View Session Logs
 
-Read session output, including the archived pane snapshot after settlement or an explicit `kill` (with or without `--tree`):
+Read session output, including the archived pane snapshot after settlement or an explicit `kill` (with or without `--tree`). Kill preserves an existing settlement archive; only unsettled sessions receive a kill-time snapshot:
 
 ```bash
 ahelpa logs "$session_id" --token "$token"
@@ -316,7 +316,7 @@ Terminate a specific session:
 ahelpa kill "$session_id" --token "$token"
 ```
 
-Before killing tmux, `kill` captures the last 500 pane lines and saves the existing archive format so `logs` remains useful. Capture or archive-write failures do not prevent termination; an unavailable pane leaves any earlier archive intact. A reserved launch whose terminal does not exist yet is still marked `dead`, cancelling its launch publication and allowing the launcher to roll back.
+`kill` preserves an existing settlement archive (including while the terminal drains). For an unsettled session, it captures the last 500 pane lines before killing tmux, then commits `dead` and the snapshot together only if the observed row version still matches. A settlement that wins during capture or termination keeps its status and archive; tree mode skips descendants that settle during capture. Capture or archive-write failures do not prevent termination; an unavailable pane leaves any earlier archive intact. If termination fails and the terminal still exists, the command reports the failure without changing the row or archive. A reserved launch whose terminal does not exist yet is still marked `dead`, cancelling its launch publication and allowing the launcher to roll back.
 
 To abort that helper and its descendants using the target's own token:
 
