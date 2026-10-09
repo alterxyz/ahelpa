@@ -6,15 +6,15 @@ import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } fr
 import * as daemon from "../daemon";
 import { getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
 import { $ } from "bun";
-import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync } from "fs";
+import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, relative, sep } from "path";
 import { defaultRuntimeLayout } from "../runtime-layout";
-import { isTaskInstructionEcho, planFileHandoff, prepareFileHandoff, type FileHandoffPlan, type HandoffContext } from "../file-handoff";
+import { isTaskInstructionEcho, ORIGINAL_ASK_UNAVAILABLE, planFileHandoff, prepareFileHandoff, type FileHandoffPlan, type HandoffContext } from "../file-handoff";
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
 import { resolveLaunchProfile } from "../launch-profiles";
-import { computeTargetFingerprint } from "../evidence";
+import { computeTargetFingerprint, LAUNCH_FINGERPRINT_TIMEOUT_MS } from "../evidence";
 
 export interface LaunchInput {
   db: StateDB;
@@ -111,7 +111,7 @@ function previousHandContext(db: StateDB, afterId: string): NonNullable<HandoffC
   return {
     sessionId: previous.id,
     taskCopyPath: plan.taskCopyPath,
-    ...(existsSync(plan.askPath) ? { askPath: plan.askPath } : {}),
+    ...(existsSync(plan.askPath) ? { askPath: plan.askPath, askIncomplete: readFileSync(plan.askPath, "utf8").startsWith(ORIGINAL_ASK_UNAVAILABLE) } : {}),
     summaryPath: plan.summaryPath,
     artifactsDir: plan.artifactsDir,
     ...(previous.baseCommit ? { baseCommit: previous.baseCommit } : {}),
@@ -421,7 +421,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }
     const targetResultDirs = [plan.fileHandoff.sessionDeliveryDir];
     const targetFingerprint = plan.input.role === "reviewer"
-      ? await computeTargetFingerprint(plan.input.projectPath, targetResultDirs)
+      ? await computeTargetFingerprint(plan.input.projectPath, targetResultDirs, { deadline: Date.now() + LAUNCH_FINGERPRINT_TIMEOUT_MS })
       : null;
     plan.handoffContext.targetFingerprint = targetFingerprint;
     await Tmux.create(plan.sessionId, plan.launchCmd);
@@ -563,10 +563,12 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     );
   }
   const projectPath = resolveProjectPath(oldSession.projectPath);
+  const sourceHandoff = planFileHandoff(projectPath, oldSession.id);
 
   const driver = getDriver(oldSession.agentType);
   const sessionId = generateAvailableSessionId(input.db, driver.sessionPrefix);
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
+  const fileHandoff = planFileHandoff(projectPath, sessionId);
   const maxDepth = getMaxNestingDepth();
   // Safe posture is sticky across native resumes. `--safe` may upgrade an
   // older/default session, but omission must never silently remove safety.
@@ -587,6 +589,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   let tmuxCreated = false;
   let dbCreated = false;
   let wakeupOwned = false;
+  let handoffOwned = false;
   try {
     reserveSession(input.db, {
       id: sessionId,
@@ -617,6 +620,12 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     await Tmux.create(sessionId, launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(input.db, sessionId);
+    assertFileHandoffAvailable(fileHandoff);
+    handoffOwned = true;
+    mkdirSync(fileHandoff.artifactsDir, { recursive: true });
+    writeFileSync(fileHandoff.askPath, existsSync(sourceHandoff.askPath)
+      ? readFileSync(sourceHandoff.askPath)
+      : `${ORIGINAL_ASK_UNAVAILABLE}\n`);
     // Do not hand the new tmux session back until the driver's startup/trust
     // flow has had a chance to reach an input prompt. Otherwise an immediate
     // `send` can be typed into a loading or confirmation screen.
@@ -637,6 +646,9 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       try { await Tmux.kill(sessionId); } catch {}
     }
     if (wakeupOwned) defaultWakeup.cleanup(sessionId);
+    if (handoffOwned) {
+      try { rmSync(fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
+    }
     if (dbCreated) {
       try { input.db.deleteSession(sessionId); } catch {}
     }

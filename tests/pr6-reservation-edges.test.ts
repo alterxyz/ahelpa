@@ -152,7 +152,7 @@ describe("PR6 launch cancellation", () => {
     spyOn(getDriver("claude-code"), "prepareForTask").mockImplementation(async (id) => {
       expect(db.getSession(id)?.targetFingerprint).toBeNull();
       expect(existsSync(plan.fileHandoff.askPath)).toBe(true);
-      expect(readFileSync(plan.fileHandoff.taskCopyPath, "utf8")).toContain(plan.handoffContext.targetFingerprint!.treeHash);
+      expect(readFileSync(plan.fileHandoff.taskCopyPath, "utf8")).toContain(plan.handoffContext.targetFingerprint!.treeHash!);
     });
     await executeLaunch(plan);
     expect(db.getSession(plan.sessionId)).toMatchObject({ launchPid: null, targetFingerprint: plan.handoffContext.targetFingerprint, baseCommit: plan.handoffContext.targetFingerprint!.head });
@@ -166,7 +166,7 @@ describe("PR6 launch cancellation", () => {
         expect(db.getSession(plan.sessionId)).toMatchObject({ launchPid: process.pid, targetFingerprint: null, targetResultDirs: [plan.fileHandoff.sessionDeliveryDir] });
         if (boundary !== "tmux creation") {
           expect(readFileSync(plan.fileHandoff.askPath, "utf8")).toBe("review this tree");
-          expect(readFileSync(plan.fileHandoff.taskCopyPath, "utf8")).toContain(plan.handoffContext.targetFingerprint!.treeHash);
+          expect(readFileSync(plan.fileHandoff.taskCopyPath, "utf8")).toContain(plan.handoffContext.targetFingerprint!.treeHash!);
         }
         await kill(db, plan.sessionId, plan.ownerToken);
         const killed = db.getSession(plan.sessionId);
