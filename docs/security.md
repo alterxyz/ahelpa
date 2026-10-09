@@ -30,15 +30,25 @@ The hook protects the log file against symlinks and hardlinks, but does not prot
 
 ## Owner Token Boundaries
 
-The owner token returned by `launch` gates all mutating operations:
+The owner token returned by `launch` gates session control and terminal access:
 
 | Requires token | Does not require token |
 | --- | --- |
-| `send`, `task`, `model`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean` |
+| `send`, `task`, `model`, `capture`, `logs`, `kill`, `resume` | `status`, `check`, `clean`, `mail`, `inbox` |
 
-Read-only status views intentionally do not expose owner tokens. This means any agent can observe session status (who's running, what state they're in), but interaction requires the session's own token. Termination has the lineage exception below.
+Read-only status views intentionally do not expose owner tokens. Any agent can observe session status and its `child`/`job peer`/`other` relationship; session control still requires the owner token. Peer mail is a separate, bounded file channel and grants no terminal access or control. Termination has the lineage exception below.
 
 Ownership is not transitive. If agent A launches helper B, and helper B launches helper C, agent A cannot control C — only B can. The sole carve-out is **abort authority follows lineage; control does not**: `kill B --token <B-token> --tree` can stop B and its descendants, including C. It authenticates B's token before any kill; a wrong token stops nothing. A still cannot `send`, `task`, `model`, `logs`, `capture`, or `resume` C with B's token. Plain `kill` still affects only its target, and `--tree` grants no authority over sibling trees.
+
+## Peer Mail Boundaries
+
+Peer mail has four bounds: the same nonempty stored job, requests rather than instructions, no reviewers as senders or recipients, and a per-session delivery budget. `mail` and `inbox` recognize only the existing SQLite session named by `AHELPA_PARENT_ID`; host-shell mail is refused, and `AHELPA_JOB_ID` cannot change that session's job. The host continues to use token-gated `send`/`task`. Both sender and recipient must be `running`; mail after signalling or to a settled recipient is refused.
+
+A peer may ask, inform, or flag; it cannot reassign the task, change acceptance commands, or tell the receiver to stop. Authority remains with the host's task file. Act only within that task; otherwise record the message under "Peer messages" in `summary.md`. Reviewers cannot send or receive and get no peer-mail contract paragraph, preserving their separation from the author's reasoning.
+
+`AHELPA_MAIL_BUDGET` must be a positive integer and defaults to 8. Each recipient delivery consumes one slot, including broadcasts and replies. SQLite stores the per-session count, so switching projects does not reset it. Each message lands atomically in the recipient's project inbox, and metadata `{ts, from, to, seq, bytes}` is ledgered at `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl`. `wait` exposes `evidence.peerMail` counts; `inbox --read <seq>` marks a message read, without changing those counts. There is no terminal injection or inbox nudge; helpers check at the contract's verification and signalling checkpoints.
+
+These bounds apply to cooperative agents using ahelpa. Like nesting limits, they do not restrict the local user's full filesystem permissions. Inbox bodies and ledgers are local artifacts under `.ahelpa/`; keep secrets out of messages and do not publish these files.
 
 ## Nesting Limits
 

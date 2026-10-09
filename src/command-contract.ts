@@ -17,6 +17,9 @@ import { SessionAccessError } from "./session-access";
 import { VERSION } from "./version";
 import { readTaskFile } from "./task-input";
 import { parseHelperRole } from "./launch-profiles";
+import { mail, inbox } from "./commands/peer-mail";
+import { resolveParentId } from "./caller-identity";
+export { resolveParentId } from "./caller-identity";
 
 export class UsageError extends Error {}
 
@@ -72,17 +75,6 @@ export function resolveWaitTimeoutMs(timeoutSeconds?: number): number {
   return timeoutMs;
 }
 
-export function resolveParentId(
-  env: Record<string, string | undefined> = process.env,
-  now: () => number = Date.now,
-): string {
-  return env.AHELPA_PARENT_ID
-    || env.CLAUDE_CODE_SESSION_ID
-    || env.CODEX_THREAD_ID
-    || env.CODEX_COMPANION_SESSION_ID
-    || `cli-${now()}`;
-}
-
 // A job is resolved to its sessions that are still working when wait starts,
 // so finished hands do not end the wait and later hands are not waited on.
 export function resolveWaitTargets(db: StateDB, ids: string[], job?: string): string[] {
@@ -136,6 +128,32 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
     flags: { project: { kind: "string" } },
     async run(ctx) {
       ctx.print(JSON.stringify(doctor(ctx.positionals[0], ctx.flags.strings.project), null, 2));
+    },
+  },
+  {
+    name: "mail",
+    usage: 'mail (<to-id> | --peers) (--file <path> | --text "...")',
+    description: "Send bounded file mail to job peers",
+    maxPositionals: 1,
+    flags: { peers: { kind: "boolean" }, file: { kind: "string" }, text: { kind: "string" } },
+    async run(ctx) {
+      const to = ctx.positionals[0];
+      if (Boolean(to) === ctx.flags.booleans.peers) throw new UsageError("Use exactly one of <to-id> or --peers");
+      const { file, text } = ctx.flags.strings;
+      if ((file !== undefined) === (text !== undefined)) throw new UsageError("Use exactly one of --file or --text");
+      const content = file === undefined ? text! : readTaskFile(file);
+      if (!content.trim()) throw new UsageError("Peer message must not be empty");
+      ctx.print(JSON.stringify(mail(ctx.db, to, ctx.flags.booleans.peers, content), null, 2));
+    },
+  },
+  {
+    name: "inbox",
+    usage: "inbox [--read <seq>]",
+    description: "List peer mail or read and mark a message",
+    flags: { read: { kind: "number" } },
+    async run(ctx) {
+      const result = inbox(ctx.db, ctx.flags.numbers.read);
+      ctx.print(typeof result === "string" ? result : JSON.stringify(result, null, 2));
     },
   },
   {
@@ -206,7 +224,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       if (!isDaemonRunning()) {
         await refreshSessionStatuses(ctx.db);
       }
-      ctx.print(JSON.stringify(check(ctx.db, ctx.flags.strings.parent, ctx.flags.strings.job), null, 2));
+      ctx.print(JSON.stringify(check(ctx.db, ctx.flags.strings.parent, ctx.flags.strings.job, resolveParentId()), null, 2));
     },
   },
   {
@@ -302,7 +320,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       if (!daemonRunning) {
         await refreshSessionStatuses(ctx.db);
       }
-      ctx.print(status(ctx.db, daemonRunning));
+      ctx.print(status(ctx.db, daemonRunning, resolveParentId()));
     },
   },
   {

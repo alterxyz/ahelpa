@@ -72,6 +72,16 @@ export interface CreateSessionInput {
   unblind?: boolean;
 }
 
+export interface PeerMailRecord {
+  ts: string;
+  from: string;
+  to: string;
+  seq: number;
+  bytes: number;
+  path: string;
+  readAt: string | null;
+}
+
 interface SessionRow {
   id: string;
   parent_id: string;
@@ -246,6 +256,16 @@ export class StateDB {
         if (!columns.some((column) => column.name === "launch_pid")) {
           this.db.exec("ALTER TABLE sessions ADD COLUMN launch_pid INTEGER");
         }
+        if (!columns.some((column) => column.name === "mail_sent")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN mail_sent INTEGER NOT NULL DEFAULT 0");
+        }
+        // Metadata survives clean so recipient sequences and receipt evidence
+        // do not depend on the sender's continued presence or project path.
+        this.db.exec(`CREATE TABLE IF NOT EXISTS peer_mail (
+          to_id TEXT NOT NULL, seq INTEGER NOT NULL, from_id TEXT NOT NULL,
+          ts TEXT NOT NULL, bytes INTEGER NOT NULL, path TEXT NOT NULL, read_at TEXT,
+          PRIMARY KEY (to_id, seq)
+        )`);
       }).immediate();
     } catch (error) {
       try { this.db.close(); } catch {}
@@ -299,6 +319,36 @@ export class StateDB {
 
   immediateTransaction<T>(fn: () => T): T {
     return this.db.transaction(fn).immediate();
+  }
+
+  peerMailCounts(id: string): { sent: number; received: number } {
+    const sender = this.db.prepare("SELECT mail_sent AS sent FROM sessions WHERE id = ?").get(id) as { sent: number } | null;
+    const receiver = this.db.prepare("SELECT COUNT(*) AS received FROM peer_mail WHERE to_id = ?").get(id) as { received: number };
+    return { sent: sender?.sent ?? 0, received: receiver.received };
+  }
+
+  nextPeerMailSeq(to: string): number {
+    const row = this.db.prepare("SELECT COALESCE(MAX(seq), 0) + 1 AS seq FROM peer_mail WHERE to_id = ?").get(to) as { seq: number };
+    return row.seq;
+  }
+
+  // Called inside mail's immediate transaction, together with budget checks
+  // and file delivery. Concurrent CLI processes cannot reserve the same seq
+  // or consume the same remaining budget slot.
+  recordPeerMail(message: PeerMailRecord): void {
+    this.db.prepare("INSERT INTO peer_mail (to_id, seq, from_id, ts, bytes, path) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(message.to, message.seq, message.from, message.ts, message.bytes, message.path);
+    this.db.prepare("UPDATE sessions SET mail_sent = mail_sent + 1 WHERE id = ?").run(message.from);
+  }
+
+  listPeerMail(to: string): PeerMailRecord[] {
+    return this.db.prepare(`SELECT ts, from_id AS "from", to_id AS "to", seq, bytes, path, read_at AS readAt
+      FROM peer_mail WHERE to_id = ? ORDER BY seq`).all(to) as PeerMailRecord[];
+  }
+
+  markPeerMailRead(to: string, seq: number): void {
+    this.db.prepare("UPDATE peer_mail SET read_at = COALESCE(read_at, ?) WHERE to_id = ? AND seq = ?")
+      .run(new Date().toISOString(), to, seq);
   }
 
   getSession(id: string): SessionRecord | null {

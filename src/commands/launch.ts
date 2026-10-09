@@ -4,7 +4,7 @@ import { defaultWakeup } from "../wakeup";
 import { getDriver } from "../drivers/registry";
 import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
-import { activeSessionAncestorIds, getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
+import { activeSessionAncestorIds, getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree, readPositiveInt } from "../nesting";
 import { $ } from "bun";
 import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync, readFileSync, writeFileSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, relative, sep } from "path";
@@ -193,6 +193,7 @@ function helperEnvironmentPrefix(sessionId: string, maxDepth: number, jobId: str
     `AHELPA_PARENT_ID=${sessionId}`,
     `AHELPA_MAX_NESTING_DEPTH=${maxDepth}`,
     `AHELPA_MAX_ACTIVE_PER_TREE=${getMaxActivePerTree()}`,
+    `AHELPA_MAIL_BUDGET=${readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8)}`,
     `AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`,
     `AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`,
   ];
@@ -229,13 +230,14 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     ? process.env.AHELPA_PARENT_ID : undefined;
   const treeId = nesting.rootSessionId ?? sessionId;
   const depth = assertCallerMayLaunch(input.db, callerId, treeId, nesting.depth);
+  const jobId = resolveJobId(input.db, input.job, input.after);
   const handoffContext: HandoffContext = {
     role: input.role,
     check: input.check,
+    ...(jobId ? { jobId } : {}),
     previous: input.after ? previousHandContext(input.db, input.after) : null,
     ...(input.unblind ? { unblind: true } : {}),
   };
-  const jobId = resolveJobId(input.db, input.job, input.after);
   let worktreeSource: string | undefined;
   if (input.worktree) {
     worktreeSource = input.projectPath;
