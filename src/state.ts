@@ -27,6 +27,7 @@ export interface SessionRecord {
   afterId?: string | null;
   nudgedAt?: string | null;
   jobId?: string | null;
+  launchPid?: number | null;
 }
 
 export interface CreateSessionInput {
@@ -47,6 +48,7 @@ export interface CreateSessionInput {
   baseCommit?: string | null;
   afterId?: string | null;
   jobId?: string | null;
+  launchPid?: number | null;
 }
 
 interface SessionRow {
@@ -73,6 +75,7 @@ interface SessionRow {
   after_id: string | null;
   nudged_at: string | null;
   job_id: string | null;
+  launch_pid: number | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -100,6 +103,7 @@ function rowToRecord(row: SessionRow): SessionRecord {
     afterId: row.after_id,
     nudgedAt: row.nudged_at,
     jobId: row.job_id,
+    launchPid: row.launch_pid,
   };
 }
 
@@ -191,6 +195,9 @@ export class StateDB {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
         }
+        if (!columns.some((column) => column.name === "launch_pid")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN launch_pid INTEGER");
+        }
       }).immediate();
     } catch (error) {
       try { this.db.close(); } catch {}
@@ -202,8 +209,8 @@ export class StateDB {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id, launch_pid)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -225,8 +232,21 @@ export class StateDB {
       input.baseCommit ?? null,
       input.afterId ?? null,
       input.jobId ?? null,
+      input.launchPid ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
+  }
+
+  // Clear the launch window only after startup and resource preparation finish.
+  completeLaunch(id: string, baseCommit?: string | null, status?: SessionStatus): void {
+    this.db.prepare(`UPDATE sessions SET launch_pid = NULL, status = COALESCE(?, status),
+      base_commit = CASE WHEN ? THEN ? ELSE base_commit END,
+      updated_at = ?, version = version + 1 WHERE id = ?`)
+      .run(status ?? null, baseCommit !== undefined ? 1 : 0, baseCommit ?? null, new Date().toISOString(), id);
+  }
+
+  immediateTransaction<T>(fn: () => T): T {
+    return this.db.transaction(fn).immediate();
   }
 
   getSession(id: string): SessionRecord | null {

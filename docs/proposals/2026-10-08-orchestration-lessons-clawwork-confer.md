@@ -46,7 +46,7 @@ Two further sections were added after the first round of discussion: §9 positio
 | Execution unit | OpenClaw subagent session (`agent:<id>:subagent:<uuid>`) | Seat: one native headless process per delivery, native session resumed | Session: persistent tmux terminal + SQLite row |
 | Vendors | OpenClaw agents only (multi-runtime is a stated future) | 9 CLIs via ACP v1 (native stdio or in-process bridges) | claude-code, codex, kimi via terminal drivers |
 | Transport | Gateway RPC and events | ACP / JSON output of native CLIs | tmux `send-keys` and pane capture |
-| Survives caller exit | Yes (gateway sessions) | Native work may continue, but queue, delivery IDs, and outputs are lost with the MCP process | Yes (tmux + daemon + SQLite); daemon crash recovery is automatic |
+| Survives caller exit | Yes (gateway sessions) | Native work may continue, but queue, delivery IDs, and outputs are lost with the MCP process | Yes (tmux + SQLite); no immediate daemon restart supervisor; a later launch/resume can restart a stopped daemon, and status commands use inline refresh |
 | Coordination context | TaskRoom (conductor + performer whitelist, `active/stopping/stopped`) | Room bound to a workspace (git toplevel); seats added/retired; no lifecycle | None. `--parent` is lineage, `--after` is a pointer, `--label` is free text |
 | Completion | Push-based auto-announce to the conductor; "Do NOT poll" is a hard prompt rule | `wait_output` on delivery IDs, final answer only | FIFO wakeup on sentinel; "polling is an anti-pattern" |
 | Result | Chat messages merged into a timeline | Final assistant text | `summary.md`, `artifacts/`, `task.md`, plus `evidence` (`changedFiles`, `testFilesChanged`, `check` rerun) |
@@ -77,7 +77,7 @@ Where it is weaker than ahelpa:
 
 - **Results are chat.** The conductor "summarizes results for the user" from performer replies. ahelpa's archive (`profiles.md`) found that of roughly 20 adversarial reviews of "all green" implementations, about 19 ruled "must fix". A conductor that aggregates self-reports is aggregating claims.
 - **No writer isolation.** The worked example sends "refactor login module" and "write tests for login module" to two performers in parallel in one tree. ahelpa rule 15 exists precisely because evidence then cannot say whose change is whose.
-- **Discovery complexity is an upstream artifact.** Performer keys carry no `taskId`, so ownership has to be reconstructed through `sessions.list` and a candidate queue, and the first version leaked events across tasks until #319. ahelpa avoids the whole class by minting IDs and writing `parent_id` before the helper exists.
+- **Discovery complexity is an upstream artifact.** Performer keys carry no `taskId`, so ownership has to be reconstructed through `sessions.list` and a candidate queue, and the first version leaked events across tasks until #319. After this PR's rework, ahelpa mints IDs and atomically reserves the SQLite row, including `parent_id`, before creating the tmux helper or delivering its task. Previously, the row was written only after task submission; that left a startup window in which a nested caller was not yet registered.
 - **Timeouts sized for chat, not coding.** `sessions_send(timeoutSeconds:30)` as the serial mode does not fit tasks whose p50 is 11–12 minutes in ahelpa's archive.
 - **Single runtime.** The April post concedes this and sketches a `RuntimeAdapter` layer. ahelpa and Confer are cross-vendor from the start.
 
@@ -135,7 +135,7 @@ Each item: the source, the gap, the smallest change, the files, and the risk. No
 
 ### A1. Writer-conflict guard at launch
 
-> **Implemented in this PR**, without the proposed `--sole-writer` flag: `writerConflict` in the launch JSON is machine-readable, so a host that wants refusal can act on it, and the CLI surface stays one flag smaller. Tree overlap is path equality or containment, which needs no git call and correctly treats `--worktree` siblings as separate. `draining` sessions are not counted (their work is done).
+> **Implemented in this PR**, without the proposed `--sole-writer` flag: `writerConflict` in the launch JSON is machine-readable, so a host that wants refusal can act on it, and the CLI surface stays one flag smaller. Tree overlap is physical path equality or containment after realpath normalization (with nearest-existing-ancestor fallback for missing paths), which needs no git call and treats `--worktree` siblings as separate. At least one side must be a non-reviewer; reviewer pairs are omitted. `draining` sessions are not counted (their work is done).
 
 **Source.** Confer seat leases; "message independence does not prove independent code state". ahelpa rule 15.
 
@@ -161,7 +161,7 @@ Each item: the source, the gap, the smallest change, the files, and the risk. No
 
 ### A3. A job ID across hands
 
-> **Implemented in this PR.** Precedence: explicit `--job`, then the `--after` session's job, then `AHELPA_JOB_ID` from the launching helper's environment (always exported, empty when there is none, so a stale shell value cannot leak in). Job IDs are filename-safe (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`) because §10 may use them as directory names. `wait --job` resolves to the job's `running` sessions at call time. `kill --job` is deferred to A4.
+> **Implemented in this PR.** Precedence: explicit `--job`, then the `--after` session's stored job, then the actual launching helper's stored job. The caller is recognized by an existing SQLite session named by `AHELPA_PARENT_ID`; host-shell `AHELPA_JOB_ID` is ignored. All three drivers export the selected job on launch and resume, empty when absent. Job IDs are filename-safe (`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`) because §10 may use them as directory names. `wait --job` resolves to the job's `running` sessions at call time. `kill --job` is deferred to A4.
 
 **Source.** ClawWork's planned single `traceId` "threaded through the Conductor and all Performers"; Confer's room as "one coordination context".
 
@@ -324,15 +324,15 @@ Three of these are code, not text: blind review by default (`--unblind`), the re
 
 ## 12. Recursion limits (implemented in this PR)
 
-Helpers launching helpers was already bounded by chain depth (default 4, `AHELPA_MAX_NESTING_DEPTH`, exported into every helper's environment). Depth alone does not bound a tree: a helper at a legal depth could fan out sideways without limit. Both sources avoid the question by forbidding recursion outright (Confer duo: "a partner must not expand scope, delegate recursively, or contact others"; ClawWork performers are leaves). ahelpa allows it, so it needs a width bound and a role bound as well. Both are small, both are checked in `planLaunch` before any side effect, and both are now in `src/nesting.ts` and `src/commands/launch.ts`:
+Helpers launching helpers was already bounded by chain depth (default 4, `AHELPA_MAX_NESTING_DEPTH`, exported into every helper's environment). Depth alone does not bound a tree: a helper at a legal depth could fan out sideways without limit. Both sources avoid the question by forbidding recursion outright (Confer duo: "a partner must not expand scope, delegate recursively, or contact others"; ClawWork performers are leaves). ahelpa allows it, so it needs a width bound and a role bound as well. Both are small. Launch and resume check them and reserve a new session in one SQLite immediate transaction before external side effects, in `src/nesting.ts`, `src/state.ts`, and `src/commands/launch.ts`:
 
 | Bound | Default | Why this number |
 | --- | --- | --- |
 | Chain depth | 4 (unchanged) | Four hands deep is already past anything the archive shows being useful |
 | Active sessions per tree (root helper plus descendants, counting `running`, `draining`, `needs_attention`) | 8 | Twice the five-hand flow's widest realistic fan-out; the Claude Code harness guides its own workflows to "under 10 agents" |
-| Launches from a `reviewer` session | refused | The reviewer contract is read-only; a launched worker is an edit by proxy, and a worker it briefs has seen the author's reasoning |
+| Launch or resume from a `reviewer` caller | refused | The reviewer contract is read-only; a launched worker is an edit by proxy, and a worker it briefs has seen the author's reasoning |
 
-The host's own direct launches are outside any tree and uncounted: the host answers to a human. A refused launch names the active sessions holding the slots so the caller can wait for or kill one. Documented in `docs/architecture.md`, `docs/security.md` (both languages), `skill/SKILL.md` rule 5, and `CONTEXT.md`.
+Each direct host launch starts a separate helper tree; independent host roots have no aggregate quota. `clean` keeps settled ancestor records needed to connect active descendants, preserving their quota and lineage until the descendants settle. Resume keeps the original parent without lowering recorded depth; the existing `resumed_from` link keeps a resumed root in its original tree. The actual caller is the existing `AHELPA_PARENT_ID` session: reviewer callers are refused, and `--parent` cannot move a helper outside its tree or reset its depth. Reservations count toward the limit before task delivery, closing the concurrent-launch window. A refused launch names the active sessions holding the slots so the caller can wait for or kill one. Documented in `docs/architecture.md`, `docs/security.md` (both languages), `skill/SKILL.md` rule 5, and `CONTEXT.md`.
 
 ## Appendix: quotes that carry the argument
 

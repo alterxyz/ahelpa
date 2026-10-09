@@ -12,7 +12,7 @@ token=$(echo "$result" | jq -r .ownerToken)
 
 `launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同）。请保存 token；所有写操作都需要它。
 - `jobId`（可选）：该 helper 所属的 job（见[把多个 hand 归入一个 job](#把多个-hand-归入一个-job)）。
-- `writerConflict`（可选）：同一棵目录树中（project 路径相同，或一个包含另一个）仍在活跃的其他 session，且双方至少有一个不是 `reviewer`。每项包含 `sessionId`、`role`、`status` 和 `projectPath`。launch 仍会进行，但 evidence 将无法分辨改动属于谁。除非重叠是有意的，请 kill 其中一个，或改用 `--worktree` 重新 launch。同一棵树中的两个 reviewer 不会被报告，发起本次 launch 的 helper 本身也不会（它负责委派并等待）；`--worktree` 启动的 session 不会产生冲突。
+- `writerConflict`（可选）：同一棵目录树中（物理 project 路径相同，或一个包含另一个）仍在活跃的其他 session，且双方至少有一个不是 `reviewer`。比较前会解析符号链接和文件系统别名，包括 macOS 的 `/tmp` 与 `/private/tmp`；`/` 与所有项目重叠。路径保留文件系统自身的大小写规则，不会统一转成小写。已保存的目录不存在时，会解析最近的现存祖先，并保留缺失部分。每项包含 `sessionId`、`role`、`status` 和 `projectPath`。launch 仍会进行，但 evidence 将无法分辨改动属于谁。除非重叠是有意的，请 kill 其中一个，或改用 `--worktree` 重新 launch。同一棵树中的两个 reviewer 不会被报告，发起本次 launch 的 helper 本身也不会（它负责委派并等待）；`--worktree` 启动的 session 不会产生冲突。
 - `taskWarning`（可选）：`--task` 文本较短且含 `/tmp/`、`/private/tmp/` 或 `scratchpad/` 路径，通常意味着任务引用了可能消失的临时文件。请把内容放进持久文件，改用 `--file`。
 
 多行任务可以从 UTF-8 文件直接启动，替代 `--task`：
@@ -79,13 +79,15 @@ ahelpa check --job parser-fix
 ahelpa wait --job parser-fix --all
 ```
 
-未指定 `--job` 的 launch 会先继承其 `--after` session 的 job，再继承发起它的 helper 的 job（以 `AHELPA_JOB_ID` 导出到每个 helper 的环境变量中，没有 job 时为空）。显式的 `--job` 始终优先。Job ID 为 1–64 个字母、数字、`.`、`_` 或 `-`，且以字母或数字开头。`wait --job` 解析为开始等待时该 job 中处于 `running` 的 session；它接受 session ID 或 `--job` 之一，不能同时使用。`resume` 会保留 job。`status` 显示 JOB 列，`check` 包含 `jobId`。Job 没有自己的生命周期：它只是一个带有操作的标签，不改变权限或所有权。
+Job 优先级依次为显式 `--job`、`--after` session 保存的 job、发起 launch 的 helper 保存的 job。只有调用方的 `AHELPA_PARENT_ID` 对应现存 SQLite session 时，才认定它是 helper；host shell 遗留的 `AHELPA_JOB_ID` 会被忽略。最终采用的 job 无论来源如何都会校验。所有 driver 在 launch 和 resume 时都导出 `AHELPA_JOB_ID`，没有 job 时为空；环境值不会覆盖调用方保存的 job。Job ID 为 1–64 个字母、数字、`.`、`_` 或 `-`，且以字母或数字开头。`wait --job` 解析为开始等待时该 job 中处于 `running` 的 session；它接受 session ID 或 `--job` 之一，不能同时使用。`resume` 会保留 job。`status` 显示 JOB 列，`check` 包含 `jobId`。Job 没有自己的生命周期：它只是一个带有操作的标签，不改变权限或所有权。
 
 headless host 需要显式追踪 ID 时，用 `--parent`：
 
 ```bash
 ahelpa launch codex --parent "bench-run-42" --task "Review this change"
 ```
+
+Helper 只能用 `--parent` 指向自己的 helper tree 内的 session。Reviewer 和嵌套限制仍按实际调用方执行，修改 `--parent` 不能让 reviewer 委派，也不能绕过树配额。Host 调用方仍可像上例一样指定任意追踪 ID。
 
 用 `--safe` 省略或收窄默认 danger flags：
 
@@ -148,7 +150,7 @@ Claude Code 会拒绝运行时的 `--effort` 和 `--persist`；effort 请在 lau
 ahelpa wait "$session_id"
 ```
 
-`wait` 会阻塞在命名管道上，直到 helper 打印暗号或超时。默认 timeout 是 500 秒。如果返回 `still_running`，表示 helper 还没完成；再次 `wait` 即可：
+`wait` 会阻塞在命名管道上，直到 helper 打印暗号或超时。默认 timeout 是 500 秒。Launch 或 resume 正在准备的预留 session 会继续等待；即使 FIFO 尚未创建，等待仍遵守同一个超时。如果返回 `still_running`，表示 helper 还没完成；再次 `wait` 即可：
 
 ```bash
 ahelpa wait "$session_id"  # re-wait 是正常流程，不是错误
@@ -266,6 +268,8 @@ ahelpa resume "$session_id" --token "$token"
 
 如果 launch 时传入了已配置的 `--model` alias，新 helper 会沿用它；否则 Kimi 继续使用其配置默认值。launch 时的 `--safe` 姿态也会自动继承；`resume --safe` 可以把旧的默认姿态记录升级为 safe。所谓持久对话，是通过 Kimi 原生 session ID 在新 tmux session 中恢复；`[AHELPA:DONE]` 不会让原 tmux session 永久存活。
 
+`resume` 会在创建运行时资源之前，按 launch 相同的 reviewer、深度和树宽度规则，原子预留新 session。它保留被恢复 session 的 lineage；现有 resume 关联让被恢复的 root 留在原树中。
+
 `resume` 会等待新 driver 到达可输入 prompt，然后返回一个处于 `needs_attention` 的新 helper。请对新 session ID 使用 `send` 或 `task` 发送下一轮，再调用 `wait`。ahelpa 会先确认新用户回合已经被接受，重建 FIFO，并恢复 daemon monitoring，避免旧的 DONE/NEED_HELP 被拿来结算新一轮。
 
 ## 回收 session
@@ -282,7 +286,7 @@ ahelpa kill "$session_id" --token "$token"
 ahelpa clean
 ```
 
-终端回收后，已完成记录仍供 `wait`、`logs` 和 `resume` 使用，直到显式运行 `clean`。`clean` 不会删除 archive，也不会终止 live session，并保留仍在 draining 或需要介入的会话。
+终端回收后，已完成记录仍供 `wait`、`logs` 和 `resume` 使用，直到显式运行 `clean`。`clean` 会保留连接活跃后代所需的已结算祖先记录，包括 resume 关联，避免拆散树配额或丢失 lineage。后代都已结算且终端退出后，这些记录才可删除。`clean` 不会删除 archive，也不会终止 live session，并保留仍在 draining 或需要介入的会话。
 
 ## Daemon 管理
 

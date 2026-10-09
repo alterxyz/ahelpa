@@ -92,8 +92,21 @@ export async function refreshSessionStatuses(
     .filter((session) => session.status !== SESSION_STATUS.Dead)
     .filter((session) => !targetIds || targetIds.has(session.id));
 
-  for (const session of sessions) {
+  for (let session of sessions) {
     try {
+      if (session.launchPid) {
+        let launcherAlive = true;
+        try { process.kill(session.launchPid, 0); } catch (error) {
+          launcherAlive = (error as NodeJS.ErrnoException).code !== "ESRCH";
+        }
+        if (launcherAlive) continue;
+        // A crashed launcher no longer owns the startup window. The normal
+        // refresh can now reconcile its missing terminal or delivered task.
+        db.completeLaunch(session.id);
+        const current = db.getSession(session.id);
+        if (!current) continue;
+        session = current;
+      }
       const alive = await Tmux.hasSession(session.id);
       if (!alive) {
         await finishMissingSession(db, archive, session);

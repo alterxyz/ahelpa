@@ -8,7 +8,7 @@ import { Archive } from "../archive";
 import { defaultWakeup, Wakeup } from "../wakeup";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { requireAuthorizedSession } from "../session-access";
-import { getSessionNestingInfo } from "../nesting";
+import { activeSessionAncestorIds, getSessionNestingInfo } from "../nesting";
 import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff } from "../file-handoff";
 import { getDriver } from "../drivers/registry";
@@ -187,10 +187,18 @@ export async function clean(db: StateDB, layout: RuntimeLayout = defaultRuntimeL
   let removed = 0;
   for (const session of cleanable) {
     if (await Tmux.hasSession(session.id)) continue;
-    wakeup.cleanup(session.id);
-    try { unlinkSync(layout.taskFilePath(session.id)); } catch {}
-    db.deleteSession(session.id);
-    removed++;
+    // Recheck under the same write lock used by launch reservations: a child
+    // may have registered while hasSession awaited its terminal result.
+    db.immediateTransaction(() => {
+      const current = db.getSession(session.id);
+      if (!current || (current.status !== SESSION_STATUS.Dead
+        && current.status !== SESSION_STATUS.Idle && current.status !== SESSION_STATUS.Error)) return;
+      if (activeSessionAncestorIds(db).has(session.id)) return;
+      wakeup.cleanup(session.id);
+      try { unlinkSync(layout.taskFilePath(session.id)); } catch {}
+      db.deleteSession(session.id);
+      removed++;
+    });
   }
   return { removed, orphanFiles: await sweepOrphanFiles(db, layout) };
 }
@@ -212,9 +220,8 @@ async function sweepOrphanFiles(db: StateDB, layout: RuntimeLayout): Promise<num
         ? entry.slice("ahelpa-task-".length, -".md".length)
         : null;
     if (!sessionId || db.getSession(sessionId)) continue;
-    // Launch creates its terminal and handoff files before registering the
-    // session, after startup and task delivery succeed. Those files are still
-    // owned while the terminal exists, even without a DB row yet.
+    // A live terminal still owns its files even if a legacy launch or an
+    // interrupted operation left them without a registered database row.
     if (await Tmux.hasSession(sessionId)) continue;
     if (db.getSession(sessionId)) continue;
     try {
