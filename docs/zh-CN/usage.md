@@ -10,6 +10,25 @@
 
 启动后可以先做独立的主线工作，但不要碰任何 helper 正在工作的目录树，再调用 `wait`。也不要在它调查期间自己重做同一项调查，或同时修改它的 worktree。`launch` 失败或返回 `warning` 时，应向用户说明；不要悄悄在当前进程调用 helper CLI，再把结果说成委派所得。
 
+## 检查本地就绪状态
+
+```bash
+ahelpa doctor
+ahelpa doctor codex --project /path/to/project
+```
+
+`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude-code`、`codex` 或 `kimi`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
+
+JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver 名称组织的 `agents`。每个 agent 返回 `executable`、`version`（无法获取时为 `null`）、`locally_ready: true|false|"unknown"` 和 `reasons: [...]`。缺少 tmux 或 agent 二进制时，该 agent 未就绪；明确阻塞优先于未知状态。检查完成时退出码为 0，即使 agent 未就绪；参数无效或项目目录不存在时退出码为 1。调用方应读取 `locally_ready`。
+
+各 driver 只探测本地状态：
+
+- Claude 检查 `.claude.json` 中的工作区信任，包含 Git 根目录范围内已信任的祖先目录。支持旧式 `.config.json`、`CLAUDE_CONFIG_DIR` 和自定义 OAuth 的独立信任文件。worktree／子模块的祖先信任无法确认规范 Git 边界时，返回 `unknown`。
+- Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下认证文件的结构。keyring／ephemeral 存储、无法识别或读取的状态返回 `unknown`。
+- Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。keyring 和服务身份状态返回 `unknown`。其原生 CLI 在处理 `--version` 前可能安装 worker，因此 doctor 只读可识别的内嵌构建元数据，不执行 Kimi；其他二进制格式的版本返回未知。
+
+就绪表示这些本地探测通过；不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
+
 ## 启动 helper
 
 ```bash

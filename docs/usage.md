@@ -10,6 +10,25 @@ Write the brief like a peer's task: goal and why, narrow scope, acceptance check
 
 Launch, do independent host-side work that touches no helper's tree, then `wait`. Do not redo a delegated investigation while it runs, or edit its worktree. If `launch` fails or returns `warning`, report it; do not run the helper CLI inline as a substitute and present that result as delegated work.
 
+## Check Local Readiness
+
+```bash
+ahelpa doctor
+ahelpa doctor codex --project /path/to/project
+```
+
+`doctor [agent] [--project <path>]` checks all registered drivers, or one of `claude-code`, `codex`, and `kimi`. The project defaults to the current directory; relative paths resolve from the caller's directory and must name an existing directory.
+
+The JSON result has `project`, `tmux: {present, executable}`, and `agents` keyed by driver name. Each agent has `executable`, `version` (or `null` when unavailable), `locally_ready: true|false|"unknown"`, and `reasons: [...]`. Missing tmux or a missing agent binary makes that agent not ready. A definite blocker takes precedence over an unknown probe. A completed check exits 0 even if an agent is not ready; invalid arguments or a missing project directory exit 1. Consumers should inspect `locally_ready`.
+
+The driver probes inspect local state only:
+
+- Claude checks workspace trust in `.claude.json`, including trusted ancestors within the Git root. Legacy `.config.json`, `CLAUDE_CONFIG_DIR`, and the custom OAuth trust file are respected. Worktree/submodule ancestor trust is `unknown` when its canonical Git boundary cannot be established.
+- Codex uses the same executable resolver as launch, and checks auth-file shape under `CODEX_HOME` (default `~/.codex`). Keyring/ephemeral storage and unrecognized or unreadable state are `unknown`.
+- Kimi checks the default model/provider and local API-key or file OAuth presence under `KIMI_CODE_HOME` (default `~/.kimi-code`), including model environment overrides. Keyring and service-identity state are `unknown`. Its native CLI can bootstrap workers before processing `--version`, so doctor reads recognized embedded build metadata without executing Kimi; other binary formats report an unknown version.
+
+A ready result means these local probes passed; it does not validate credentials against a server, refresh tokens, check quota, or guarantee a successful model call. No model is called, no interactive session or daemon starts, and no config, tmux session, database, task file, or FIFO is created. For source-mode checks, set `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` to also disable Bun's own transpilation cache.
+
 ## Launch a Helper
 
 ```bash

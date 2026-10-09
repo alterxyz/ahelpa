@@ -8,6 +8,19 @@ export interface CodexCapabilities {
 const HELP_TIMEOUT_MS = 1_000;
 const HELP_MAX_BYTES = 128 * 1024;
 
+export function resolveCodexExecutable(
+  cwd: string,
+  findExecutable: (cwd: string) => string | null = (directory) => Bun.which("codex", { cwd: directory }),
+): string | null {
+  const directory = resolve(cwd);
+  try {
+    const found = findExecutable(directory);
+    return found ? resolve(directory, found) : null;
+  } catch {
+    return null;
+  }
+}
+
 // --help exits before Codex starts a session. Capture only its option surface;
 // never print probe errors or inspect the user's configuration/authentication.
 export function readCodexHelp(executable: string, cwd: string, timeoutMs = HELP_TIMEOUT_MS): string | undefined {
@@ -44,11 +57,7 @@ export function createCodexCapabilityProbe(
   const cache = new Map<string, CodexCapabilities>();
   return (cwd) => {
     const directory = resolve(cwd);
-    let executable: string | null = null;
-    try {
-      const found = findExecutable(directory);
-      if (found) executable = resolve(directory, found);
-    } catch {}
+    const executable = resolveCodexExecutable(directory, findExecutable);
     const key = JSON.stringify([executable, directory]);
     const cached = cache.get(key);
     if (cached) return cached;

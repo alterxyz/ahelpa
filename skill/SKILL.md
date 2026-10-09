@@ -88,6 +88,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `wait (<id...> \| --job <id>) [--all] [--timeout <seconds>]` | Block until sessions complete or timeout (default 500s). `--job` waits on the job's running sessions. |
 | `check [--parent <id>] [--job <id>]` | Non-blocking status poll. |
 | `models [agent]` | List launch-time model options. |
+| `doctor [agent] [--project <path>]` | Read-only local readiness JSON: tmux, executable/version, driver config/auth/trust. `locally_ready` is `true`, `false`, or `"unknown"`; inspect `reasons`. No model calls, sessions, daemon, or runtime files. |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper. |
 | `capture <id> --token <tok> [--lines N]` | Snapshot terminal output (debugging only). |
 | `task <id> --file <path> --token <tok>` | Deliver a task file to a running helper. |

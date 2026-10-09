@@ -110,6 +110,7 @@ Use advisors for analysis, plans, and review; use workers for execution against 
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh |
 | `models [agent]` | List launch-time model options |
+| `doctor [agent] [--project <path>]` | Check local readiness as JSON without a model call or runtime writes |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
 | `capture <id> --token <tok>` | Snapshot terminal output (debugging only) |
 | `task <id> --file <path> --token <tok>` | Deliver a task file for long instructions |
