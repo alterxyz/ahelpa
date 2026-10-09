@@ -276,6 +276,10 @@ describe("PR6 crashed startup reconciliation", () => {
     expect(getDriver("claude-code").gracefulExit).not.toHaveBeenCalled();
   });
 
+  test("startup lease is the documented finite three minutes", () => {
+    expect(daemon.LAUNCH_STARTUP_LEASE_MS).toBe(180_000);
+  });
+
   for (const age of ["fresh", "expired"] as const) {
     for (const pidState of ["live", "EPERM", "ESRCH"] as const) {
       test(`${age} startup lease with ${pidState} PID reconciles at the intended boundary`, async () => {
@@ -285,10 +289,10 @@ describe("PR6 crashed startup reconciliation", () => {
           if (pidState !== "live") throw Object.assign(new Error(pidState), { code: pidState });
           return true;
         });
-        // Keep a fallback for running the identical probe against the base that
-        // predates this constant; assertions cover the behavior, not its spelling.
-        const leaseMs = daemon.LAUNCH_STARTUP_LEASE_MS ?? 180_000;
-        await daemon.refreshSessionStatuses(db, ["pending"], createdAt + (age === "expired" ? leaseMs + 1 : 0));
+        // The lease is a fixed contract (three minutes), not whatever the
+        // constant happens to be: probe just inside and exactly at the bound.
+        const LEASE_MS = 180_000;
+        await daemon.refreshSessionStatuses(db, ["pending"], createdAt + (age === "expired" ? LEASE_MS : LEASE_MS - 1));
         const crashed = age === "expired" || pidState === "ESRCH";
         expect(db.getSession("pending")).toMatchObject({ status: crashed ? "dead" : "running", launchPid: crashed ? null : process.pid });
         if (!crashed) expect(Tmux.hasSession).not.toHaveBeenCalled();

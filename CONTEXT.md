@@ -32,7 +32,7 @@
 
 **Retained lineage** — `clean` keeps settled ancestor records needed to connect active descendants, preserving tree quotas and the relationships future tree operations need. These records become removable after the descendants settle and their terminals exit. Resume keeps the original parent and does not lower recorded depth; the existing `resumed_from` link keeps a resumed root in its original tree.
 
-**Launch reservation** — A SQLite row initialized as `running` and marked with its launch-process PID before runtime resources are created. Daemon and inline refresh skip it while that PID is alive; after the launcher exits, stale markers are cleared and normal refresh resumes. `wait` remains bounded while setup is pending, including before FIFO creation. Successful setup clears the marker; failed launch or resume removes the reservation and rolls back its owned resources.
+**Launch reservation** — A SQLite row initialized as `running` and marked with its launch-process PID before runtime resources are created. Daemon and inline refresh skip it while that PID is alive and the reservation is younger than the three-minute startup lease (counted from `created_at`); after the launcher exits or the lease expires, the marker is cleared and normal refresh resumes, and the launcher's own publish then fails its compare-and-set and rolls the launch back as cancelled. `wait` remains bounded while setup is pending, including before FIFO creation. Successful setup clears the marker; failed launch or resume removes the reservation and rolls back its owned resources.
 
 **Messenger** — A lightweight polling subagent that checks helper status and reports results. A usage pattern, not a daemon component.
 
