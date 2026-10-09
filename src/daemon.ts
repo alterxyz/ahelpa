@@ -161,8 +161,16 @@ export async function refreshSessionStatuses(
       const newStatus = outcome.status;
       const turn = driver.turnHooks
         ? readTurnEvents(defaultRuntimeLayout.turnsLogPath(session.projectPath, session.id), session.turnHookOffset ?? 0,
-          session.turnStartedAt ?? session.createdAt, session.agentType)
+          session.turnStartedAt ?? session.createdAt, session.agentType, session.turnInputAmbiguous ? null : session.turnInputDigest ?? null)
         : { offset: session.turnHookOffset ?? 0, event: null };
+      for (const ignored of turn.ignored ?? []) {
+        log(`${session.id}: ignored turn hook ${ignored.event} (not attributable to current input)`);
+      }
+      if (!turn.event && turn.offset > (session.turnHookOffset ?? 0)) {
+        if (!db.consumeTurnHook(session.id, session.version, turn.offset)) continue;
+        // Keep the version current for the inactivity fallback's CAS.
+        session.version++;
+      }
       if (newStatus !== SESSION_STATUS.Running) {
         // Snapshot before settle awaits the wakeup, so a later model switch cannot relabel this event.
         const ledgerSession = db.getSession(session.id) ?? session;

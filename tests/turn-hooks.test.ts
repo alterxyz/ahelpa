@@ -123,6 +123,14 @@ describe("turn hook payloads and append", () => {
 });
 
 describe("driver hook launch and resume", () => {
+  test("Claude helper settings disable prompt suggestions", () => {
+    const sessionId = "claude-no-suggestions";
+    mkdirSync(defaultRuntimeLayout.sessionDeliveryDir(root, sessionId), { recursive: true });
+    claudeCodeDriver.prepareLaunchFiles!({ cwd: root, sessionId });
+    const settings = JSON.parse(readFileSync(defaultRuntimeLayout.claudeSettingsPath(root, sessionId), "utf8"));
+    expect(settings.promptSuggestionEnabled).toBe(false);
+  });
+
   test("self invocation supports source and compiled runtimes", () => {
     expect(getSelfCommand("/runtime/ahelpa", root)).toEqual(["/runtime/ahelpa"]);
     writeFileSync(join(root, "cli.ts"), "");
@@ -135,8 +143,9 @@ describe("driver hook launch and resume", () => {
     mkdirSync(sessionDir, { recursive: true });
     claudeCodeDriver.prepareLaunchFiles!({ cwd: root, sessionId });
     const settings = JSON.parse(readFileSync(defaultRuntimeLayout.claudeSettingsPath(root, sessionId), "utf8"));
-    expect(Object.keys(settings)).toEqual(["hooks"]);
-    expect(Object.keys(settings.hooks)).toEqual(["Stop", "StopFailure"]);
+    expect(Object.keys(settings)).toEqual(["promptSuggestionEnabled", "hooks"]);
+    expect(settings.promptSuggestionEnabled).toBe(false);
+    expect(Object.keys(settings.hooks)).toEqual(["UserPromptSubmit", "Stop", "StopFailure"]);
     const hook = settings.hooks.Stop[0].hooks[0];
     expect(hook.type).toBe("command");
     expect(hook.command).toContain("__turn-hook");
@@ -160,7 +169,7 @@ describe("driver hook launch and resume", () => {
     expect(await child.exited).toBe(0);
     expect(out).toContain("--no-daemon");
     expect(command).not.toContain("hooks.");
-    const array = out.slice(out.indexOf("notify=") + 7, out.indexOf("]", out.indexOf("notify=")) + 1);
+    const array = out.slice(out.indexOf("notify=") + 7, out.lastIndexOf("]") + 1);
     expect(JSON.parse(array)).toEqual(turnHookCommand(defaultRuntimeLayout.sessionDeliveryDir(project, "codex-test"), "codex", kind === "resume" ? "native" : undefined));
     if (kind === "resume") expect(out).toContain("resume native");
   });

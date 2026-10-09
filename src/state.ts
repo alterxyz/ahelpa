@@ -3,6 +3,7 @@ import { unlinkSync, existsSync } from "fs";
 import { SESSION_STATUS, type SessionStatus } from "./session-lifecycle";
 import type { HelperRole } from "./drivers/types";
 import type { TargetFingerprint } from "./evidence";
+import { inputDigest } from "./turn-hooks";
 
 export interface SessionRecord {
   id: string;
@@ -36,6 +37,8 @@ export interface SessionRecord {
   unblind?: boolean;
   turnHookOffset?: number | null;
   turnStartedAt?: string | null;
+  turnInputDigest?: string | null;
+  turnInputAmbiguous?: boolean;
 }
 
 export interface CreateSessionInput {
@@ -92,6 +95,8 @@ interface SessionRow {
   unblind: string | null;
   turn_hook_offset: number | null;
   turn_started_at: string | null;
+  turn_input_digest: string | null;
+  turn_input_history: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -125,6 +130,9 @@ function rowToRecord(row: SessionRow): SessionRecord {
     unblind: row.unblind === "true",
     turnHookOffset: row.turn_hook_offset,
     turnStartedAt: row.turn_started_at,
+    turnInputDigest: row.turn_input_digest,
+    turnInputAmbiguous: row.turn_input_digest != null
+      && (JSON.parse(row.turn_input_history ?? "[]") as string[]).filter(value => value === row.turn_input_digest).length > 1,
   };
 }
 
@@ -211,7 +219,7 @@ export class StateDB {
         }
         // Migration: acceptance command, launch baseline, and hand lineage for evidence.
         // job_id groups the hands of one change so they can be checked and awaited together.
-        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at"]) {
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history"]) {
           if (!columns.some((existing) => existing.name === column)) {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
@@ -293,11 +301,12 @@ export class StateDB {
       .run(SESSION_STATUS.Dead, new Date().toISOString(), id);
   }
 
-  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus, expectedVersion?: number, turnStartedAt?: string | null): boolean {
+  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus, expectedVersion?: number, turnStartedAt?: string | null, turnInputDigest?: string | null): boolean {
     // Increment under SQLite's write lock: processes must not read/increment/write in JS.
-    return this.db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, turn_started_at = COALESCE(?, turn_started_at), version = version + 1
+    return this.db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, turn_started_at = COALESCE(?, turn_started_at), turn_input_digest = COALESCE(?, turn_input_digest),
+      turn_input_history = CASE WHEN ? IS NULL THEN turn_input_history ELSE json_insert(COALESCE(turn_input_history, '[]'), '$[#]', ?) END, version = version + 1
       WHERE id = ? AND status = ? AND (? IS NULL OR version = ?)`)
-      .run(status, new Date().toISOString(), turnStartedAt ?? null, id, expected, expectedVersion ?? null, expectedVersion ?? null).changes > 0;
+      .run(status, new Date().toISOString(), turnStartedAt ?? null, turnInputDigest ?? null, turnInputDigest ?? null, turnInputDigest ?? null, id, expected, expectedVersion ?? null, expectedVersion ?? null).changes > 0;
   }
 
   updateResumeId(id: string, agentResumeId: string): void {
@@ -322,10 +331,12 @@ export class StateDB {
       .run(offset, nudge ? 1 : 0, new Date().toISOString(), id, SESSION_STATUS.Running, version, nudge ? 1 : 0).changes > 0;
   }
 
-  beginTurn(id: string, version: number): SessionRecord | null {
-    const changed = this.db.prepare(`UPDATE sessions SET turn_started_at = ?, version = version + 1
+  beginTurn(id: string, version: number, input: string): SessionRecord | null {
+    const digest = inputDigest(input);
+    const changed = this.db.prepare(`UPDATE sessions SET turn_started_at = ?, turn_input_digest = ?,
+      turn_input_history = json_insert(COALESCE(turn_input_history, '[]'), '$[#]', ?), version = version + 1
       WHERE id = ? AND version = ? AND status IN (?, ?, ?)`)
-      .run(new Date().toISOString(), id, version, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Error).changes;
+      .run(new Date().toISOString(), digest, digest, id, version, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Error).changes;
     return changed ? this.getSession(id) : null;
   }
 
