@@ -1,6 +1,6 @@
-import { readFileSync, statSync } from "fs";
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
-import { resolve } from "path";
+import { dirname, join, resolve } from "path";
 import type { DriverReadiness, LocalReadiness, ReadinessRuntime } from "./types";
 
 export function readinessRuntime(): ReadinessRuntime {
@@ -37,24 +37,50 @@ export function presentString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
-// Version-only invocations exit before interactive startup for Claude/Codex.
-// Kimi must not use this: its bootstrap runs before --version (see its probe).
-export function readLocalVersion(executable: string, cwd: string, runtime: ReadinessRuntime): string | null {
-  let pid: number | undefined;
+// Never execute agent binaries, including PATH wrappers, to learn a version.
+// Only accept package metadata that identifies this exact executable.
+export function readPackageVersion(executable: string, packageName: string): string | null {
   try {
-    const result = Bun.spawnSync([executable, "--version"], {
-      cwd, env: runtime.env, detached: true, stdin: "ignore", stdout: "pipe", stderr: "ignore",
-      timeout: 2_000, killSignal: "SIGKILL", maxBuffer: 4096,
-    });
-    pid = result.pid;
-    if (!result.success || result.exitedDueToTimeout || result.exitedDueToMaxBuffer) return null;
-    // Emit only a version, not arbitrary executable output (possibly secrets).
-    return result.stdout.toString().trim().match(/^(?:[\w .-]+\s+)?v?(\d+\.\d+\.\d+(?:[-+][\w.-]+)?)(?:\s+\([\w .-]+\))?$/)?.[1] ?? null;
-  } catch {
-    return null;
-  } finally {
-    if (pid) { try { process.kill(-pid, "SIGKILL"); } catch {} }
+    const physical = realpathSync(executable);
+    for (const directory of [dirname(physical), dirname(dirname(physical))]) {
+      const raw = readLocalConfig(join(directory, "package.json"));
+      if (!raw) continue;
+      const info = configObject(JSON.parse(raw));
+      if (info?.name !== packageName || !isVersion(info.version)) continue;
+      const bins = typeof info.bin === "string" ? [info.bin] : Object.values(configObject(info.bin) ?? {});
+      if (bins.some((bin) => typeof bin === "string" && realpathSync(resolve(directory, bin)) === physical)) return info.version;
+    }
+  } catch {}
+  return null;
+}
+
+export function isVersion(value: unknown): value is string {
+  return typeof value === "string" && /^\d+\.\d+\.\d+(?:[-+][\w.-]+)?$/.test(value);
+}
+
+// Native distributions can embed build metadata. Scan read-only in bounded
+// chunks; unrecognized formats remain unknown rather than running --version.
+export function readEmbeddedVersion(executable: string, pattern: RegExp): string | null {
+  let fd: number | undefined;
+  try {
+    const size = statSync(executable).size;
+    if (size > 256 * 1024 * 1024) return null;
+    fd = openSync(executable, "r");
+    const chunk = Buffer.alloc(1024 * 1024);
+    let tail = "";
+    for (let offset = 0; offset < size;) {
+      const length = readSync(fd, chunk, 0, chunk.length, offset);
+      if (!length) break;
+      const text = tail + chunk.subarray(0, length).toString("latin1");
+      const version = text.match(pattern)?.[1];
+      if (isVersion(version)) return version;
+      tail = text.slice(-4096);
+      offset += length;
+    }
+  } catch {} finally {
+    if (fd !== undefined) closeSync(fd);
   }
+  return null;
 }
 
 export function executableReadiness(executable: string | null, version: string | null): DriverReadiness {

@@ -64,6 +64,11 @@ export function checkKimiReadiness(cwd: string, runtime: ReadinessRuntime = read
       addReadiness(result, false, "default model or provider not found");
       return result;
     }
+    if (!presentString(model.model) || typeof model.max_context_size !== "number"
+      || !Number.isInteger(model.max_context_size) || model.max_context_size <= 0) {
+      addReadiness(result, "unknown", "model config missing or invalid required fields");
+      return result;
+    }
     const env = configObject(provider.env);
     const keyNames: Record<string, string[]> = {
       kimi: ["KIMI_API_KEY"], anthropic: ["ANTHROPIC_API_KEY"],
@@ -75,8 +80,12 @@ export function checkKimiReadiness(cwd: string, runtime: ReadinessRuntime = read
       addReadiness(result, "unknown", "provider type unrecognized");
       return result;
     }
-    if (presentString(provider.api_key)
-      || keys.some((key) => presentString(env?.[key]))) return result;
+    const hasKey = presentString(provider.api_key) || keys.some((key) => presentString(env?.[key]));
+    if (hasKey && provider.oauth !== undefined) {
+      addReadiness(result, "unknown", "provider API key and OAuth are mutually exclusive");
+      return result;
+    }
+    if (hasKey) return result;
     const oauth = configObject(provider.oauth);
     if (!oauth) {
       addReadiness(result, provider.type === "vertexai" ? "unknown" : false,

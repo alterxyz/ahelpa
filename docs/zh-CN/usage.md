@@ -21,11 +21,11 @@ ahelpa doctor codex --project /path/to/project
 
 JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver 名称组织的 `agents`。每个 agent 返回 `executable`、`version`（无法获取时为 `null`）、`locally_ready: true|false|"unknown"` 和 `reasons: [...]`。缺少 tmux 或 agent 二进制时，该 agent 未就绪；明确阻塞优先于未知状态。检查完成时退出码为 0，即使 agent 未就绪；参数无效或项目目录不存在时退出码为 1。调用方应读取 `locally_ready`。
 
-各 driver 只探测本地状态：
+各 driver 只探测本地状态。不会执行 agent 二进制，包括 `--version`：版本只来自与可执行文件匹配的包元数据（Codex／Claude）或可识别的内嵌构建元数据（Claude／Kimi）。其他分发格式返回 `version: null`，且就绪状态为未知，除非发现明确阻塞。
 
-- Claude 检查 `.claude.json` 中的工作区信任，包含 Git 根目录范围内已信任的祖先目录。支持旧式 `.config.json`、`CLAUDE_CONFIG_DIR` 和自定义 OAuth 的独立信任文件。worktree／子模块的祖先信任无法确认规范 Git 边界时，返回 `unknown`。
-- Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下认证文件的结构。keyring／ephemeral 存储、无法识别或读取的状态返回 `unknown`。
-- Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。keyring 和服务身份状态返回 `unknown`。其原生 CLI 在处理 `--version` 前可能安装 worker，因此 doctor 只读可识别的内嵌构建元数据，不执行 Kimi；其他二进制格式的版本返回未知。
+- Claude 检查 `.claude.json` 中的工作区信任，查找键按 NFC 规范化；对 worktree 检查公共仓库的规范根目录，再检查 Git 根目录范围内已信任的祖先目录。支持旧式 `.config.json`、`CLAUDE_CONFIG_DIR` 和自定义 OAuth 的独立信任文件。worktree／子模块的祖先信任无法确认规范 Git 边界时，返回 `unknown`。
+- Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下受支持的 API key／token 认证文件结构。选中的自定义 provider 若配置 `requires_openai_auth = false`，无需 OpenAI 登录；配置了 `env_key` 时，相应环境变量必须存在。profile 选择、额外系统／项目配置层、不支持的 provider 选项、keyring／auto／ephemeral 存储，以及无法识别或读取的认证状态，在只读检查无法确认有效状态时返回 `unknown`。
+- Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。模型必须包含模型名称及正整数 `max_context_size`；provider 的 API key 与 OAuth 互斥。缺失或冲突的配置、keyring 和服务身份状态返回 `unknown`。
 
 就绪表示这些本地探测通过；不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
 
