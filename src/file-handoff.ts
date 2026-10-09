@@ -6,6 +6,7 @@ import { defaultRuntimeLayout, RuntimeLayout } from "./runtime-layout";
 import type { TargetFingerprint } from "./evidence";
 
 export const TASK_INSTRUCTION_PREFIX = "Please read and complete the task described in";
+export const ORIGINAL_ASK_UNAVAILABLE = "Original ask unavailable: the original ask predates ask.md and is unavailable to blind review.";
 
 export interface FileHandoffPlan {
   taskFilePath: string;
@@ -26,7 +27,7 @@ export interface HandoffContext {
   // Acceptance command the host will rerun on the final diff (see --check).
   check?: string | null;
   // The hand this one follows (see --after): where to read its ask and claims.
-  previous?: { sessionId: string; taskCopyPath: string; askPath?: string | null; summaryPath: string; artifactsDir: string; baseCommit?: string | null } | null;
+  previous?: { sessionId: string; taskCopyPath: string; askPath?: string | null; askIncomplete?: boolean; summaryPath: string; artifactsDir: string; baseCommit?: string | null } | null;
   targetFingerprint?: TargetFingerprint | null;
   unblind?: boolean;
 }
@@ -67,6 +68,7 @@ export function buildPreviousHandSection(previous: NonNullable<HandoffContext["p
         : `- Original ask unavailable: this older session has no ask.md. Ask the host for the original requirements; the audit task is withheld because it contains generated handoff and result context.`]
       : [`- Its task: ${previous.taskCopyPath}`]),
   ];
+  if (blind && previous.askIncomplete) lines.push(ORIGINAL_ASK_UNAVAILABLE);
   if (!blind) lines.push(
     `- Its summary: ${previous.summaryPath}`,
     `- Its artifacts: ${previous.artifactsDir}`,
@@ -80,6 +82,7 @@ export function buildPreviousHandSection(previous: NonNullable<HandoffContext["p
 }
 
 function reviewTargetLine(target: TargetFingerprint): string {
+  if (target.incomplete) return `Review target fingerprint incomplete: ${target.incomplete}. State this limitation in summary.md.`;
   return `Review target: HEAD \`${target.head}\`, working-tree fingerprint \`${target.treeHash}\`. If this changes while you work, say so in summary.md.`;
 }
 
@@ -144,12 +147,13 @@ export function prepareFileHandoff(plan: FileHandoffPlan, task: string, context:
   mkdirSync(dirname(plan.taskFilePath), { recursive: true });
   mkdirSync(plan.artifactsDir, { recursive: true });
   const content = buildTaskFileContent(plan, task, context);
+  const existingTask = existsSync(plan.taskCopyPath);
   writeFileSync(plan.taskFilePath, content);
   // A follow-up task must not erase the record of the first ask.
-  if (existsSync(plan.taskCopyPath)) appendFileSync(plan.taskCopyPath, `\n\n===== follow-up task =====\n\n${content}`);
+  if (existingTask) appendFileSync(plan.taskCopyPath, `\n\n===== follow-up task =====\n\n${content}`);
   else writeFileSync(plan.taskCopyPath, content);
   if (existsSync(plan.askPath)) appendFileSync(plan.askPath, `\n\n===== follow-up task =====\n\n${task}`);
-  else writeFileSync(plan.askPath, task);
+  else writeFileSync(plan.askPath, existingTask ? `${ORIGINAL_ASK_UNAVAILABLE}\n\n===== follow-up task =====\n\n${task}` : task);
 }
 
 // ponytail: TUI input ceiling is HEAD + 60 chars; Claude truncated ~1.2k but accepted ~0.6k, so details belong in the task file.

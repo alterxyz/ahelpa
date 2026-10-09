@@ -70,7 +70,7 @@ describe("review target and blind handoff", () => {
     expect(session.targetFingerprint?.treeHash).toMatch(/^[a-f0-9]{64}$/);
     const content = readFileSync(plan.fileHandoff.taskCopyPath, "utf8");
     expect(content).toContain(`Review target: HEAD \`${head}\``);
-    expect(content).toContain(session.targetFingerprint!.treeHash);
+    expect(content).toContain(session.targetFingerprint!.treeHash!);
     expect(content).toContain("State the HEAD and fingerprint you reviewed.");
     writeFileSync(plan.fileHandoff.summaryPath, "ship\n");
     writeFileSync(join(plan.fileHandoff.artifactsDir, "proof.txt"), "rerun\n");
@@ -165,7 +165,7 @@ describe("review target and blind handoff", () => {
     expect(section.includes(`${project}/.ahelpa/impl/summary.md`)).toBe(unblind);
     expect(section.includes(`${project}/.ahelpa/impl/artifacts`)).toBe(unblind);
     expect(section).toContain(baseCommit);
-    expect(section).toContain(db.getSession(plan.sessionId)!.targetFingerprint!.treeHash);
+    expect(section).toContain(db.getSession(plan.sessionId)!.targetFingerprint!.treeHash!);
   });
 
   test("task builder withholds previous claims even without launch orchestration", () => {
@@ -360,12 +360,12 @@ describe("review target and blind handoff", () => {
     mkdirSync(handoff.artifactsDir, { recursive: true });
     writeFileSync(handoff.summaryPath, "resumed result");
     expect((await collectEvidence(record)).targetChanged).toBe(false);
-    expect(buildTaskFileContent(handoff, "follow up", { role: record.role, targetFingerprint: record.targetFingerprint })).toContain(original.targetFingerprint!.treeHash);
+    expect(buildTaskFileContent(handoff, "follow up", { role: record.role, targetFingerprint: record.targetFingerprint })).toContain(original.targetFingerprint!.treeHash!);
     const ask = join(root, "follow-up.md");
     writeFileSync(ask, "review again");
     spyOn(plan.driver, "afterTaskSubmitted").mockResolvedValue(true);
     await sendTask(db, record.id, resumed.ownerToken, ask);
-    expect(readFileSync(handoff.taskCopyPath, "utf8")).toContain(original.targetFingerprint!.treeHash);
+    expect(readFileSync(handoff.taskCopyPath, "utf8")).toContain(original.targetFingerprint!.treeHash!);
     expect((await collectEvidence(db.getSession(record.id)!)).targetChanged).toBe(false);
   });
 });
