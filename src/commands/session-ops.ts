@@ -106,7 +106,7 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   let submissionContext: TaskSubmissionContext = {};
   await deliverTurn(db, session, instruction, () => Tmux.sendKeys(session.id, instruction), {
     prepare: async () => {
-      prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd });
+      prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd, targetFingerprint: session.targetFingerprint });
       submissionContext = await captureSubmissionContext(session.id);
     },
     afterSend: async registered => {
