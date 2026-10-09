@@ -246,7 +246,7 @@ export const claudeCodeDriver: AgentDriver = {
     if (!opts.sessionId) return;
     const command = turnHookCommand(defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "claude-code").map(shellEscape).join(" ");
     const hook = [{ hooks: [{ type: "command", command, timeout: 2 }] }];
-    writeFileSync(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId), JSON.stringify({ hooks: { Stop: hook, StopFailure: hook } }) + "\n", { flag: "wx", mode: 0o600 });
+    writeFileSync(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId), JSON.stringify({ promptSuggestionEnabled: false, hooks: { UserPromptSubmit: hook, Stop: hook, StopFailure: hook } }) + "\n", { flag: "wx", mode: 0o600 });
   },
 
   buildLaunchCommand(opts: LaunchOptions): string {
@@ -386,15 +386,23 @@ export const claudeCodeDriver: AgentDriver = {
   },
 
   acceptsInputAfterTurn(captureOutput: string): boolean {
-    // A Stop proves the response ended, so old tool/reply bullets are not live
-    // activity. Composer focus and continuing work still need independent checks.
+    // An attributed Stop allows historical bullets, but any continuing activity
+    // anywhere on screen vetoes input, even above a more recent tool bullet.
     if (claudeNeedsFolderTrust(captureOutput) || /esc\s+to\s+interrupt/i.test(captureOutput)) return false;
+    const busy = captureOutput.split(/\r?\n/u).some((line) => {
+      if (/^[^\S\r\n]*⏺/u.test(line)) return false;
+      if (/^[^\S\r\n]*[✢✽✶✻✳✺✹✸✷✵·]\s+\S/u.test(line)) {
+        return /(?:…|\.\.\.)/u.test(line) || !/\bfor\s+\d+(?:\.\d+)?[smh]\s*·\s*done\b/u.test(line);
+      }
+      if (/(?:…|\.\.\.)\s*(?:\(\s*)?\d+(?:\.\d+)?\s*(?:ms|s|m|h)\b/u.test(line)) return true;
+      return /(?:…|\.\.\.)[^\S\r\n]*$/u.test(line);
+    });
+    if (busy) return false;
     const cursors = [...captureOutput.matchAll(/^([^\S\r\n]*)❯(?:[^\S\r\n]+(.*))?$/gmu)];
     const latest = cursors.at(-1);
     if (!latest || latest[1].length > 0 || (latest[2] ?? "").trim() !== "") return false;
-    const lastReply = [...captureOutput.matchAll(/^[^\S\r\n]*⏺.*$/gmu)].at(-1);
-    const afterReply = captureOutput.slice(lastReply?.index ?? 0);
-    return !/^[^\S\r\n]*[✢✽✶✻✳✺✹✸✷✵·]\s+\S[^\r\n]*…[^\S\r\n]*\(/mu.test(afterReply);
+    const belowComposer = captureOutput.slice(latest.index! + latest[0].length);
+    return !/\b(?:enter\s+to\s+(?:confirm|select)|esc(?:ape)?\s+to\s+cancel|do\s+you\s+want\s+to\s+(?:proceed|allow)|permission\s+(?:required|request)|(?:requires?|waiting\s+for)\s+(?:approval|permission))\b|\ballow\b[^\r\n]*\?[^\S\r\n]*$|^[^\S\r\n]*\d+\.\s+\S/imu.test(belowComposer);
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {

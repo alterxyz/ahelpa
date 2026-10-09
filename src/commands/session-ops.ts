@@ -19,6 +19,7 @@ import { ModelSwitchAppliedError } from "../drivers/types";
 import { unlinkSync, readdirSync } from "fs";
 import { isAbsolute, join } from "path";
 import { readTaskFile } from "../task-input";
+import { inputDigest, normalizeTurnInput } from "../turn-hooks";
 
 interface AuthContext { db: StateDB; session: SessionRecord; }
 
@@ -59,7 +60,7 @@ async function resumeMonitoringAfterIntervention(
   await defaultWakeup.prepare(session.id);
   // Submission and FIFO creation both await external work. A concurrent kill
   // must win even if the driver confirmed a turn before the terminal closed.
-  if (!db.compareAndSetStatus(session.id, session.status, SESSION_STATUS.Running, undefined, session.turnStartedAt)
+  if (!db.compareAndSetStatus(session.id, session.status, SESSION_STATUS.Running, undefined, session.turnStartedAt, session.turnInputDigest)
     && db.getSession(session.id)?.status !== SESSION_STATUS.Running) {
     defaultWakeup.cleanup(session.id);
     throw new Error(`Session ${session.id} changed while sending the message; monitoring was not resumed`);
@@ -67,13 +68,13 @@ async function resumeMonitoringAfterIntervention(
   if (!daemon.isDaemonRunning()) daemon.startDaemon();
 }
 
-function beginHookTurn(db: StateDB, session: SessionRecord): SessionRecord {
+function beginHookTurn(db: StateDB, session: SessionRecord, input: string): SessionRecord {
   if (!getDriver(session.agentType).turnHooks) return session;
   // Settled sessions are not monitored until submission is confirmed. Publish
   // their timestamp with the existing rearm transition, preserving its version.
-  if (canResumeMonitoring(session)) return { ...session, turnStartedAt: new Date().toISOString() };
+  if (canResumeMonitoring(session)) return { ...session, turnStartedAt: new Date().toISOString(), turnInputDigest: inputDigest(input) };
   if (session.status !== SESSION_STATUS.Running) return session;
-  const fresh = db.beginTurn(session.id, session.version);
+  const fresh = db.beginTurn(session.id, session.version, input);
   if (!fresh) throw new Error(`Session ${session.id} changed before sending the new turn`);
   return fresh;
 }
@@ -82,7 +83,8 @@ export const send = withAuth(async ({ db, session }, message: string) => {
   const submissionContext = canResumeMonitoring(session)
     ? await captureSubmissionContext(session.id)
     : {};
-  session = beginHookTurn(db, session);
+  if (getDriver(session.agentType).turnHooks) message = normalizeTurnInput(message);
+  session = beginHookTurn(db, session, message);
   await Tmux.sendKeys(session.id, message);
   // Host intervened — resume daemon monitoring
   if (canResumeMonitoring(session)) {
@@ -106,8 +108,9 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   const submissionContext = canResumeMonitoring(session)
     ? await captureSubmissionContext(session.id)
     : {};
-  session = beginHookTurn(db, session);
-  await Tmux.sendKeys(session.id, fileHandoff.taskInstruction);
+  const instruction = normalizeTurnInput(fileHandoff.taskInstruction);
+  session = beginHookTurn(db, session, instruction);
+  await Tmux.sendKeys(session.id, instruction);
   if (canResumeMonitoring(session)) {
     await resumeMonitoringAfterIntervention(db, session, submissionContext);
   }

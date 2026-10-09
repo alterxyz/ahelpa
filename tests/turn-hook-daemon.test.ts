@@ -25,13 +25,15 @@ beforeEach(() => {
 afterEach(() => { mock.restore(); db.close(); rmSync(root, { recursive: true, force: true }); });
 function seed(summary = false, agent = "codex") {
   const id = `${agent}-${++serial}`;
-  db.createSession({ id, parentId: "p", agentType: agent, task: "t", ownerToken: "tok", projectPath: root });
+  const row = db.createSession({ id, parentId: "p", agentType: agent, task: "t", ownerToken: "tok", projectPath: root });
+  db.beginTurn(id, row.version, "Please read and complete the task described in fixture");
   const dir = defaultRuntimeLayout.sessionDeliveryDir(root, id);
   mkdirSync(dir, { recursive: true });
   if (summary) writeFileSync(join(dir, "summary.md"), "written result");
   return { id, dir };
 }
 function event(dir: string, agent = "codex", failure = false) {
+  if (agent === "claude-code") writeTurnHook(dir, agent, JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "native", prompt_id: "prompt", prompt: "Please read and complete the task described in fixture" }));
   writeTurnHook(dir, agent, JSON.stringify(agent === "codex"
     ? { type: "agent-turn-complete", "thread-id": "main", "turn-id": "one", "input-messages": ["Please read and complete the task described in fixture"] }
     : { hook_event_name: failure ? "StopFailure" : "Stop", session_id: "native", prompt_id: "prompt", error: "authentication_failed" }));
@@ -155,10 +157,13 @@ describe("daemon official turn-end timing", () => {
     const legacy = new Database(join(root, "state.db"));
     legacy.exec("ALTER TABLE sessions DROP COLUMN turn_hook_offset");
     legacy.exec("ALTER TABLE sessions DROP COLUMN turn_started_at");
+    legacy.exec("ALTER TABLE sessions DROP COLUMN turn_input_digest");
+    legacy.exec("ALTER TABLE sessions DROP COLUMN turn_input_history");
     legacy.close();
     db = new StateDB(join(root, "state.db"));
     expect(db.getSession(id)?.turnHookOffset).toBeNull();
     expect(db.getSession(id)?.turnStartedAt).toBeNull();
+    expect(db.getSession(id)?.turnInputDigest).toBeNull();
     expect(db.consumeTurnHook(id, db.getSession(id)!.version, 456)).toBe(true);
     db.close();
     db = new StateDB(join(root, "state.db"));

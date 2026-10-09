@@ -461,6 +461,12 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     } catch {
       // The snapshot only helps history-aware drivers reject stale sentinels.
     }
+    if (plan.driver.turnHooks) {
+      const row = plan.input.db.getSession(plan.sessionId)!;
+      if (!plan.input.db.beginTurn(plan.sessionId, row.version, plan.fileHandoff.taskInstruction)) {
+        throw new Error(`Launch cancelled before task submission: ${plan.sessionId}`);
+      }
+    }
     await driverRuntime.sendKeys(plan.sessionId, plan.fileHandoff.taskInstruction);
     const submitted = await plan.driver.afterTaskSubmitted(
       plan.sessionId,

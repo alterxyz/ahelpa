@@ -21,9 +21,28 @@ const blocked: Record<string, string> = {
   "indented empty cursor": pane.replace(/^❯.*$/mu, " ❯ "),
   "live spinner after reply": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)"),
   "dot spinner frame": pane.replace("✻ Crunched for 7s · done 12:26 AM", "· Imagining… (5s · ↓ 197 tokens)"),
+  "spinner without ellipsis or timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining"),
+  "spinner without ellipsis with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining (5s · ↓ 197 tokens)"),
+  "timerless spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining…"),
+  "spinner above newer tool bullet": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)\n⏺ Bash(still-running)"),
+  "ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining... (5s · ↓ 197 tokens)"),
+  "iconless Unicode spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining…"),
+  "iconless ASCII spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining..."),
+  "iconless Unicode spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining… (5s · ↓ 197 tokens)"),
+  "iconless ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining... (5s · ↓ 197 tokens)"),
+  "cursorless permission overlay": pane + "\nDo you want to proceed?\n  1. Yes\n  2. No\nEnter to confirm",
+  "cursorless selection footer": pane + "\nEnter to select",
+  "cursorless cancellation footer": pane + "\nEsc to cancel",
+  "cursorless permission prompt": pane + "\nPermission required for this command",
+  "cursorless allow prompt": pane + "\nAllow this command?",
+  "cursorless numbered menu": pane + "\n  1. Yes\n  2. No",
+  "wrapped interrupt hint": "ESC\n to interrupt\n" + pane,
   "interrupt hint anywhere": "esc to interrupt\n" + pane,
   "no composer": pane.replace(/^❯.*\n/mu, ""),
 };
+for (const icon of "✢✽✶✻✳✺✹✸✷✵·") {
+  blocked[`timerless ${icon} spinner frame`] = pane.replace("✻ Crunched for 7s · done 12:26 AM", `${icon} Imagining…`);
+}
 
 describe("hook-aware driver readiness", () => {
   test("real Claude finished pane becomes ready only with accepted turn-end evidence", () => {
@@ -38,6 +57,12 @@ describe("hook-aware driver readiness", () => {
   test("completed spinner line is harmless while an older cursor cannot hide a live menu", () => {
     expect(claude.acceptsInputAfterTurn?.("❯ previous task\n" + pane)).toBe(true);
     expect(claude.acceptsInputAfterTurn?.(pane + "\n Do you want to proceed?\n ❯ 1. Yes\n  2. No")).toBe(false);
+  });
+  test("historical bullets with ellipses do not veto an otherwise finished pane", () => {
+    expect(claude.acceptsInputAfterTurn?.(pane.replace("⏺ ok", "⏺ Earlier reply…\n⏺ Earlier tool..."))).toBe(true);
+  });
+  test("dialog footers above the current empty composer remain historical", () => {
+    expect(claude.acceptsInputAfterTurn?.("Enter to confirm · Esc to cancel\n" + pane)).toBe(true);
   });
   test("Codex's saved pane includes an /exit draft and remains refused by existing readiness", () => {
     expect(codexPane).toContain("› /exit");
@@ -63,7 +88,12 @@ function seed(hook = true) {
   const dir = defaultRuntimeLayout.sessionDeliveryDir(root, id);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "summary.md"), "Result written");
-  if (hook) writeTurnHook(dir, "claude-code", JSON.stringify({ hook_event_name: "Stop", session_id: "native", prompt_id: "prompt" }));
+  const input = "current fixture task";
+  db.beginTurn(id, db.getSession(id)!.version, input);
+  if (hook) {
+    writeTurnHook(dir, "claude-code", JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "native", prompt_id: "prompt", prompt: input }));
+    writeTurnHook(dir, "claude-code", JSON.stringify({ hook_event_name: "Stop", session_id: "native", prompt_id: "prompt" }));
+  }
   return id;
 }
 
@@ -93,7 +123,7 @@ describe("daemon uses hook readiness only for current accepted events", () => {
   test("a hook from before the new host turn cannot authorize relaxed readiness", async () => {
     const id = seed();
     await Bun.sleep(2);
-    db.beginTurn(id, db.getSession(id)!.version);
+    db.beginTurn(id, db.getSession(id)!.version, "new host turn");
     await refreshSessionStatuses(db, [id]);
     expect(Tmux.sendKeys).not.toHaveBeenCalled();
   });
