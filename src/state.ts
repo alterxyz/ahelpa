@@ -5,6 +5,13 @@ import type { HelperRole } from "./drivers/types";
 import type { TargetFingerprint } from "./evidence";
 import { claudePromptInput, inputDigest } from "./turn-hooks";
 
+// Registration includes preparation: Codex allows ~88s of startup polling,
+// and the launch lease is 180s. Five minutes leaves margin for local I/O but
+// lets a crashed sender stop suppressing hooks. This never excludes a send.
+export const TURN_IN_FLIGHT_MAX_AGE_MS = 5 * 60_000;
+
+interface InFlightTurn { generation: number; startedAt: string; }
+
 export interface SessionRecord {
   id: string;
   parentId: string;
@@ -99,6 +106,7 @@ interface SessionRow {
   turn_input_history: string | null;
   turn_input_ambiguous: number | null;
   turn_input_sent: number | null;
+  turn_in_flight: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -221,7 +229,7 @@ export class StateDB {
         }
         // Migration: acceptance command, launch baseline, and hand lineage for evidence.
         // job_id groups the hands of one change so they can be checked and awaited together.
-        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history"]) {
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history", "turn_in_flight"]) {
           if (!columns.some((existing) => existing.name === column)) {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
@@ -371,14 +379,18 @@ export class StateDB {
       let session = this.beginTurn(id, version, input);
       const stale = !session && previous.version !== version;
       if (stale) session = this.beginTurn(id, previous.version, input);
-      const overlap = stale || previous.turn_input_sent === 0;
       if (!session) throw new Error(`Session ${id} changed before sending the new turn`);
+      const now = Date.now();
+      const inFlight = (JSON.parse(previous.turn_in_flight ?? "[]") as InFlightTurn[])
+        .filter(entry => now - Date.parse(entry.startedAt) <= TURN_IN_FLIGHT_MAX_AGE_MS);
+      const overlap = stale || inFlight.length > 0;
+      inFlight.push({ generation: session.version, startedAt: new Date(now).toISOString() });
       this.db.prepare(`UPDATE sessions SET
-        turn_input_sent = 0,
+        turn_input_sent = 0, turn_in_flight = ?,
         turn_input_ambiguous = CASE WHEN ? THEN 1 ELSE turn_input_ambiguous END,
         nudged_at = CASE WHEN ? THEN ? ELSE nudged_at END,
         turn_hook_offset = COALESCE(?, turn_hook_offset) WHERE id = ?`)
-        .run(overlap ? 1 : 0, options.nudge ? 1 : 0, new Date().toISOString(), options.hookOffset ?? null, id);
+        .run(JSON.stringify(inFlight), overlap ? 1 : 0, options.nudge ? 1 : 0, new Date().toISOString(), options.hookOffset ?? null, id);
       const registered = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as SessionRow;
       return { previous, registered, overlap, session: rowToRecord(registered) };
     });
@@ -389,6 +401,12 @@ export class StateDB {
       const { previous, registered } = registration;
       const current = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(previous.id) as SessionRow | null;
       if (!current) return null;
+      // Remove only this generation, even if a newer input replaced it or the
+      // sender failed. Rollback must not restore a completed sender's entry.
+      const inFlight = (JSON.parse(current.turn_in_flight ?? "[]") as InFlightTurn[])
+        .filter(entry => entry.generation !== registered.version);
+      this.db.prepare("UPDATE sessions SET turn_in_flight = ? WHERE id = ?")
+        .run(JSON.stringify(inFlight), previous.id);
       // History is appended atomically with every registration, even when inputs
       // repeat or the wall clock stands still. Row versions also change for hooks,
       // model updates and kill; those alone do not mean another input was sent.
@@ -396,7 +414,6 @@ export class StateDB {
         this.db.prepare(`UPDATE sessions SET turn_input_ambiguous = 1, version = version + 1
           WHERE id = ? AND version = ? AND COALESCE(turn_input_ambiguous, 0) != 1`)
           .run(previous.id, current.version);
-        return null;
       } else if (!delivered) {
         // Restore only our own failed registration. Never overwrite a newer
         // delivery or revive a status changed by kill/settle during transport.
