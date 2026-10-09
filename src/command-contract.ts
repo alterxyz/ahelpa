@@ -17,7 +17,7 @@ import { SessionAccessError } from "./session-access";
 import { VERSION } from "./version";
 import { readTaskFile } from "./task-input";
 import { parseHelperRole } from "./launch-profiles";
-import { mail, inbox } from "./commands/peer-mail";
+import { mail, inbox, readMailFile } from "./commands/peer-mail";
 import { resolveParentId } from "./caller-identity";
 export { resolveParentId } from "./caller-identity";
 
@@ -141,8 +141,11 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       if (Boolean(to) === ctx.flags.booleans.peers) throw new UsageError("Use exactly one of <to-id> or --peers");
       const { file, text } = ctx.flags.strings;
       if ((file !== undefined) === (text !== undefined)) throw new UsageError("Use exactly one of --file or --text");
-      const content = file === undefined ? text! : readTaskFile(file);
+      const content = file === undefined ? text! : readMailFile(file);
       if (!content.trim()) throw new UsageError("Peer message must not be empty");
+      if (!isDaemonRunning()) {
+        await refreshSessionStatuses(ctx.db);
+      }
       ctx.print(JSON.stringify(mail(ctx.db, to, ctx.flags.booleans.peers, content), null, 2));
     },
   },

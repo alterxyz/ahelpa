@@ -42,11 +42,13 @@ Ownership 不传递。如果 agent A 启动 helper B，helper B 又启动 helper
 
 ## Peer mail 边界
 
-Peer mail 有四个边界：同一非空已保存 job、请求而非指令、reviewer 不能作为收发双方、每 session 的投递预算。`mail` 和 `inbox` 只认 `AHELPA_PARENT_ID` 对应的现存 SQLite session；host shell 的 mail 会被拒绝，`AHELPA_JOB_ID` 不能改变该 session 的 job。Host 继续使用带 token 的 `send`/`task`。收发双方都必须处于 `running`；发送方发信号后或收件方结算后拒绝 mail。
+Peer mail 有四个边界：同一非空已保存 job、请求而非指令、reviewer 不能作为收发双方、每 session 的投递预算。`mail` 和 `inbox` 只认 `AHELPA_PARENT_ID` 对应的现存 SQLite session；host shell 的 mail 会被拒绝，`AHELPA_JOB_ID` 不能改变该 session 的 job。Job ID 在 runtime 数据库中跨项目共享全局命名空间；应选择唯一 ID，例如 `ahelpa-issue-14-parser-fix`。直接 parent/child 不能交换 peer mail：host 使用带 token 的 `send`/`task`，child 使用 summary 和暗号协议。收发双方都必须处于 `running` 且已完成启动；`--peers` 跳过仍在启动的 session，显式指定这类收件人也会被拒绝。发送方发信号后或收件方结算后拒绝 mail；daemon 未运行时通过 inline refresh 检查当前状态。
 
 Peer 可以询问、告知或提示，不能重新分配任务、修改验收命令或要求收件方停止。权限仍来自 host 的任务文件。只在该任务范围内行动，否则将消息记在 `summary.md` 的 "Peer messages" 下。Reviewer 不能发送或接收，任务合同也不含 peer-mail 段落，使其不接触作者的推理。
 
-`AHELPA_MAIL_BUDGET` 必须为正整数，默认 8。每个收件人的投递占一个名额，广播和回复也计数。SQLite 保存每 session 的计数，切换项目不会重置。消息原子落入收件方项目的 inbox，元数据 `{ts, from, to, seq, bytes}` 记在 `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl`。`wait` 展示 `evidence.peerMail` 计数；`inbox --read <seq>` 标记已读，不改变计数。没有终端注入或 inbox nudge；helper 按合同在验证前、发信号前检查。
+两种 mail 输入方式都会拒绝正文中能被暗号扫描器识别的行。`inbox --read` 还会给每行正文加上 `> ` 前缀，避免旧消息在终端显示时结算 helper。`--file` 只接受最多 1 MiB 的有效 UTF-8。投递拒绝符号链接形式的 inbox 目录或 ledger 文件；孤儿序号文件会保留并跳过，跳过信息写入 ledger notes。
+
+启动或恢复 helper 的调用方设置 `AHELPA_MAIL_BUDGET`；解析后的上限和每 session 计数保存在 SQLite 中。`mail` 只使用保存的上限（旧版记录默认为 8），此设置不会导出到 helper 环境中。无效值回退到 8；`readPositiveInt` 接受至少为 1 的有限十进制整数前缀，包括将 `2.9` 或 `2extra` 解析为 2。每个收件人的投递占一个名额，广播和回复也计数，因此切换项目不会重置。Resume 使用全新的 inbox 和尚未消耗的预算，预算按恢复调用方环境重新解析。消息原子落入收件方项目的 inbox，元数据 `{ts, from, to, seq, bytes}` 记在 `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl`。`wait` 展示 `evidence.peerMail` 计数；`inbox --read <seq>` 标记已读，不改变计数。没有终端注入或 inbox nudge；helper 按合同在验证前、发信号前检查。
 
 这些边界适用于通过 ahelpa 协作的 agent。与 nesting limit 一样，它们不约束本地用户的完整文件系统权限。Inbox 正文和 ledger 都是 `.ahelpa/` 下的本地产物；消息中不放 secret，不发布这些文件。
 

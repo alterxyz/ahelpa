@@ -1,9 +1,43 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync } from "fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, truncateSync, unlinkSync, writeFileSync, type Stats } from "fs";
 import { dirname, isAbsolute, join } from "path";
 import { resolveJobId } from "./launch";
 import { planFileHandoff } from "../file-handoff";
-import { readPositiveInt } from "../nesting";
+import { scanSentinels } from "../drivers/sentinels";
 import { StateDB, type PeerMailRecord, type SessionRecord } from "../state";
+
+export const MAX_MAIL_FILE_BYTES = 1024 * 1024;
+
+export function readMailFile(path: string): string {
+  const stat = statSync(path);
+  if (!stat.isFile()) throw new Error("Peer mail --file must be a regular file");
+  if (stat.size > MAX_MAIL_FILE_BYTES) throw new Error("Peer mail --file exceeds the 1 MiB limit");
+  const bytes = readFileSync(path);
+  if (bytes.length > MAX_MAIL_FILE_BYTES) throw new Error("Peer mail --file exceeds the 1 MiB limit");
+  try {
+    // Preserve a UTF-8 BOM and reject malformed bytes instead of replacing them.
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+  } catch {
+    throw new Error("Peer mail --file must contain valid UTF-8");
+  }
+}
+
+function existingStat(path: string): Stats | null {
+  try { return lstatSync(path); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw error;
+  }
+}
+
+function requireInboxDirectory(path: string): void {
+  const stat = existingStat(path);
+  if (stat && (stat.isSymbolicLink() || !stat.isDirectory())) {
+    throw new Error("Peer mail inbox must be a directory, not a symlink");
+  }
+}
+
+function isDirectLineage(sender: SessionRecord, recipient: SessionRecord): boolean {
+  return recipient.id === sender.parentId || recipient.parentId === sender.id;
+}
 
 function requireHelper(db: StateDB): SessionRecord {
   const id = process.env.AHELPA_PARENT_ID;
@@ -16,6 +50,7 @@ function requireHelper(db: StateDB): SessionRecord {
 }
 
 function requireRunning(session: SessionRecord): void {
+  if (session.launchPid != null) throw new Error(`Session ${session.id} is still launching; retry after launch completes`);
   if (session.status !== "running") throw new Error(`Peer mail requires a running session: ${session.id} is ${session.status}`);
 }
 
@@ -24,6 +59,7 @@ function requireAbsoluteProject(session: SessionRecord): void {
 }
 
 export function mail(db: StateDB, toId: string | undefined, peers: boolean, content: string): PeerMailRecord[] {
+  if (scanSentinels(content).length) throw new Error("Peer mail body must not contain a sentinel line (DONE or NEED_HELP)");
   const createdFiles: string[] = [];
   let ledgerPath: string | undefined;
   let ledgerSize = 0;
@@ -37,7 +73,7 @@ export function mail(db: StateDB, toId: string | undefined, peers: boolean, cont
       requireRunning(sender);
       requireAbsoluteProject(sender);
       const recipients = peers
-        ? db.listJobSessions(sender.jobId!).filter((s) => s.id !== sender.id && s.status === "running" && s.role !== "reviewer")
+        ? db.listJobSessions(sender.jobId!).filter((s) => s.id !== sender.id && s.status === "running" && s.launchPid == null && s.role !== "reviewer" && !isDirectLineage(sender, s))
         : [db.getSession(toId!)];
       if (!recipients.length) throw new Error("No running peers in this job");
       for (const recipient of recipients) {
@@ -45,27 +81,41 @@ export function mail(db: StateDB, toId: string | undefined, peers: boolean, cont
         if (recipient.id === sender.id) throw new Error("Cannot send peer mail to self");
         if (recipient.role === "reviewer") throw new Error("A reviewer cannot send or receive peer mail");
         if (recipient.jobId !== sender.jobId) throw new Error("Peer mail is restricted to the same job");
+        if (isDirectLineage(sender, recipient)) {
+          throw new Error(recipient.parentId === sender.id
+            ? "Direct child is not a peer; use send/task for host-to-child communication"
+            : "Direct parent is not a peer; use the sentinel/summary protocol for child-to-host communication");
+        }
         requireRunning(recipient);
         requireAbsoluteProject(recipient);
       }
-      const budget = readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8);
+      const budget = sender.mailBudget ?? 8;
       const sent = db.peerMailCounts(sender.id).sent;
       if (sent + recipients.length > budget) throw new Error(`Peer mail budget exceeded (${sent} sent, ${recipients.length} requested, limit ${budget})`);
       ledgerPath = join(planFileHandoff(sender.projectPath, sender.id).projectDeliveryDir, "jobs", sender.jobId!, "mail.jsonl");
       mkdirSync(dirname(ledgerPath), { recursive: true });
-      ledgerExisted = existsSync(ledgerPath);
-      if (ledgerExisted && !statSync(ledgerPath).isFile()) throw new Error("Peer mail ledger must be a regular file");
-      ledgerSize = ledgerExisted ? statSync(ledgerPath).size : 0;
+      const ledgerStat = existingStat(ledgerPath);
+      ledgerExisted = ledgerStat !== null;
+      if (ledgerStat && (ledgerStat.isSymbolicLink() || !ledgerStat.isFile())) throw new Error("Peer mail ledger must be a regular file, not a symlink");
+      ledgerSize = ledgerStat?.size ?? 0;
       const messages: PeerMailRecord[] = [];
+      const skippedSequences = new Map<string, number[]>();
       for (const recipient of recipients) {
         const to = recipient!;
-        const seq = db.nextPeerMailSeq(to.id);
+        let seq = db.nextPeerMailSeq(to.id);
         const inbox = join(planFileHandoff(to.projectPath, to.id).sessionDeliveryDir, "inbox");
-        const path = join(inbox, `${seq}-from-${sender.id}.md`);
+        requireInboxDirectory(inbox);
         mkdirSync(inbox, { recursive: true });
-        // Never overwrite an orphan from an interrupted delivery. Keep its
-        // bytes available for inspection and report the uncertain delivery.
-        if (existsSync(path)) throw new Error(`Peer mail file already exists: ${path}; delivery is uncertain`);
+        // An interrupted delivery may have left a file without SQLite metadata.
+        // Preserve it and reserve a free sequence across all senders' files.
+        const occupied = new Set(readdirSync(inbox).flatMap((name) => {
+          const match = /^(\d+)-from-.+\.md$/.exec(name);
+          return match ? [Number(match[1])] : [];
+        }));
+        const skipped: number[] = [];
+        while (occupied.has(seq)) skipped.push(seq++);
+        if (skipped.length) skippedSequences.set(to.id, skipped);
+        const path = join(inbox, `${seq}-from-${sender.id}.md`);
         const temporary = `${path}.${crypto.randomUUID()}.tmp`;
         createdFiles.push(temporary);
         writeFileSync(temporary, content, { flag: "wx" });
@@ -76,7 +126,10 @@ export function mail(db: StateDB, toId: string | undefined, peers: boolean, cont
         messages.push(message);
       }
       ledgerTouched = true;
-      appendFileSync(ledgerPath, messages.map(({ ts, from, to, seq, bytes }) => JSON.stringify({ ts, from, to, seq, bytes }) + "\n").join(""));
+      appendFileSync(ledgerPath, messages.map(({ ts, from, to, seq, bytes }) => JSON.stringify({
+        ts, from, to, seq, bytes,
+        ...(skippedSequences.has(to) ? { skippedSeqs: skippedSequences.get(to), note: "Skipped orphaned inbox sequences; existing files preserved" } : {}),
+      }) + "\n").join(""));
       return messages;
     } catch (error) {
       // Cleanup runs before releasing SQLite's write lock, so another process
@@ -98,7 +151,8 @@ export function inbox(db: StateDB, seq?: number): PeerMailRecord[] | string {
   if (!Number.isSafeInteger(seq) || seq <= 0) throw new Error("--read must be a positive integer");
   const message = messages.find((m) => m.seq === seq);
   if (!message) throw new Error(`Peer message not found: ${seq}`);
+  requireInboxDirectory(dirname(message.path));
   const content = readFileSync(message.path, "utf8");
   db.markPeerMailRead(caller.id, seq);
-  return content;
+  return content.split(/\r\n|[\n\r\u2028\u2029]/u).map((line) => `> ${line}`).join("\n");
 }
