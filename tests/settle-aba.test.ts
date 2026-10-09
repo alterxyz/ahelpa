@@ -95,7 +95,7 @@ describe("settle observed row version", () => {
         await send(interveningDb, id, "tok", "Missing detail");
         rearmed = interveningDb.getSession(id)!;
         expect(rearmed.status).toBe("running");
-        // Settle, reserve the new turn, rearm, then release its delivery lock.
+        // Settle, register the new turn, confirm its transport, then rearm.
         expect(rearmed.version).toBe(original.version + 4);
         expect(Date.parse(rearmed.updatedAt)).toBe(frozenNow);
         expect(defaultWakeup.prepare).toHaveBeenCalledTimes(1);
@@ -147,7 +147,7 @@ describe("settle observed row version", () => {
       await send(hostDb, id, "tok", "Missing detail");
       rearmed = hostDb.getSession(id)!;
       expect(rearmed.status).toBe("running");
-      // Settle, reserve the new turn, rearm, then release its delivery lock.
+      // Settle, register the new turn, confirm its transport, then rearm.
       expect(rearmed.version).toBe(original.version + 4);
       // Mark resources owned by the rearmed turn; a stale result cannot reclaim them.
       writeFileSync(layout.taskFilePath(id), "new turn task");

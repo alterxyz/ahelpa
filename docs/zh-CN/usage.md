@@ -258,6 +258,8 @@ ahelpa task "$session_id" --file ./next-task.md --token "$token"
 
 超过一句话的内容优先用 `task`，避免 tmux keystroke input 的长度限制。
 
+允许向同一 session 重叠投递 `send`、`task` 和自动 completion nudge。投递重叠时，ahelpa 会把当前回合标为归属不明确，忽略它的回合结束 hook，停用 hook 快速路径并使用无活动兜底。后续一次无重叠的登记会清除重叠造成的歧义；hook 归属仍要求输入摘要可明确区分。如果需要 hook 快速路径，请逐次发送后续任务。
+
 ## 观察 session
 
 非阻塞状态查询：
