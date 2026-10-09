@@ -462,6 +462,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     } catch {
       // The snapshot only helps history-aware drivers reject stale sentinels.
     }
+    assertLaunchReservation(plan.input.db, plan.sessionId);
     const row = plan.input.db.getSession(plan.sessionId)!;
     const submitted = await deliverTurn(plan.input.db, row, plan.fileHandoff.taskInstruction,
       () => driverRuntime.sendKeys(plan.sessionId, plan.fileHandoff.taskInstruction), {
@@ -615,8 +616,6 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   let dbCreated = false;
   let wakeupOwned = false;
   let handoffOwned = false;
-  let hookDirOwned = false;
-  const handoff = planFileHandoff(projectPath, sessionId);
   try {
     reserveSession(input.db, {
       id: sessionId,
@@ -645,16 +644,19 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
     if (driver.turnHooks) {
-      assertFileHandoffAvailable(handoff);
-      mkdirSync(handoff.projectDeliveryDir, { recursive: true });
-      mkdirSync(handoff.sessionDeliveryDir);
-      hookDirOwned = true;
+      assertFileHandoffAvailable(fileHandoff);
+      mkdirSync(fileHandoff.projectDeliveryDir, { recursive: true });
+      mkdirSync(fileHandoff.sessionDeliveryDir);
+      handoffOwned = true;
       driver.prepareLaunchFiles?.({ cwd: projectPath, sessionId });
     }
     await Tmux.create(sessionId, launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(input.db, sessionId);
-    assertFileHandoffAvailable(fileHandoff);
+    // Hook startup already reserved this directory; the tmp task path remains
+    // separate and must still be checked before copying the original ask.
+    if (!handoffOwned) assertFileHandoffAvailable(fileHandoff);
+    else if (existsSync(fileHandoff.taskFilePath)) throw new Error("Refusing to overwrite existing task file");
     handoffOwned = true;
     mkdirSync(fileHandoff.artifactsDir, { recursive: true });
     writeFileSync(fileHandoff.askPath, existsSync(sourceHandoff.askPath)
@@ -682,9 +684,6 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     if (wakeupOwned) defaultWakeup.cleanup(sessionId);
     if (handoffOwned) {
       try { rmSync(fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
-    }
-    if (hookDirOwned) {
-      try { rmSync(handoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
     }
     if (dbCreated) {
       try { rollbackReservation(input.db, sessionId); } catch {}

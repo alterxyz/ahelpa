@@ -357,11 +357,13 @@ export class StateDB {
       // Store both aliases in history, but keep the submitted digest unstripped.
       const ambiguous = (row.agent_type === "claude-code" && /<\/?pasted_content\b/u.test(input))
         || candidates.some(candidate => history.includes(candidate));
+      // An idle terminal can still accept follow-ups; register the delivery
+      // without rearming its settled status. Dead launches remain cancelled.
       const changed = this.db.prepare(`UPDATE sessions SET turn_started_at = ?, turn_input_digest = ?,
         turn_input_history = ?, turn_input_ambiguous = ?, turn_input_sent = 1, version = version + 1
-        WHERE id = ? AND version = ? AND status IN (?, ?, ?)`)
+        WHERE id = ? AND version = ? AND status IN (?, ?, ?, ?)`)
         .run(new Date().toISOString(), digest, JSON.stringify([...history, ...candidates]), ambiguous ? 1 : 0,
-          id, version, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Error).changes;
+          id, version, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Error, SESSION_STATUS.Idle).changes;
       return changed ? this.getSession(id) : null;
     });
   }
