@@ -167,6 +167,7 @@ describe("resume command", () => {
       role: "worker",
       model: "opus",
       effort: "max",
+      jobId: "parser-fix",
     });
     db.updateStatus("claude-model1", "dead");
     db.updateResumeId("claude-model1", "resume-uuid-999");
@@ -182,11 +183,13 @@ describe("resume command", () => {
     const cmd = tmuxSpy.mock.calls[0]?.[1];
     expect(cmd).toContain("--model 'opus'");
     expect(cmd).toContain("--effort 'max'");
+    expect(cmd).toMatch(/AHELPA_JOB_ID='?parser-fix'?[; ]/);
 
     const newSession = db.getSession(result.sessionId);
     expect(newSession!.role).toBe("worker");
     expect(newSession!.model).toBe("opus");
     expect(newSession!.effort).toBe("max");
+    expect(newSession!.jobId).toBe("parser-fix");
     expect(result).toMatchObject({ role: "worker", model: "opus", effort: "max" });
   });
 

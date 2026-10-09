@@ -78,7 +78,7 @@ describe("cli dispatch", () => {
     const code = await runCli(db, ["wait"], io(captured));
 
     expect(code).toBe(1);
-    expect(captured.err[0]).toContain("Usage: ahelpa wait <id...>");
+    expect(captured.err[0]).toContain("Usage: ahelpa wait (<id...> | --job <id>)");
   });
 
   test.each([

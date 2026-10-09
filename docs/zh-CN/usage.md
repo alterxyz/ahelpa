@@ -11,6 +11,8 @@ token=$(echo "$result" | jq -r .ownerToken)
 ```
 
 `launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同）。请保存 token；所有写操作都需要它。
+- `jobId`（可选）：该 helper 所属的 job（见[把多个 hand 归入一个 job](#把多个-hand-归入一个-job)）。
+- `writerConflict`（可选）：同一棵目录树中（project 路径相同，或一个包含另一个）仍在活跃的其他 session，且双方至少有一个不是 `reviewer`。每项包含 `sessionId`、`role`、`status` 和 `projectPath`。launch 仍会进行，但 evidence 将无法分辨改动属于谁。除非重叠是有意的，请 kill 其中一个，或改用 `--worktree` 重新 launch。同一棵树中的两个 reviewer 不会被报告，发起本次 launch 的 helper 本身也不会（它负责委派并等待）；`--worktree` 启动的 session 不会产生冲突。
 - `taskWarning`（可选）：`--task` 文本较短且含 `/tmp/`、`/private/tmp/` 或 `scratchpad/` 路径，通常意味着任务引用了可能消失的临时文件。请把内容放进持久文件，改用 `--file`。
 
 多行任务可以从 UTF-8 文件直接启动，替代 `--task`：
@@ -65,6 +67,19 @@ ahelpa launch codex --worktree --file ./task.md --project /path/to/project
 ```
 
 ahelpa 会在 `<project 的父目录>/<project 名>-worktrees/<session-id>` 创建 worktree，分支为 `ahelpa/<session-id>`，从 `HEAD` 分出（未提交的改动不在其中）。helper 的 `projectPath` 就是该 worktree，结果也落在其 `.ahelpa/<id>/`。项目必须是 git 仓库，否则 `launch` 报错。ahelpa 不会删除已交付的 worktree（launch 在返回前失败时会回滚自己建的那个）；用完后执行 `git worktree remove <path> && git branch -D ahelpa/<session-id>`。新 worktree 里没有安装依赖，安装步骤要写进任务或放在 `--check` 命令最前面。
+
+### 把多个 hand 归入一个 job
+
+用 `--job <id>` 把同一次改动的多个 hand 归为一组，便于一起查看和等待：
+
+```bash
+impl=$(ahelpa launch codex --job parser-fix --file ./impl.md | jq -r .sessionId)
+rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)   # 继承 parser-fix
+ahelpa check --job parser-fix
+ahelpa wait --job parser-fix --all
+```
+
+未指定 `--job` 的 launch 会先继承其 `--after` session 的 job，再继承发起它的 helper 的 job（以 `AHELPA_JOB_ID` 导出到每个 helper 的环境变量中，没有 job 时为空）。显式的 `--job` 始终优先。Job ID 为 1–64 个字母、数字、`.`、`_` 或 `-`，且以字母或数字开头。`wait --job` 解析为开始等待时该 job 中处于 `running` 的 session；它接受 session ID 或 `--job` 之一，不能同时使用。`resume` 会保留 job。`status` 显示 JOB 列，`check` 包含 `jobId`。Job 没有自己的生命周期：它只是一个带有操作的标签，不改变权限或所有权。
 
 headless host 需要显式追踪 ID 时，用 `--parent`：
 

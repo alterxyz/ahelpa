@@ -24,6 +24,10 @@
 
 **Owner token** — The operation credential returned by `launch`. All mutating session operations require it.
 
+**Job** — A label grouping the hands of one change. Set with `launch --job`, inherited through `--after` and through `AHELPA_JOB_ID` in a helper's environment. `check --job` and `wait --job` operate on it. A job has no lifecycle and changes no ownership or permissions.
+
+**Writer conflict** — Another active session working in the same tree (same project path, or one inside the other) where at least one side is not a reviewer. `launch` reports it and proceeds; it makes rule "one worktree, one writer" observable instead of advisory.
+
 **Nesting** — The lineage of helper sessions. Launch validates a maximum chain depth (default 4), a maximum number of active sessions per tree (default 8, the root helper and its descendants), and refuses launches from `reviewer` sessions. The host's own direct launches are outside any tree.
 
 **Messenger** — A lightweight polling subagent that checks helper status and reports results. A usage pattern, not a daemon component.
