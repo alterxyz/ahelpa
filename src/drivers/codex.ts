@@ -1,6 +1,7 @@
 import type { AgentDriver, DetectedOutcome, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
 import { ModelSwitchAppliedError } from "./types";
 import { isTaskInstructionEcho } from "../file-handoff";
+import { checkCodexReadiness } from "./codex-readiness";
 import { shellEscape } from "../shell";
 import { detectSentinelOutcome } from "./sentinels";
 import { findModelChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
@@ -248,6 +249,7 @@ function freshModelConfirmation(output: string, model: string, baseline: ModelEv
 }
 
 export const codexDriver: AgentDriver = {
+  checkReadiness: checkCodexReadiness,
   name: "codex",
   sessionPrefix: "codex",
   launchProfiles: {

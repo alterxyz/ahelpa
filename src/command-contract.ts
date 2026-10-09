@@ -7,6 +7,7 @@ import type { StateDB } from "./state";
 import { parseCliArgs } from "./cli-args";
 import { launch, resume } from "./commands/launch";
 import { installSkill } from "./commands/install-skill";
+import { doctor } from "./commands/doctor";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, switchModel, kill, logs, check, status, clean } from "./commands/session-ops";
 import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
@@ -53,6 +54,8 @@ export interface CommandContract {
   name: string;
   usage: string;
   description: string;
+  // Read-only commands can run before the process shell opens the state DB.
+  stateless?: boolean;
   minPositionals?: number;
   // Fixed-arity commands default to minPositionals (or zero). Variadic
   // commands explicitly opt in with Infinity; optional arguments set a bound.
@@ -124,6 +127,17 @@ export function renderModelsText(agent?: string): string {
 }
 
 export const COMMAND_CONTRACTS: CommandContract[] = [
+  {
+    name: "doctor",
+    usage: "doctor [agent] [--project <path>]",
+    description: "Check local readiness without a model call or runtime writes",
+    stateless: true,
+    maxPositionals: 1,
+    flags: { project: { kind: "string" } },
+    async run(ctx) {
+      ctx.print(JSON.stringify(doctor(ctx.positionals[0], ctx.flags.strings.project), null, 2));
+    },
+  },
   {
     name: "launch",
     usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--job <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--after <id>] [--worktree]",
@@ -411,7 +425,7 @@ export interface CliIO {
   printError(text: string): void;
 }
 
-export async function runCli(db: StateDB, argv: string[], io: CliIO): Promise<number> {
+export async function runCli(db: StateDB | undefined, argv: string[], io: CliIO): Promise<number> {
   const [name, ...rest] = argv;
 
   if (!name || name === "help") {
@@ -440,7 +454,10 @@ export async function runCli(db: StateDB, argv: string[], io: CliIO): Promise<nu
       throw new UsageError(`Usage: ahelpa ${contract.usage}`);
     }
     const flags = resolveFlags(contract, rawFlags);
-    await contract.run({ db, positionals, flags, print: io.print });
+    if (!db && !contract.stateless) throw new Error("This command requires the state database");
+    // Stateless handlers never access db; retaining the context type keeps
+    // stateful handlers' existing DB contract unchanged.
+    await contract.run({ db: db!, positionals, flags, print: io.print });
     return 0;
   } catch (error) {
     if (error instanceof UsageError) {
