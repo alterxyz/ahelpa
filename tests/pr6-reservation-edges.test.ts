@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { $ } from "bun";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB, type CreateSessionInput } from "../src/state";
@@ -89,6 +89,20 @@ async function expectWorktreeRemoved(path: string, id: string) {
 }
 
 describe("PR6 resume reservation ancestry", () => {
+  test("reviewer resume reserves its native review baseline and options before terminal startup", async () => {
+    const fingerprint = { head: "original-review-head", treeHash: "original-review-tree" };
+    const originalDir = planFileHandoff(project, "old").sessionDeliveryDir;
+    resumable("old", { role: "reviewer", targetFingerprint: fingerprint, targetResultDirs: [originalDir], unblind: true });
+    let resumedId = "";
+    spyOn(Tmux, "create").mockImplementation(async (id) => {
+      resumedId = id;
+      expect(db.getSession(id)).toMatchObject({ launchPid: process.pid, targetFingerprint: fingerprint, targetResultDirs: [originalDir, planFileHandoff(project, id).sessionDeliveryDir], unblind: true });
+    });
+    const result = await resume({ db, sessionId: "old", ownerToken: "tok" });
+    expect(result.sessionId).toBe(resumedId);
+    expect(db.getSession(resumedId)).toMatchObject({ launchPid: null, targetFingerprint: fingerprint, status: "needs_attention", unblind: true });
+  });
+
   test("refuses a source removed by clean before reserving and cannot evade the original quota", async () => {
     fullTree();
     resumable("old", { parentId: "root", depth: 2 });
@@ -129,6 +143,56 @@ describe("PR6 resume reservation ancestry", () => {
 });
 
 describe("PR6 launch cancellation", () => {
+  test("reviewer reserves known options before startup and publishes its fingerprint with the launch", async () => {
+    await initializeFixtureRepository();
+    const plan = planLaunch({ db, agentType: "claude-code", task: "review this tree", projectPath: project, parentId: "host", role: "reviewer", unblind: true });
+    spyOn(Tmux, "create").mockImplementation(async (id) => {
+      expect(db.getSession(id)).toMatchObject({ launchPid: process.pid, unblind: true, targetResultDirs: [plan.fileHandoff.sessionDeliveryDir], targetFingerprint: null, baseCommit: null });
+    });
+    spyOn(getDriver("claude-code"), "prepareForTask").mockImplementation(async (id) => {
+      expect(db.getSession(id)?.targetFingerprint).toBeNull();
+      expect(existsSync(plan.fileHandoff.askPath)).toBe(true);
+      expect(readFileSync(plan.fileHandoff.taskCopyPath, "utf8")).toContain(plan.handoffContext.targetFingerprint!.treeHash);
+    });
+    await executeLaunch(plan);
+    expect(db.getSession(plan.sessionId)).toMatchObject({ launchPid: null, targetFingerprint: plan.handoffContext.targetFingerprint, baseCommit: plan.handoffContext.targetFingerprint!.head });
+  });
+
+  for (const boundary of ["tmux creation", "task preparation", "final publication"] as const) {
+    test(`cancelled reviewer at ${boundary} leaves no fingerprint, ask, or owned handoff behind`, async () => {
+      await initializeFixtureRepository();
+      const plan = planLaunch({ db, agentType: "claude-code", task: "review this tree", projectPath: project, parentId: "host", role: "reviewer" });
+      const cancel = async () => {
+        expect(db.getSession(plan.sessionId)).toMatchObject({ launchPid: process.pid, targetFingerprint: null, targetResultDirs: [plan.fileHandoff.sessionDeliveryDir] });
+        if (boundary !== "tmux creation") {
+          expect(readFileSync(plan.fileHandoff.askPath, "utf8")).toBe("review this tree");
+          expect(readFileSync(plan.fileHandoff.taskCopyPath, "utf8")).toContain(plan.handoffContext.targetFingerprint!.treeHash);
+        }
+        await kill(db, plan.sessionId, plan.ownerToken);
+        const killed = db.getSession(plan.sessionId);
+        expect(killed?.status).toBe("dead");
+        expect(db.completeLaunch(plan.sessionId, process.pid, "cancelled-base", undefined, plan.handoffContext.targetFingerprint)).toBe(false);
+        expect(db.getSession(plan.sessionId)).toEqual(killed);
+      };
+      if (boundary === "tmux creation") spyOn(Tmux, "create").mockImplementation(cancel);
+      else if (boundary === "task preparation") spyOn(getDriver("claude-code"), "prepareForTask").mockImplementation(cancel);
+      else {
+        spyOn(FIFO, "create").mockImplementation(async (path) => {
+          await cancel();
+          expect(await Bun.spawn(["mkfifo", path], { stdout: "ignore", stderr: "ignore" }).exited).toBe(0);
+        });
+      }
+      await expect(executeLaunch(plan)).rejects.toThrow(/cancelled/i);
+      expect(db.getSession(plan.sessionId)).toBeNull();
+      expect(existsSync(plan.fileHandoff.askPath)).toBe(false);
+      expect(existsSync(plan.fileHandoff.taskCopyPath)).toBe(false);
+      expect(existsSync(plan.fileHandoff.taskFilePath)).toBe(false);
+      expect(existsSync(plan.fileHandoff.sessionDeliveryDir)).toBe(false);
+      expect(existsSync(defaultRuntimeLayout.fifoPath(plan.sessionId))).toBe(false);
+      expect(Tmux.kill).toHaveBeenCalledWith(plan.sessionId);
+    });
+  }
+
   for (const kind of ["launch", "resume"] as const) {
     for (const boundary of ["tmux creation", "final publication"] as const) {
       test(`kill during ${kind} ${boundary} wins and reclaims owned resources`, async () => {
@@ -196,6 +260,18 @@ describe("PR6 launch cancellation", () => {
 });
 
 describe("PR6 launch publication compare-and-set", () => {
+  test("fingerprint publication shares the owning launcher's single compare-and-set", () => {
+    const fingerprint = { head: "review-head", treeHash: "review-tree-hash" };
+    const before = record("pending", { launchPid: process.pid });
+    expect(db.completeLaunch("pending", process.pid + 1, "foreign-base", undefined, fingerprint)).toBe(false);
+    expect(db.getSession("pending")).toEqual(before);
+    expect(db.completeLaunch("pending", process.pid, "review-head", undefined, fingerprint)).toBe(true);
+    const published = db.getSession("pending");
+    expect(published).toMatchObject({ targetFingerprint: fingerprint, baseCommit: "review-head", launchPid: null, version: before.version + 1 });
+    expect(db.completeLaunch("pending", process.pid, "later-head", undefined, { ...fingerprint, head: "later-head" })).toBe(false);
+    expect(db.getSession("pending")).toEqual(published);
+  });
+
   test("a foreign launcher cannot publish a running reservation", () => {
     const before = record("pending", { launchPid: process.pid });
     expect(db.completeLaunch("pending", process.pid + 1, "foreign-commit", "needs_attention")).toBe(false);
