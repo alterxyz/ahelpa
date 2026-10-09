@@ -25,14 +25,15 @@ describe("jobs and writer conflicts", () => {
     return db.createSession({ id, parentId: "cli", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT, ...extra });
   }
 
-  test("job id precedence: explicit, then --after's job, then the inherited environment", () => {
+  test("job id precedence: explicit, then --after's job, then the launching helper's stored job", () => {
     db = new StateDB(TEST_DB);
     session("impl", { jobId: "parser-fix" });
     session("loose");
+    session("caller", { jobId: "caller-job" });
 
-    expect(resolveJobId(db, "explicit", "impl", { AHELPA_JOB_ID: "env" })).toBe("explicit");
-    expect(resolveJobId(db, undefined, "impl", { AHELPA_JOB_ID: "env" })).toBe("parser-fix");
-    expect(resolveJobId(db, undefined, "loose", { AHELPA_JOB_ID: "env" })).toBe("env");
+    expect(resolveJobId(db, "explicit", "impl", { AHELPA_PARENT_ID: "caller", AHELPA_JOB_ID: "env" })).toBe("explicit");
+    expect(resolveJobId(db, undefined, "impl", { AHELPA_PARENT_ID: "caller", AHELPA_JOB_ID: "env" })).toBe("parser-fix");
+    expect(resolveJobId(db, undefined, "loose", { AHELPA_PARENT_ID: "caller", AHELPA_JOB_ID: "env" })).toBe("caller-job");
     expect(resolveJobId(db, undefined, undefined, { AHELPA_JOB_ID: "" })).toBeNull();
     expect(resolveJobId(db, undefined, undefined, {})).toBeNull();
   });

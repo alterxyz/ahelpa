@@ -1,13 +1,13 @@
-import { StateDB } from "../state";
+import { StateDB, type CreateSessionInput } from "../state";
 import { Tmux } from "../tmux";
 import { defaultWakeup } from "../wakeup";
 import { getDriver } from "../drivers/registry";
 import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
-import { getPendingLaunchNestingInfo, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
+import { getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree } from "../nesting";
 import { $ } from "bun";
-import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync } from "fs";
-import { basename, dirname, isAbsolute, join, resolve } from "path";
+import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync } from "fs";
+import { basename, dirname, isAbsolute, join, resolve, relative, sep } from "path";
 import { defaultRuntimeLayout } from "../runtime-layout";
 import { isTaskInstructionEcho, planFileHandoff, prepareFileHandoff, type FileHandoffPlan, type HandoffContext } from "../file-handoff";
 import { requireAuthorizedSession } from "../session-access";
@@ -72,6 +72,8 @@ export interface LaunchPlan {
   driver: AgentDriver;
   maxDepth: number;
   depth: number;
+  treeId: string;
+  callerId?: string;
   tmpDir: string;
   launchCmd: string;
   fileHandoff: FileHandoffPlan;
@@ -129,15 +131,36 @@ const JOB_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 // The job id may later name a directory, so it is held to a filename-safe shape.
 export function resolveJobId(db: StateDB, explicit: string | undefined, afterId: string | undefined, env = process.env): string | null {
   const inherited = afterId ? db.getSession(afterId)?.jobId : null;
-  const job = explicit ?? inherited ?? (env.AHELPA_JOB_ID || null);
+  const caller = env.AHELPA_PARENT_ID ? db.getSession(env.AHELPA_PARENT_ID) : null;
+  return validateJobId(explicit ?? inherited ?? caller?.jobId ?? null);
+}
+
+function validateJobId(job: string | null): string | null {
   if (job !== null && !JOB_ID.test(job)) {
     throw new Error(`Invalid job id "${job}": use 1-64 letters, digits, dot, underscore, or dash, starting with a letter or digit`);
   }
   return job;
 }
 
+function physicalPath(path: string): string {
+  let ancestor = resolve(path);
+  const missing: string[] = [];
+  while (true) {
+    try { return resolve(realpathSync(ancestor), ...missing); } catch {
+      const parent = dirname(ancestor);
+      if (parent === ancestor) return resolve(path);
+      missing.unshift(basename(ancestor));
+      ancestor = parent;
+    }
+  }
+}
+
 function sharesTree(a: string, b: string): boolean {
-  return a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
+  const contains = (parent: string, child: string) => {
+    const path = relative(parent, child);
+    return path === "" || (path !== ".." && !path.startsWith(`..${sep}`) && !isAbsolute(path));
+  };
+  return contains(a, b) || contains(b, a);
 }
 
 // One worktree, one writer. Reviewer beside reviewer is the only quiet pair:
@@ -146,10 +169,11 @@ function sharesTree(a: string, b: string): boolean {
 // and it is expected to wait rather than edit alongside.
 export function findWriterConflicts(db: StateDB, projectPath: string, role: HelperRole | undefined, launcherId?: string): WriterConflict[] {
   const writer = role !== "reviewer";
+  const physicalProject = physicalPath(projectPath);
   return db.listActiveSessions()
     .filter((session) => session.id !== launcherId)
     .filter((session) => session.status !== SESSION_STATUS.Draining)
-    .filter((session) => sharesTree(session.projectPath, projectPath))
+    .filter((session) => sharesTree(physicalPath(session.projectPath), physicalProject))
     .filter((session) => writer || session.role !== "reviewer")
     .map((session) => ({ sessionId: session.id, role: session.role ?? null, status: session.status, projectPath: session.projectPath }));
 }
@@ -190,6 +214,10 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
   const maxDepth = getMaxNestingDepth();
   const nesting = getPendingLaunchNestingInfo(input.db, input.parentId);
+  const callerId = process.env.AHELPA_PARENT_ID && input.db.getSession(process.env.AHELPA_PARENT_ID)
+    ? process.env.AHELPA_PARENT_ID : undefined;
+  const treeId = nesting.rootSessionId ?? sessionId;
+  const depth = assertCallerMayLaunch(input.db, callerId, treeId, nesting.depth);
   const handoffContext: HandoffContext = {
     role: input.role,
     check: input.check,
@@ -202,17 +230,17 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     input = { ...input, projectPath: worktreePathFor(input.projectPath, sessionId) };
   }
 
-  if (nesting.depth > maxDepth) {
+  if (depth > maxDepth) {
     const chain = nesting.lineage.join(" -> ");
     throw new Error(
       chain
-        ? `Max nesting depth exceeded (${nesting.depth}/${maxDepth}). Existing chain: ${chain}`
-        : `Max nesting depth exceeded (${nesting.depth}/${maxDepth}).`,
+        ? `Max nesting depth exceeded (${depth}/${maxDepth}). Existing chain: ${chain}`
+        : `Max nesting depth exceeded (${depth}/${maxDepth}).`,
     );
   }
-  assertParentMayLaunch(input.db, input.parentId, nesting.rootSessionId);
+  assertParentMayLaunch(input.db, input.parentId, treeId);
 
-  const writerConflict = input.worktree ? [] : findWriterConflicts(input.db, input.projectPath, input.role, input.parentId);
+  const writerConflict = input.worktree ? [] : findWriterConflicts(input.db, input.projectPath, input.role, callerId ?? input.parentId);
   const fileHandoff = planFileHandoff(input.projectPath, sessionId);
   const baseLaunchCmd = driver.buildLaunchCommand({
     cwd: input.projectPath,
@@ -227,7 +255,9 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     ownerToken,
     driver,
     maxDepth,
-    depth: nesting.depth,
+    depth,
+    treeId,
+    callerId,
     tmpDir: defaultRuntimeLayout.tmpDir,
     launchCmd,
     fileHandoff,
@@ -244,8 +274,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
 // is bounded in width as well as depth so a legal depth cannot fan out forever.
 function assertParentMayLaunch(db: StateDB, parentId: string, rootSessionId: string | null): void {
   const parent = db.getSession(parentId);
-  if (!parent) return;
-  if (parent.role === "reviewer") {
+  if (parent?.role === "reviewer") {
     throw new Error(`Session ${parentId} is a reviewer and may not launch helpers; review hands are read-only.`);
   }
   if (!rootSessionId) return;
@@ -257,6 +286,34 @@ function assertParentMayLaunch(db: StateDB, parentId: string, rootSessionId: str
       `Max active helpers per tree exceeded (${active.length}/${maxActive} under ${rootSessionId}). Wait for or kill one of: ${ids}`,
     );
   }
+}
+
+// The environment identifies the actual caller; --parent only selects lineage.
+// Reparenting inside the same tree cannot reduce the caller's nesting depth.
+function assertCallerMayLaunch(db: StateDB, callerId: string | undefined, treeId: string, depth: number): number {
+  if (!callerId) return depth;
+  const caller = db.getSession(callerId);
+  if (!caller) throw new Error(`Launching helper disappeared: ${callerId}`);
+  if (caller.role === "reviewer") {
+    throw new Error(`Session ${callerId} is a reviewer and may not launch helpers; review hands are read-only.`);
+  }
+  if (getSessionTreeId(db, callerId) !== treeId) {
+    throw new Error(`--parent may not move helper ${callerId} outside its own tree`);
+  }
+  return Math.max(depth, caller.depth + 1);
+}
+
+// No await inside this write transaction: checks and the counted row are one
+// operation across CLI processes, before any external launch resource exists.
+function reserveSession(db: StateDB, input: CreateSessionInput, callerId: string | undefined, maxDepth: number, treeId?: string): void {
+  db.immediateTransaction(() => {
+    const nesting = getPendingLaunchNestingInfo(db, input.parentId);
+    const rootId = treeId ?? nesting.rootSessionId ?? input.id;
+    const depth = assertCallerMayLaunch(db, callerId, rootId, Math.max(input.depth ?? 1, nesting.depth));
+    if (depth > maxDepth) throw new Error(`Max nesting depth exceeded (${depth}/${maxDepth}).`);
+    assertParentMayLaunch(db, input.parentId, rootId);
+    db.createSession({ ...input, depth, launchPid: process.pid });
+  });
 }
 
 export async function createWorktree(source: string, path: string, sessionId: string): Promise<void> {
@@ -292,8 +349,6 @@ const driverRuntime: DriverRuntime = {
 };
 
 export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
-  if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
-
   let tmuxCreated = false;
   let handoffOwned = false;
   let dbCreated = false;
@@ -304,6 +359,25 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     if (plan.input.db.getSession(plan.sessionId)) {
       throw new Error(`Session ID already exists: ${plan.sessionId}`);
     }
+    reserveSession(plan.input.db, {
+      id: plan.sessionId,
+      parentId: plan.input.parentId,
+      agentType: plan.input.agentType,
+      task: plan.input.task,
+      ownerToken: plan.ownerToken,
+      projectPath: plan.input.projectPath,
+      label: plan.input.label,
+      depth: plan.depth,
+      model: plan.input.model,
+      effort: plan.input.effort,
+      role: plan.input.role,
+      safe: plan.input.safe,
+      checkCmd: plan.input.check,
+      afterId: plan.input.after,
+      jobId: plan.jobId,
+    }, plan.callerId, plan.maxDepth, plan.treeId);
+    dbCreated = true;
+    if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
     assertFileHandoffAvailable(plan.fileHandoff);
     if (plan.worktreeSource) {
       await createWorktree(plan.worktreeSource, plan.input.projectPath, plan.sessionId);
@@ -356,35 +430,12 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       }
     }
 
-    plan.input.db.createSession({
-      id: plan.sessionId,
-      parentId: plan.input.parentId,
-      agentType: plan.input.agentType,
-      task: plan.input.task,
-      ownerToken: plan.ownerToken,
-      projectPath: plan.input.projectPath,
-      label: plan.input.label,
-      depth: plan.depth,
-      model: plan.input.model,
-      effort: plan.input.effort,
-      role: plan.input.role,
-      safe: plan.input.safe,
-      checkCmd: plan.input.check,
-      baseCommit,
-      afterId: plan.input.after,
-      jobId: plan.jobId,
-    });
-    dbCreated = true;
     if (initialResumeId) {
       plan.input.db.updateResumeId(plan.sessionId, initialResumeId);
     }
-    if (submissionUnconfirmed) {
-      // Keep the tmux alive without daemon settlement; the host decides.
-      plan.input.db.updateStatus(plan.sessionId, SESSION_STATUS.NeedsAttention);
-    }
-
     await defaultWakeup.prepare(plan.sessionId);
     wakeupOwned = true;
+    plan.input.db.completeLaunch(plan.sessionId, baseCommit, submissionUnconfirmed ? SESSION_STATUS.NeedsAttention : undefined);
 
     if (!daemon.isDaemonRunning()) {
       daemon.startDaemon();
@@ -485,23 +536,16 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     model: oldSession.model ?? undefined,
     effort: oldSession.effort ?? undefined,
   });
-  const launchCmd = `${helperEnvironmentPrefix(sessionId, maxDepth, oldSession.jobId ?? null)} ${resumeCmd}`;
+  const launchCmd = `${helperEnvironmentPrefix(sessionId, maxDepth, validateJobId(oldSession.jobId ?? null))} ${resumeCmd}`;
 
-  if (!existsSync(defaultRuntimeLayout.tmpDir)) {
-    mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
-  }
+  const callerId = process.env.AHELPA_PARENT_ID && input.db.getSession(process.env.AHELPA_PARENT_ID)
+    ? process.env.AHELPA_PARENT_ID : undefined;
 
   let tmuxCreated = false;
   let dbCreated = false;
   let wakeupOwned = false;
   try {
-    await Tmux.create(sessionId, launchCmd);
-    tmuxCreated = true;
-    // Do not hand the new tmux session back until the driver's startup/trust
-    // flow has had a chance to reach an input prompt. Otherwise an immediate
-    // `send` can be typed into a loading or confirmation screen.
-    await driver.prepareForResume(sessionId, driverRuntime);
-    input.db.createSession({
+    reserveSession(input.db, {
       id: sessionId,
       parentId: oldSession.parentId,
       agentType: oldSession.agentType,
@@ -518,16 +562,21 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       checkCmd: oldSession.checkCmd,
       baseCommit: oldSession.baseCommit,
       afterId: oldSession.afterId,
-      jobId: oldSession.jobId,
-    });
+      jobId: validateJobId(oldSession.jobId ?? null),
+    }, callerId, maxDepth, getSessionTreeId(input.db, oldSession.id));
     dbCreated = true;
+    if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+    await Tmux.create(sessionId, launchCmd);
+    tmuxCreated = true;
+    // Do not hand the new tmux session back until the driver's startup/trust
+    // flow has had a chance to reach an input prompt. Otherwise an immediate
+    // `send` can be typed into a loading or confirmation screen.
+    await driver.prepareForResume(sessionId, driverRuntime);
     input.db.updateResumeId(sessionId, oldSession.agentResumeId);
-    // A resumed native conversation has no new ahelpa task yet. Keep its tmux
-    // alive without daemon settlement until the host sends the next turn.
-    input.db.updateStatus(sessionId, SESSION_STATUS.NeedsAttention);
-
     await defaultWakeup.prepare(sessionId);
     wakeupOwned = true;
+    // No new task yet: the host decides when the resumed hand starts a turn.
+    input.db.completeLaunch(sessionId, undefined, SESSION_STATUS.NeedsAttention);
 
     if (!daemon.isDaemonRunning()) {
       daemon.startDaemon();

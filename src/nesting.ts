@@ -33,15 +33,51 @@ function buildSessionLineage(db: StateDB, sessionId: string): string[] {
   return lineage.reverse();
 }
 
+// A native resume belongs to the original tree even when it resumes a root.
+// clean retains both parent and resume ancestry while active descendants exist.
+export function getSessionTreeId(db: StateDB, sessionId: string): string {
+  const seen = new Set<string>();
+  let currentId = sessionId;
+  while (true) {
+    if (seen.has(currentId)) throw new Error(`Cyclic session lineage detected at ${currentId}`);
+    seen.add(currentId);
+    const session = db.getSession(currentId);
+    if (!session) return currentId;
+    const ancestor = session.resumedFrom && db.getSession(session.resumedFrom)
+      ? session.resumedFrom : session.parentId;
+    if (!db.getSession(ancestor)) return currentId;
+    currentId = ancestor;
+  }
+}
+
+// Retain the whole parent chain for future tree traversal, plus native resume
+// ancestry so a resumed root continues to share its original tree's quota.
+export function activeSessionAncestorIds(db: StateDB): Set<string> {
+  const records = new Map(db.listSessions().map((session) => [session.id, session]));
+  const retained = new Set<string>();
+  const pending = db.listActiveSessions().map((session) => session.id);
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (retained.has(id)) continue;
+    retained.add(id);
+    const session = records.get(id);
+    if (!session) continue;
+    for (const ancestor of [session.parentId, session.resumedFrom]) {
+      if (ancestor && records.has(ancestor)) pending.push(ancestor);
+    }
+  }
+  return retained;
+}
+
 export function getSessionNestingInfo(db: StateDB, sessionId: string): NestingInfo {
   const session = db.getSession(sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
 
   const lineage = buildSessionLineage(db, sessionId);
   return {
-    depth: lineage.length,
+    depth: Math.max(session.depth, lineage.length),
     parentSessionId: lineage.length > 1 ? lineage[lineage.length - 2] : null,
-    rootSessionId: lineage[0] || null,
+    rootSessionId: getSessionTreeId(db, sessionId),
     lineage,
   };
 }
@@ -61,17 +97,17 @@ export function getPendingLaunchNestingInfo(db: StateDB, parentId: string): Nest
   return {
     depth: parentSession.depth + 1,
     parentSessionId: parentId,
-    rootSessionId: lineage[0] || parentId,
+    rootSessionId: getSessionTreeId(db, parentId),
     lineage,
   };
 }
 
-// Every active session whose lineage starts at rootId, the root included.
-// Launches from the host itself have no root session and are not counted:
-// the host answers to a human, a helper's tree answers to this limit.
+// Count the root and all active descendants, including resumed hands. Each
+// direct host launch starts its own tree rather than sharing a host-wide quota.
 export function listActiveSessionsInTree(db: StateDB, rootId: string): SessionRecord[] {
+  const treeId = getSessionTreeId(db, rootId);
   return db.listActiveSessions().filter((session) => {
-    try { return buildSessionLineage(db, session.id)[0] === rootId; } catch { return false; }
+    try { return getSessionTreeId(db, session.id) === treeId; } catch { return false; }
   });
 }
 
