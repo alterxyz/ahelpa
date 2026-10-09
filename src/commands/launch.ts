@@ -14,6 +14,7 @@ import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
 import { resolveLaunchProfile } from "../launch-profiles";
+import { computeTargetFingerprint } from "../evidence";
 
 export interface LaunchInput {
   db: StateDB;
@@ -28,8 +29,9 @@ export interface LaunchInput {
   role?: HelperRole;
   // Acceptance command rerun by `wait` on the helper's final state.
   check?: string;
-  // Session this hand follows; its task and summary paths go into the task file.
+  // Session this hand follows; reviewers receive its ask without its claims.
   after?: string;
+  unblind?: boolean;
   // Run in a fresh git worktree beside the project so one worktree has one writer.
   worktree?: boolean;
   // The task text came from --file, so a temp path inside it is content, not a pointer.
@@ -106,7 +108,13 @@ function previousHandContext(db: StateDB, afterId: string): NonNullable<HandoffC
     throw new Error(`--after session ${afterId} stores a relative project path; its result files cannot be located from another directory`);
   }
   const plan = planFileHandoff(previous.projectPath, previous.id);
-  return { sessionId: previous.id, taskCopyPath: plan.taskCopyPath, summaryPath: plan.summaryPath, artifactsDir: plan.artifactsDir };
+  return {
+    sessionId: previous.id,
+    taskCopyPath: plan.taskCopyPath,
+    summaryPath: plan.summaryPath,
+    artifactsDir: plan.artifactsDir,
+    ...(previous.baseCommit ? { baseCommit: previous.baseCommit } : {}),
+  };
 }
 
 function generateAvailableSessionId(db: StateDB, prefix: string): string {
@@ -202,6 +210,7 @@ function resolveProjectPath(projectPath: string): string {
 }
 
 export function planLaunch(input: LaunchInput): LaunchPlan {
+  if (input.unblind && input.role !== "reviewer") throw new Error("--unblind requires --role reviewer");
   const driver = getDriver(input.agentType);
   // Resolve once in the caller's working directory. The helper changes cwd,
   // and a later resume may be invoked from an entirely different directory.
@@ -222,6 +231,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     role: input.role,
     check: input.check,
     previous: input.after ? previousHandContext(input.db, input.after) : null,
+    ...(input.unblind ? { unblind: true } : {}),
   };
   const jobId = resolveJobId(input.db, input.job, input.after);
   let worktreeSource: string | undefined;
@@ -394,6 +404,8 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       checkCmd: plan.input.check,
       afterId: plan.input.after,
       jobId: plan.jobId,
+      targetResultDirs: plan.input.role === "reviewer" || plan.input.after ? [plan.fileHandoff.sessionDeliveryDir] : null,
+      unblind: plan.input.unblind,
     }, plan.callerId, plan.maxDepth);
     dbCreated = true;
     if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
@@ -402,7 +414,16 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       await createWorktree(plan.worktreeSource, plan.input.projectPath, plan.sessionId);
       worktreeCreated = true;
     }
-    const baseCommit = await currentCommit(plan.input.projectPath);
+    const baseCommit = (plan.input.role === "reviewer" ? plan.handoffContext.previous?.baseCommit : null)
+      ?? await currentCommit(plan.input.projectPath);
+    if (plan.input.role === "reviewer" && plan.handoffContext.previous) {
+      plan.handoffContext.previous.baseCommit = baseCommit;
+    }
+    const targetResultDirs = [plan.fileHandoff.sessionDeliveryDir];
+    const targetFingerprint = plan.input.role === "reviewer" || plan.input.after
+      ? await computeTargetFingerprint(plan.input.projectPath, targetResultDirs)
+      : null;
+    plan.handoffContext.targetFingerprint = targetFingerprint;
     await Tmux.create(plan.sessionId, plan.launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(plan.input.db, plan.sessionId);
@@ -455,7 +476,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }
     await defaultWakeup.prepare(plan.sessionId);
     wakeupOwned = true;
-    if (!plan.input.db.completeLaunch(plan.sessionId, process.pid, baseCommit, submissionUnconfirmed ? SESSION_STATUS.NeedsAttention : undefined)) {
+    if (!plan.input.db.completeLaunch(plan.sessionId, process.pid, baseCommit, submissionUnconfirmed ? SESSION_STATUS.NeedsAttention : undefined, targetFingerprint)) {
       throw new Error(`Launch cancelled: reservation ${plan.sessionId} is no longer owned by this launcher`);
     }
 
@@ -585,6 +606,11 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       baseCommit: oldSession.baseCommit,
       afterId: oldSession.afterId,
       jobId: validateJobId(oldSession.jobId ?? null),
+      targetFingerprint: oldSession.targetFingerprint,
+      targetResultDirs: oldSession.targetFingerprint
+        ? [...(oldSession.targetResultDirs ?? [planFileHandoff(projectPath, oldSession.id).sessionDeliveryDir]), planFileHandoff(projectPath, sessionId).sessionDeliveryDir]
+        : null,
+      unblind: oldSession.unblind,
     }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
