@@ -1,6 +1,7 @@
 // Operations on an existing session: everything a caller can do to a helper
 // after launch, except waiting (wait.ts owns the wakeup protocol). The
-// token-gated ops all share the same access rule: only the owner may act.
+// token-gated ops authorize the exact target. kill --tree alone extends abort
+// authority to descendants; it grants no other control over those sessions.
 
 import { StateDB, type SessionRecord } from "../state";
 import { Tmux } from "../tmux";
@@ -8,7 +9,7 @@ import { Archive } from "../archive";
 import { defaultWakeup, Wakeup } from "../wakeup";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { requireAuthorizedSession } from "../session-access";
-import { activeSessionAncestorIds, getSessionNestingInfo } from "../nesting";
+import { activeSessionAncestorIds, getSessionNestingInfo, listActiveDescendants } from "../nesting";
 import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff } from "../file-handoff";
 import { getDriver } from "../drivers/registry";
@@ -123,7 +124,7 @@ export const switchModel = withAuth(async ({ db, session }, opts: ModelSwitchOpt
   return result;
 });
 
-export const kill = withAuth(async ({ db, session }) => {
+async function stopSession(db: StateDB, session: SessionRecord): Promise<void> {
   try {
     await Tmux.kill(session.id);
   } catch (error) {
@@ -132,6 +133,43 @@ export const kill = withAuth(async ({ db, session }) => {
   }
   defaultWakeup.cleanup(session.id);
   db.updateStatus(session.id, SESSION_STATUS.Dead);
+}
+
+export const MAX_TREE_KILL_PASSES = 4;
+
+export interface TreeKillResult { killed: string[]; missed: string[]; }
+
+export const kill = withAuth(async ({ db, session }, opts: { tree?: boolean } = {}): Promise<TreeKillResult | void> => {
+  if (!opts.tree) return stopSession(db, session);
+
+  const killed: string[] = [];
+  const seen = new Set<string>();
+  for (let pass = 0; pass < MAX_TREE_KILL_PASSES; pass++) {
+    const descendants = listActiveDescendants(db, session.id).filter((child) => !seen.has(child.id));
+    if (pass > 0 && descendants.length === 0) break;
+    for (const child of descendants) {
+      seen.add(child.id);
+      const current = db.getSession(child.id);
+      // A daemon may have settled this child while another kill was awaiting tmux.
+      if (!current || current.status === SESSION_STATUS.Idle
+        || current.status === SESSION_STATUS.Dead || current.status === SESSION_STATUS.Error) continue;
+      try {
+        await stopSession(db, current);
+        killed.push(child.id);
+      } catch {
+        // A failed descendant must not prevent stopping its siblings or root.
+        // The final scan reports it if it is still active; each ID is tried once.
+      }
+    }
+    if (pass === 0 && db.getSession(session.id)?.status !== SESSION_STATUS.Dead) {
+      // Keep root failures authoritative as in plain kill. A dead root still
+      // authorizes sweeping its descendants, without another terminal kill.
+      await stopSession(db, session);
+      killed.push(session.id);
+    }
+  }
+  // Also includes children first registered during the last allowed pass.
+  return { killed, missed: listActiveDescendants(db, session.id).map((child) => child.id) };
 });
 
 export const logs = withAuth(async ({ session }) => {

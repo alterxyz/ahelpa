@@ -315,6 +315,18 @@ ahelpa resume "$session_id" --token "$token"
 ahelpa kill "$session_id" --token "$token"
 ```
 
+使用指定 helper 自身的 token，终止它及其后代：
+
+```bash
+ahelpa kill "$session_id" --token "$token" --tree
+```
+
+`--tree` 在停止任何 session 之前校验指定 session 的 token，沿 SQLite `parent_id` 遍历 lineage，先按深度从深到浅停止活跃后代，再停止指定 session。它重新扫描以捕获晚注册的后代，最多执行四轮终止（`MAX_TREE_KILL_PASSES`），扫描没有发现新的活跃后代时结束。每个后代只尝试一次。JSON 输出为 `{ "killed": ["id", ...], "missed": ["id", ...] }`：`killed` 列出成功停止的 session，包括本次停止的指定 session；`missed` 列出最后一次扫描时仍活跃的后代，包括终止失败及超过轮次上限的晚注册 session。确认整棵树已停止前，请检查 `missed`。指定 session 终止失败时，命令仍按普通 `kill` 的方式报错；此前已执行的后代终止保留。
+
+已结算的后代（`idle`、`dead` 或 `error`）会被跳过，不列入 `missed`，沿用现有活跃 session 定义（`running`、`draining`、`needs_attention`）。仍会经过它们的 lineage 记录，继续清扫已结算父 session 下的活跃子 session。指定 session 已为 dead 时仍允许清扫活跃后代，但不会再次列入 `killed`。结果是有界扫描的快照；最后一次扫描后才注册的 session 需要再次执行 `kill --tree`。
+
+**终止权沿 lineage 传递，控制权不传递。** 这是唯一的 ownership 例外，不赋予对后代执行 `send`、`task`、`model`、`logs`、`capture` 或 `resume` 的权限，也不影响兄弟树。不传 `--tree` 时，`kill` 仍只停止一个 session，并输出 `killed`。不支持 `kill --job`。
+
 清理 tmux 已退出的已结算记录和孤儿运行时文件（pipe、task file）：
 
 ```bash
