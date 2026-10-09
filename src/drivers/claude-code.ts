@@ -5,9 +5,19 @@ import { detectSentinelOutcome, detectSentinelStatus } from "./sentinels";
 import { findModelChoice, findSelectedChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
 
 function claudeNeedsSubmitNudge(captureOutput: string): boolean {
-  return isTaskInstructionEcho(captureOutput)
-    && /\b0 tokens\b/.test(captureOutput)
-    && !captureOutput.includes("⏺");
+  if (claudeNeedsFolderTrust(captureOutput)) return false;
+  const composer = userTurnMatches(captureOutput).at(-1);
+  if (composer?.index === undefined) return false;
+  const current = captureOutput.slice(composer.index);
+  // A later indented cursor belongs to a menu, not the column-0 composer.
+  const cursors = [...current.matchAll(/^[^\S\r\n]*❯(?:[^\S\r\n]+.*)?$/gmu)];
+  if (cursors.at(-1)?.index !== 0) return false;
+  // Only the composer row and its indented continuations can hold the draft;
+  // an instruction echoed in scrollback or a reply is not pending input.
+  const draft = current.match(/^❯[^\r\n]*(?:\r?\n[^\S\r\n]+[^\r\n]*)*/u)?.[0] ?? "";
+  return isTaskInstructionEcho(draft)
+    && !claudeIsWorking(current)
+    && detectSentinelStatus(current) === "running";
 }
 
 function claudeIsWorking(captureOutput: string): boolean {

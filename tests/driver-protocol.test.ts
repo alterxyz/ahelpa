@@ -49,6 +49,51 @@ function probeRuntime(outputs: string[]): ProbeRuntime {
 const claudeTrustFixtures: Record<string, string> = JSON.parse(
   readFileSync(new URL("./fixtures/claude-trust.json", import.meta.url), "utf8"),
 );
+const claudeSubmitFixtures: Record<string, string> = JSON.parse(
+  readFileSync(new URL("./fixtures/claude-submit.json", import.meta.url), "utf8"),
+);
+
+describe("claude-code queued-task submit nudge", () => {
+  test.each(["queued-ctx-only", "queued-no-footer", "queued-zero-tokens", "queued-after-old-reply"])(
+    "%s sends one Enter and waits for submission evidence",
+    async (name) => {
+      const queued = claudeSubmitFixtures[name];
+      const beforeOutput = name === "queued-after-old-reply"
+        ? `${queued.slice(0, queued.indexOf("────────────────"))}❯`
+        : "❯\n  0% ctx";
+      const runtime = probeRuntime([queued, queued, `${queued}\n✢ Working…`]);
+      expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, { beforeOutput })).toBe(true);
+      expect(runtime.sent).toEqual([""]);
+      expect(runtime.keys).toEqual([]);
+      expect(runtime.captures).toHaveLength(3);
+    },
+  );
+
+  test.each([
+    "submitted-working", "submitted-answered", "submitted-answered-header-scrolled-out",
+    "submitted-done-no-bullet", "submitted-need-help-no-bullet",
+    "submitted-empty-composer", "submitted-placeholder-composer", "indented-task-echo", "echo-in-reply",
+    "permission-menu", "permission-menu-column-zero", "question-menu",
+  ])("%s never sends Enter, with or without a pre-submit snapshot", async (name) => {
+    for (const context of [undefined, { beforeOutput: "❯" }]) {
+      const runtime = probeRuntime([claudeSubmitFixtures[name]]);
+      await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, context);
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+    }
+  });
+
+  test.each(["wide-with-source-padding", "backstop-yes-selected", "option-wrap-24-yes-selected"])(
+    "%s never receives a submit nudge even with a preceding task echo and zero-token footer",
+    async (name) => {
+      const screen = `${claudeSubmitFixtures["queued-zero-tokens"]}\n${claudeTrustFixtures[name]}`;
+      const runtime = probeRuntime([screen]);
+      expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime)).toBe(false);
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+    },
+  );
+});
 
 describe("claude-code adversarial readiness and turn isolation", () => {
   describe.each([
@@ -428,8 +473,8 @@ describe("driver launch protocol", () => {
     const driver = getDriver("claude-code");
     const runtime = probeRuntime([
       [
-        "Please read and complete the task described in /tmp/ahelpa-task-placeholder.md.",
-        "When you are finished, output [AHELPA:DONE] on its own line.",
+        "❯ Please read and complete the task described in /tmp/ahelpa-task-placeholder.md.",
+        "  When you are finished, output [AHELPA:DONE] on its own line.",
         "",
         "0 tokens",
       ].join("\n"),
