@@ -8,6 +8,7 @@ import type {
   TaskSubmissionContext,
 } from "./types";
 import { shellEscape } from "../shell";
+import { checkKimiReadiness } from "./kimi-readiness";
 import { detectSentinelStatus, maskSentinels, scanSentinels } from "./sentinels";
 
 const KIMI_BOXED_PROMPT = /^[^\S\r\n]*│\s*>\s*│\s*$/gmu;
@@ -248,6 +249,7 @@ async function waitForKimiInput(sessionId: string, runtime: DriverRuntime): Prom
 }
 
 export const kimiDriver: AgentDriver = {
+  checkReadiness: checkKimiReadiness,
   name: "kimi",
   sessionPrefix: "kimi",
   resumeTokenAvailableAfterSubmit: true,

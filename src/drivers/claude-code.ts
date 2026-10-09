@@ -3,6 +3,7 @@ import { TASK_INSTRUCTION_PREFIX } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelOutcome, detectSentinelStatus } from "./sentinels";
 import { findModelChoice, findSelectedChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
+import { checkClaudeReadiness } from "./claude-readiness";
 
 function claudeNeedsSubmitNudge(captureOutput: string): boolean {
   if (claudeNeedsFolderTrust(captureOutput)) return false;
@@ -214,6 +215,7 @@ function freshModelConfirmation(output: string, target: string, baseline: string
 }
 
 export const claudeCodeDriver: AgentDriver = {
+  checkReadiness: checkClaudeReadiness,
   name: "claude-code",
   sessionPrefix: "claude",
   launchProfiles: {
