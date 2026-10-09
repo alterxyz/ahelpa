@@ -30,15 +30,25 @@ Hook 对日志文件提供 symlink 和 hardlink 防护，但不能防止已拥�
 
 ## Owner token 边界
 
-`launch` 返回的 owner token gate 所有写操作：
+`launch` 返回的 owner token gate session 控制和终端访问：
 
 | 需要 token | 不需要 token |
 | --- | --- |
-| `send`、`task`、`model`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean` |
+| `send`、`task`、`model`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean`、`mail`、`inbox` |
 
-只读状态视图不会暴露 owner token。这意味着任何 agent 都可以观察 session 状态，但交互需要该 session 自身的 token。终止操作有下述 lineage 例外。
+只读状态视图不会暴露 owner token。任何 agent 都可以观察 session 状态及其 `child`/`job peer`/`other` 关系；session 控制仍需要 owner token。Peer mail 是独立的有界文件通道，不授予终端访问或控制权。终止操作有下述 lineage 例外。
 
 Ownership 不传递。如果 agent A 启动 helper B，helper B 又启动 helper C，那么 A 不能控制 C；只有 B 可以。唯一例外是 **终止权沿 lineage 传递，控制权不传递**：`kill B --token <B-token> --tree` 可以停止 B 及其后代，包括 C。它在任何终止动作之前校验 B 的 token；错误 token 不会停止任何 session。A 仍不能用 B 的 token 对 C 执行 `send`、`task`、`model`、`logs`、`capture` 或 `resume`。普通 `kill` 仍只影响指定 session，`--tree` 不赋予对兄弟树的权限。
+
+## Peer mail 边界
+
+Peer mail 有四个边界：同一非空已保存 job、请求而非指令、reviewer 不能作为收发双方、每 session 的投递预算。`mail` 和 `inbox` 只认 `AHELPA_PARENT_ID` 对应的现存 SQLite session；host shell 的 mail 会被拒绝，`AHELPA_JOB_ID` 不能改变该 session 的 job。Host 继续使用带 token 的 `send`/`task`。收发双方都必须处于 `running`；发送方发信号后或收件方结算后拒绝 mail。
+
+Peer 可以询问、告知或提示，不能重新分配任务、修改验收命令或要求收件方停止。权限仍来自 host 的任务文件。只在该任务范围内行动，否则将消息记在 `summary.md` 的 "Peer messages" 下。Reviewer 不能发送或接收，任务合同也不含 peer-mail 段落，使其不接触作者的推理。
+
+`AHELPA_MAIL_BUDGET` 必须为正整数，默认 8。每个收件人的投递占一个名额，广播和回复也计数。SQLite 保存每 session 的计数，切换项目不会重置。消息原子落入收件方项目的 inbox，元数据 `{ts, from, to, seq, bytes}` 记在 `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl`。`wait` 展示 `evidence.peerMail` 计数；`inbox --read <seq>` 标记已读，不改变计数。没有终端注入或 inbox nudge；helper 按合同在验证前、发信号前检查。
+
+这些边界适用于通过 ahelpa 协作的 agent。与 nesting limit 一样，它们不约束本地用户的完整文件系统权限。Inbox 正文和 ledger 都是 `.ahelpa/` 下的本地产物；消息中不放 secret，不发布这些文件。
 
 ## Nesting limit
 

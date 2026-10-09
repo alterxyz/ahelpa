@@ -72,9 +72,22 @@ idle/dead + 原生 resume token ── resume ─► needs_attention ── send
 | --- | --- |
 | Host → helper | `/tmp/ahelpa/ahelpa-task-<id>.md` 任务文件 |
 | Helper → host | `<project>/.ahelpa/<id>/summary.md` 和 `artifacts/` |
+| Helper → job peer | `<recipient-project>/.ahelpa/<to-id>/inbox/<seq>-from-<from-id>.md` |
 | 完成信号 | stdout 中的暗号行：`[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP]` |
 
 发送给 helper 的任务指令包含读取任务和写入结果的精确路径。该指令由 `src/file-handoff.ts` 生成，并在所有 driver 间保持一致。
+
+## Peer mail
+
+`mail` 按 `AHELPA_PARENT_ID` 对应的现存 SQLite session 识别发送方，不使用 `AHELPA_JOB_ID` 或 owner token。收发双方必须是同一非空已保存 job 内的 running 非 reviewer。`--peers` 选择该 job 内其他活跃非 reviewer。Host mail、已结算发送方和已结算收件方都会被拒绝。`inbox` 列出调用 session 的全部消息及已读状态；`--read <seq>` 显示一条并标记已读。
+
+投递先写临时文件，再 rename 到收件方自己项目的结果目录。序号按收件人递增。每次投递向 `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` 追加 `{ts, from, to, seq, bytes}`；跨 worktree 的 job 因此在各发送方项目内保存 ledger。预算按 session 保存在 SQLite 中，默认 8，可用正整数 `AHELPA_MAIL_BUDGET` 覆盖。广播按每个收件人占一个名额，切换项目或 ledger 位置不会重置预算。有通信时，`wait` evidence 包含 `peerMail: { sent, received }`，不受已读状态影响。
+
+非 reviewer 的 job 任务文件给出 job ID、发现同伴用的 `check --job <id>`、mail/inbox 命令，以及验证前和发信号前的 inbox 检查点。Peer 消息可以询问、告知或提示，但不能重新分配工作、改变验收要求或让收件方停止；超出任务范围的消息记在 `summary.md` 的 "Peer messages" 下。Reviewer 不接收 peer-mail 合同段落，也不能发送或接收。没有终端注入、inbox nudge、自动回复、共享 transcript 或 peer `NEED_HELP` 通道。
+
+`status` 和 `check` 按与调用方的关系分类：先是直接 `child`，再是与实际 helper 调用方保存的 job 相同的其他 session（`job peer`），其余为 `other`。Host 依据 CLI 已解析的调用方 ID 显示 `child`/`other`。这些只是观察信息，不增加控制权限。
+
+Ledger 目录名沿用现有的文件名安全 job ID 约定。发送方记录被清理后，SQLite 仍保留 peer-mail 元数据（序号、已读状态和计数）；session 的 `mail_sent` 计数器负责限制发送预算。
 
 ## 唤醒协议
 
@@ -176,6 +189,7 @@ Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`�
 | `commands/launch.ts` | Launch orchestration：plan + execute |
 | `commands/wait.ts` | Wait orchestration：FIFO block、timeout、multi-session |
 | `commands/session-ops.ts` | 已有 session 的操作 |
+| `commands/peer-mail.ts` | 有界 peer 投递、inbox 列表和已读标记 |
 | `daemon.ts` | 后台 monitor：poll loop、inline refresh、进程管理 |
 | `settle.ts` | 原子 settlement：更新 DB、archive、notify、cleanup |
 | `session-lifecycle.ts` | 状态 enum 和 capture-to-status 映射 |

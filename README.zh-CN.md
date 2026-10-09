@@ -108,17 +108,19 @@ Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `
 | --- | --- |
 | `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex` 或 `kimi`）；`--after` 串联前后手，显式 `--role reviewer` 增加盲审和目标证据 |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
-| `check [--parent <id>] [--job <id>]` | 非阻塞状态查询，并做 inline refresh |
+| `check [--parent <id>] [--job <id>]` | 非阻塞状态查询，做 inline refresh 并显示与调用方的关系 |
 | `models [agent]` | 列出启动时可选的模型 |
 | `doctor [agent] [--project <path>]` | 以 JSON 检查本地就绪状态，不调用模型、不写运行状态 |
 | `send <id> "msg" --token <tok>` | 给运行中的 helper 发送短消息 |
+| `mail (<to-id> \| --peers) (--file <path> \| --text "...")` | 在调用 helper 的 job 内投递有界 peer mail |
+| `inbox [--read <seq>]` | 列出调用 helper 的消息及已读状态，或读取并标记一条 |
 | `capture <id> --token <tok>` | 截取终端输出，仅用于调试 |
 | `task <id> --file <path> --token <tok>` | 发送长任务文件 |
 | `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | 切换运行中 helper 的模型 |
 | `kill <id> --token <tok> [--tree]` | 终止 helper；`--tree` 同时停止后代并报告 `killed` / `missed` |
 | `logs <id> --token <tok>` | 读取 live 或 archived session output |
 | `resume <id> --token <tok> [--safe]` | 恢复已完成的 helper；已有 safe 姿态会自动继承 |
-| `status` | 显示所有 session 和 daemon 状态 |
+| `status` | 显示所有 session、与调用方的关系和 daemon 状态 |
 | `clean` | 清理终端已退出的已结算记录和孤儿运行时文件 |
 | `daemon start\|stop` | 管理后台 session monitor |
 | `install-skill [--source <repo-or-path>]` | 为 Codex、Claude Code 和 Kimi Code CLI target 全局 hard-copy 安装 skill |
@@ -140,6 +142,8 @@ Helper 终端回收后，已完成会话仍保留状态、日志和恢复信息�
 | `/tmp/ahelpa/ahelpa-task-<id>.md` | 任务文件 |
 | `<project>/.ahelpa/<id>/summary.md` | helper 写入的总结 |
 | `<project>/.ahelpa/<id>/artifacts/` | helper 写入的支撑文件 |
+| `<recipient-project>/.ahelpa/<id>/inbox/` | Peer 消息文件 |
+| `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` | Peer 投递 ledger |
 
 隔离测试或自动化可以通过 `AHELPA_HOME` 覆盖状态/archive 目录，通过 `AHELPA_TMP_DIR` 覆盖 FIFO/任务文件目录。这两个 override 会传入 helper 的 tmux session，使嵌套 ahelpa 调用也保持隔离；它们不会改变 helper CLI 的 OS home 或凭据目录。
 

@@ -78,9 +78,22 @@ Terminal capture is available for debugging, but files are the durable protocol:
 | --- | --- |
 | Host → helper | Task file at `/tmp/ahelpa/ahelpa-task-<id>.md` |
 | Helper → host | `<project>/.ahelpa/<id>/summary.md` + `artifacts/` |
+| Helper → job peer | `<recipient-project>/.ahelpa/<to-id>/inbox/<seq>-from-<from-id>.md` |
 | Completion signal | Sentinel line (`[AHELPA:DONE]` or `[AHELPA:NEED_HELP]`) printed to stdout |
 
 The task instruction sent to each helper includes the exact paths for reading the task and writing results. This instruction is built by `src/file-handoff.ts` and is the same across all drivers.
+
+## Peer Mail
+
+`mail` resolves the sender from `AHELPA_PARENT_ID` naming an existing SQLite session, not from `AHELPA_JOB_ID` or an owner token. Sender and recipients must be running non-reviewers in the same nonempty stored job. `--peers` selects the other active non-reviewers in that job. Host mail, settled senders, and settled recipients are refused. `inbox` lists all messages for its calling session with read state; `--read <seq>` displays one and marks it read.
+
+Delivery uses a temporary file and rename into the recipient's own project result directory. Sequence numbers increase per recipient. Each delivery appends `{ts, from, to, seq, bytes}` to `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl`; a job spanning worktrees therefore has ledgers in its senders' projects. The budget is per session in SQLite, default 8 with a positive-integer `AHELPA_MAIL_BUDGET` override. A broadcast consumes one slot per recipient, so switching projects or ledger locations cannot reset the budget. `wait` evidence includes `peerMail: { sent, received }` when there is traffic, independent of read state.
+
+Non-reviewer job task files give the job ID, `check --job <id>` for discovery, mail/inbox commands, and inbox checkpoints before verification and signalling. A peer message may ask, inform, or flag but cannot reassign work, change acceptance, or tell the receiver to stop; out-of-scope messages go under "Peer messages" in `summary.md`. Reviewers receive no peer-mail paragraph and cannot send or receive. There is no terminal injection, inbox nudge, automatic reply, shared transcript, or peer `NEED_HELP` channel.
+
+`status` and `check` classify sessions relative to the caller: direct `child` first, then `job peer` for another session sharing the actual helper caller's stored job, otherwise `other`. Hosts use the CLI's resolved caller ID for `child`/`other`. This is observation, not additional control authority.
+
+Ledger directory names use the existing filename-safe job ID convention. SQLite retains peer-mail metadata (sequence, read state, and counts) across sender record cleanup, while the session's `mail_sent` counter governs its send budget.
 
 ## Wakeup Protocol
 
@@ -182,6 +195,7 @@ The retained SQLite record supplies ownership checks and resume settings. Runnin
 | `commands/launch.ts` | Launch orchestration: plan + execute |
 | `commands/wait.ts` | Wait orchestration: FIFO blocking + timeout + multi-session |
 | `commands/session-ops.ts` | Operations on existing sessions |
+| `commands/peer-mail.ts` | Bounded peer delivery, inbox listing, and read marking |
 | `daemon.ts` | Background monitor: poll loop, inline refresh, process management |
 | `settle.ts` | Atomic settlement: update DB + archive + notify + cleanup |
 | `session-lifecycle.ts` | Status enum and capture-to-status mapping |
