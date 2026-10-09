@@ -89,7 +89,7 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   }
   const content = readTaskFile(filePath);
   const fileHandoff = planFileHandoff(session.projectPath, session.id);
-  prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd });
+  prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd, targetFingerprint: session.targetFingerprint });
   const submissionContext = canResumeMonitoring(session)
     ? await captureSubmissionContext(session.id)
     : {};

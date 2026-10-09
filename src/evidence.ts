@@ -1,6 +1,7 @@
 import { $ } from "bun";
-import { mkdirSync, statSync, writeFileSync } from "fs";
-import { dirname } from "path";
+import { mkdirSync, realpathSync, statSync, writeFileSync } from "fs";
+import { dirname, relative, resolve, sep } from "path";
+import { createHash } from "crypto";
 import { planFileHandoff } from "./file-handoff";
 
 // Objective facts a host can hold against summary.md. Archived sessions
@@ -15,6 +16,14 @@ export interface Evidence {
   changedFiles?: string[];
   testFilesChanged?: string[];
   check?: CheckResult;
+  targetChanged?: boolean;
+  targetFingerprint?: TargetFingerprint;
+  currentFingerprint?: TargetFingerprint;
+}
+
+export interface TargetFingerprint {
+  head: string;
+  treeHash: string;
 }
 
 export interface CheckResult {
@@ -32,6 +41,8 @@ export interface EvidenceSubject {
   projectPath: string;
   baseCommit?: string | null;
   checkCmd?: string | null;
+  targetFingerprint?: TargetFingerprint | null;
+  targetResultDirs?: string[] | null;
 }
 
 export type CheckRunner = (cwd: string, command: string, logPath: string, timeoutMs: number) => Promise<CheckResult>;
@@ -51,6 +62,37 @@ const CHECK_OUTPUT_TAIL = 4000;
 // After the process group is dead, how long to keep reading pipes that an
 // escaped grandchild may still hold open.
 const READ_GRACE_MS = 2000;
+
+// Hash raw NUL-separated status and tracked patches, including staged content.
+// Only this review's delivery directories are excluded: ignoring all .ahelpa
+// would hide another hand's edits. Literal top-level pathspecs also work when
+// --project is a subdirectory or a session directory contains glob characters.
+export async function computeTargetFingerprint(projectPath: string, resultDirs: string[] = []): Promise<TargetFingerprint | null> {
+  const root = await $`git -C ${projectPath} rev-parse --show-toplevel`.quiet().nothrow();
+  if (root.exitCode !== 0) return null;
+  const repoPath = root.text().trim();
+  // Git reports a physical root, while --project may use a symlink. The
+  // delivery directory does not exist yet at launch; anchor its relative
+  // path to the existing project's real path instead of realpath'ing it.
+  const physicalProject = realpathSync(projectPath);
+  const paths = ["."];
+  for (const dir of resultDirs) {
+    const physicalDir = resolve(physicalProject, relative(resolve(projectPath), resolve(dir)));
+    const path = relative(repoPath, physicalDir);
+    if (path && path !== ".." && !path.startsWith(`..${sep}`)) paths.push(`:(top,exclude,literal)${path}`);
+  }
+  const [head, status, unstaged, staged] = await Promise.all([
+    $`git -C ${repoPath} rev-parse HEAD`.quiet().nothrow(),
+    $`git -C ${repoPath} status --porcelain -z --untracked-files=all -- ${paths}`.quiet().nothrow(),
+    $`git -C ${repoPath} diff --no-ext-diff --no-textconv --no-color --binary -- ${paths}`.quiet().nothrow(),
+    $`git -C ${repoPath} diff --cached --no-ext-diff --no-textconv --no-color --binary -- ${paths}`.quiet().nothrow(),
+  ]);
+  if ([head, status, unstaged, staged].some((result) => result.exitCode !== 0)) return null;
+  return {
+    head: head.text().trim(),
+    treeHash: createHash("sha256").update(status.stdout).update(unstaged.stdout).update(staged.stdout).digest("hex"),
+  };
+}
 
 export async function collectEvidence(subject: EvidenceSubject, options: EvidenceOptions = {}): Promise<Evidence> {
   const { summaryPath, sessionDeliveryDir } = planFileHandoff(subject.projectPath, subject.id);
@@ -82,6 +124,15 @@ export async function collectEvidence(subject: EvidenceSubject, options: Evidenc
     evidence.check = timeoutMs > 0
       ? await (options.runCheck ?? runCheck)(subject.projectPath, subject.checkCmd, logPath, timeoutMs)
       : { command: subject.checkCmd, exitCode: null, timedOut: false, output: "", logPath, skipped: "wait budget exhausted before the check could run; re-wait to run it" };
+  }
+  // Take the final snapshot after --check, which can itself touch the tree.
+  if (subject.targetFingerprint) {
+    const current = await computeTargetFingerprint(subject.projectPath, subject.targetResultDirs ?? [sessionDeliveryDir]);
+    if (current) {
+      evidence.targetFingerprint = subject.targetFingerprint;
+      evidence.currentFingerprint = current;
+      evidence.targetChanged = current.head !== subject.targetFingerprint.head || current.treeHash !== subject.targetFingerprint.treeHash;
+    }
   }
   return evidence;
 }
