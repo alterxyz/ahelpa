@@ -27,7 +27,7 @@ JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver �
 - Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下受支持的 API key／token 认证文件结构。选中的自定义 provider 若配置 `requires_openai_auth = false`，无需 OpenAI 登录；配置了 `env_key` 时，相应环境变量必须存在。profile 选择、额外系统／项目配置层、不支持的 provider 选项、keyring／auto／ephemeral 存储，以及无法识别或读取的认证状态，在只读检查无法确认有效状态时返回 `unknown`。
 - Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。模型必须包含模型名称及正整数 `max_context_size`；provider 的 API key 与 OAuth 互斥。缺失或冲突的配置、keyring 和服务身份状态返回 `unknown`。
 
-就绪表示这些本地探测通过；不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
+`doctor` 检查本地凭据和配置的结构，不验证其完整有效性；例如，不检测 JWT claim 键的重复。`locally_ready: true` 表示未发现已知的本地启动阻塞。不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
 
 ## 启动 helper
 
