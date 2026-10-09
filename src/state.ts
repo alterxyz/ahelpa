@@ -3,7 +3,8 @@ import { unlinkSync, existsSync } from "fs";
 import { SESSION_STATUS, type SessionStatus } from "./session-lifecycle";
 import type { HelperRole } from "./drivers/types";
 import type { TargetFingerprint } from "./evidence";
-import { inputDigest } from "./turn-hooks";
+import { claudePromptInput, inputDigest } from "./turn-hooks";
+import { randomUUID } from "crypto";
 
 export interface SessionRecord {
   id: string;
@@ -39,6 +40,7 @@ export interface SessionRecord {
   turnStartedAt?: string | null;
   turnInputDigest?: string | null;
   turnInputAmbiguous?: boolean;
+  turnDeliveryPending?: boolean;
 }
 
 export interface CreateSessionInput {
@@ -97,6 +99,8 @@ interface SessionRow {
   turn_started_at: string | null;
   turn_input_digest: string | null;
   turn_input_history: string | null;
+  turn_input_ambiguous: number | null;
+  turn_delivery_token: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -131,7 +135,8 @@ function rowToRecord(row: SessionRow): SessionRecord {
     turnHookOffset: row.turn_hook_offset,
     turnStartedAt: row.turn_started_at,
     turnInputDigest: row.turn_input_digest,
-    turnInputAmbiguous: row.turn_input_digest != null
+    turnDeliveryPending: row.turn_delivery_token != null,
+    turnInputAmbiguous: row.turn_input_ambiguous === 1 || row.turn_input_digest != null
       && (JSON.parse(row.turn_input_history ?? "[]") as string[]).filter(value => value === row.turn_input_digest).length > 1,
   };
 }
@@ -219,10 +224,13 @@ export class StateDB {
         }
         // Migration: acceptance command, launch baseline, and hand lineage for evidence.
         // job_id groups the hands of one change so they can be checked and awaited together.
-        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history"]) {
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history", "turn_delivery_token"]) {
           if (!columns.some((existing) => existing.name === column)) {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
+        }
+        if (!columns.some((column) => column.name === "turn_input_ambiguous")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN turn_input_ambiguous INTEGER");
         }
         if (!columns.some((column) => column.name === "turn_hook_offset")) {
           this.db.exec("ALTER TABLE sessions ADD COLUMN turn_hook_offset INTEGER");
@@ -301,12 +309,11 @@ export class StateDB {
       .run(SESSION_STATUS.Dead, new Date().toISOString(), id);
   }
 
-  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus, expectedVersion?: number, turnStartedAt?: string | null, turnInputDigest?: string | null): boolean {
+  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus, expectedVersion?: number): boolean {
     // Increment under SQLite's write lock: processes must not read/increment/write in JS.
-    return this.db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, turn_started_at = COALESCE(?, turn_started_at), turn_input_digest = COALESCE(?, turn_input_digest),
-      turn_input_history = CASE WHEN ? IS NULL THEN turn_input_history ELSE json_insert(COALESCE(turn_input_history, '[]'), '$[#]', ?) END, version = version + 1
+    return this.db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, version = version + 1
       WHERE id = ? AND status = ? AND (? IS NULL OR version = ?)`)
-      .run(status, new Date().toISOString(), turnStartedAt ?? null, turnInputDigest ?? null, turnInputDigest ?? null, turnInputDigest ?? null, id, expected, expectedVersion ?? null, expectedVersion ?? null).changes > 0;
+      .run(status, new Date().toISOString(), id, expected, expectedVersion ?? null, expectedVersion ?? null).changes > 0;
   }
 
   updateResumeId(id: string, agentResumeId: string): void {
@@ -332,12 +339,75 @@ export class StateDB {
   }
 
   beginTurn(id: string, version: number, input: string): SessionRecord | null {
-    const digest = inputDigest(input);
-    const changed = this.db.prepare(`UPDATE sessions SET turn_started_at = ?, turn_input_digest = ?,
-      turn_input_history = json_insert(COALESCE(turn_input_history, '[]'), '$[#]', ?), version = version + 1
-      WHERE id = ? AND version = ? AND status IN (?, ?, ?)`)
-      .run(new Date().toISOString(), digest, digest, id, version, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Error).changes;
-    return changed ? this.getSession(id) : null;
+    return this.immediateTransaction(() => {
+      const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as SessionRow | null;
+      if (!row || row.version !== version || row.turn_delivery_token != null) return null;
+      const digest = inputDigest(input);
+      const candidates = [...new Set([digest, ...(row.agent_type === "claude-code" ? [inputDigest(claudePromptInput(input))] : [])])];
+      const history = JSON.parse(row.turn_input_history ?? "[]") as string[];
+      // Literal markup cannot be distinguished from the renderer's envelope.
+      // Store both aliases in history, but keep the submitted digest unstripped.
+      const ambiguous = (row.agent_type === "claude-code" && /<\/?pasted_content\b/u.test(input))
+        || candidates.some(candidate => history.includes(candidate));
+      const changed = this.db.prepare(`UPDATE sessions SET turn_started_at = ?, turn_input_digest = ?,
+        turn_input_history = ?, turn_input_ambiguous = ?, version = version + 1
+        WHERE id = ? AND version = ? AND status IN (?, ?, ?)`)
+        .run(new Date().toISOString(), digest, JSON.stringify([...history, ...candidates]), ambiguous ? 1 : 0,
+          id, version, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Error).changes;
+      return changed ? this.getSession(id) : null;
+    });
+  }
+
+  // The token is a cross-process delivery lock, independent of row changes
+  // from kill/model operations. Registration and nudge consumption commit together.
+  reserveTurnDelivery(id: string, version: number, input: string, options: { nudge?: boolean; hookOffset?: number } = {}) {
+    if (this.recoverTurnDelivery(id)) throw new Error(`Session ${id}: abandoned delivery released; retry with the current session state`);
+    return this.immediateTransaction(() => {
+      const previous = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as SessionRow | null;
+      if (previous?.turn_delivery_token != null) throw new Error(`Session ${id}: delivery already pending; retry after it finishes`);
+      if (!previous || previous.version !== version || (options.nudge && previous.nudged_at != null)) {
+        throw new Error(`Session ${id} changed before sending the new turn`);
+      }
+      const session = this.beginTurn(id, version, input);
+      if (!session) throw new Error(`Session ${id} changed before sending the new turn`);
+      const token = JSON.stringify({ nonce: randomUUID(), pid: process.pid });
+      this.db.prepare(`UPDATE sessions SET turn_delivery_token = ?,
+        nudged_at = CASE WHEN ? THEN ? ELSE nudged_at END,
+        turn_hook_offset = COALESCE(?, turn_hook_offset) WHERE id = ?`)
+        .run(token, options.nudge ? 1 : 0, new Date().toISOString(), options.hookOffset ?? null, id);
+      return { token, previous, session: this.getSession(id)! };
+    });
+  }
+
+  recoverTurnDelivery(id: string): boolean {
+    const row = this.db.prepare("SELECT turn_delivery_token FROM sessions WHERE id = ?").get(id) as { turn_delivery_token: string | null } | null;
+    if (!row?.turn_delivery_token) return false;
+    const { pid } = JSON.parse(row.turn_delivery_token) as { pid: number };
+    try { process.kill(pid, 0); return false; } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") return false;
+    }
+    // A crashed sender may have delivered the text. Keep its registration,
+    // disable hooks for that uncertain turn, and release only its own lock.
+    return this.db.prepare(`UPDATE sessions SET turn_delivery_token = NULL,
+      turn_input_ambiguous = 1, version = version + 1 WHERE id = ? AND turn_delivery_token = ?`)
+      .run(id, row.turn_delivery_token).changes > 0;
+  }
+
+  finishTurnDelivery(reservation: ReturnType<StateDB["reserveTurnDelivery"]>, delivered: boolean): void {
+    const { previous, token } = reservation;
+    // Roll back only registration fields; a concurrent kill must retain its status.
+    const restore = delivered ? 0 : 1;
+    this.db.prepare(`UPDATE sessions SET turn_delivery_token = NULL,
+      turn_started_at = CASE WHEN ? THEN ? ELSE turn_started_at END,
+      turn_input_digest = CASE WHEN ? THEN ? ELSE turn_input_digest END,
+      turn_input_history = CASE WHEN ? THEN ? ELSE turn_input_history END,
+      turn_input_ambiguous = CASE WHEN ? THEN ? ELSE turn_input_ambiguous END,
+      nudged_at = CASE WHEN ? THEN ? ELSE nudged_at END,
+      turn_hook_offset = CASE WHEN ? THEN ? ELSE turn_hook_offset END,
+      version = version + 1 WHERE id = ? AND turn_delivery_token = ?`)
+      .run(restore, previous.turn_started_at, restore, previous.turn_input_digest,
+        restore, previous.turn_input_history, restore, previous.turn_input_ambiguous,
+        restore, previous.nudged_at, restore, previous.turn_hook_offset, previous.id, token);
   }
 
   updateModel(id: string, model: string, effort: string | null): void {

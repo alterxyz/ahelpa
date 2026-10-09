@@ -19,7 +19,8 @@ import { ModelSwitchAppliedError } from "../drivers/types";
 import { unlinkSync, readdirSync } from "fs";
 import { isAbsolute, join } from "path";
 import { readTaskFile } from "../task-input";
-import { inputDigest, normalizeTurnInput } from "../turn-hooks";
+import { normalizeTurnInput } from "../turn-hooks";
+import { deliverTurn } from "../turn-delivery";
 
 interface AuthContext { db: StateDB; session: SessionRecord; }
 
@@ -60,36 +61,24 @@ async function resumeMonitoringAfterIntervention(
   await defaultWakeup.prepare(session.id);
   // Submission and FIFO creation both await external work. A concurrent kill
   // must win even if the driver confirmed a turn before the terminal closed.
-  if (!db.compareAndSetStatus(session.id, session.status, SESSION_STATUS.Running, undefined, session.turnStartedAt, session.turnInputDigest)
-    && db.getSession(session.id)?.status !== SESSION_STATUS.Running) {
-    defaultWakeup.cleanup(session.id);
+  if (!db.compareAndSetStatus(session.id, session.status, SESSION_STATUS.Running, session.version)) {
+    if (db.getSession(session.id)?.status !== SESSION_STATUS.Running) defaultWakeup.cleanup(session.id);
     throw new Error(`Session ${session.id} changed while sending the message; monitoring was not resumed`);
   }
   if (!daemon.isDaemonRunning()) daemon.startDaemon();
 }
 
-function beginHookTurn(db: StateDB, session: SessionRecord, input: string): SessionRecord {
-  if (!getDriver(session.agentType).turnHooks) return session;
-  // Settled sessions are not monitored until submission is confirmed. Publish
-  // their timestamp with the existing rearm transition, preserving its version.
-  if (canResumeMonitoring(session)) return { ...session, turnStartedAt: new Date().toISOString(), turnInputDigest: inputDigest(input) };
-  if (session.status !== SESSION_STATUS.Running) return session;
-  const fresh = db.beginTurn(session.id, session.version, input);
-  if (!fresh) throw new Error(`Session ${session.id} changed before sending the new turn`);
-  return fresh;
-}
-
 export const send = withAuth(async ({ db, session }, message: string) => {
-  const submissionContext = canResumeMonitoring(session)
-    ? await captureSubmissionContext(session.id)
-    : {};
   if (getDriver(session.agentType).turnHooks) message = normalizeTurnInput(message);
-  session = beginHookTurn(db, session, message);
-  await Tmux.sendKeys(session.id, message);
-  // Host intervened — resume daemon monitoring
-  if (canResumeMonitoring(session)) {
-    await resumeMonitoringAfterIntervention(db, session, submissionContext);
-  }
+  let submissionContext: TaskSubmissionContext = {};
+  await deliverTurn(db, session, message, () => Tmux.sendKeys(session.id, message), {
+    prepare: async () => {
+      if (canResumeMonitoring(session)) submissionContext = await captureSubmissionContext(session.id);
+    },
+    afterSend: async registered => {
+      if (canResumeMonitoring(registered)) await resumeMonitoringAfterIntervention(db, registered, submissionContext);
+    },
+  });
 });
 
 export const capture = withAuth(async ({ session }, lines: number = 50) => {
@@ -104,16 +93,17 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   }
   const content = readTaskFile(filePath);
   const fileHandoff = planFileHandoff(session.projectPath, session.id);
-  prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd, targetFingerprint: session.targetFingerprint });
-  const submissionContext = canResumeMonitoring(session)
-    ? await captureSubmissionContext(session.id)
-    : {};
   const instruction = normalizeTurnInput(fileHandoff.taskInstruction);
-  session = beginHookTurn(db, session, instruction);
-  await Tmux.sendKeys(session.id, instruction);
-  if (canResumeMonitoring(session)) {
-    await resumeMonitoringAfterIntervention(db, session, submissionContext);
-  }
+  let submissionContext: TaskSubmissionContext = {};
+  await deliverTurn(db, session, instruction, () => Tmux.sendKeys(session.id, instruction), {
+    prepare: async () => {
+      prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd });
+      if (canResumeMonitoring(session)) submissionContext = await captureSubmissionContext(session.id);
+    },
+    afterSend: async registered => {
+      if (canResumeMonitoring(registered)) await resumeMonitoringAfterIntervention(db, registered, submissionContext);
+    },
+  });
 });
 
 const driverRuntime: DriverRuntime = {

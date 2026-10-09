@@ -18,6 +18,8 @@ Claude hooks are loaded from `.ahelpa/<id>/claude-settings.json` with `--setting
 
 The hidden `__turn-hook` command parses stdin (Claude) or the final JSON argument (Codex), filters supported events, and appends only identifiers, timestamps, error kinds, input SHA-256 digests, and message presence/length to the session's `turns.log`. It opens no state database, executes no payload instructions, and produces no stdout. Invalid inputs or unavailable files are ignored; stdin has a bounded read deadline. The writer requires an existing session directory under `.ahelpa` and rejects symlink and hardlink destinations, verifies the opened regular file has one link and matches the checked device/inode, and writes through that descriptor. Hook wrappers silently exit zero if the saved runtime is missing or unusable. It does not retain assistant text or input-message contents. This is a timing hint from trusted local processes, not an authenticated success signal or a permissions boundary.
 
+The hook protects the log file against symlinks and hardlinks, but does not protect against concurrent replacement of the session directory itself by a process that already has the user’s permissions.
+
 ## Practical Mitigations
 
 - **Scope with `--project`.** Point helpers at the smallest useful working directory. This sets cwd and the intended task boundary; it is not a filesystem sandbox. In review prompts, explicitly forbid unrelated home directories, global `~/.ahelpa/archive`, and other projects unless the task truly requires them.

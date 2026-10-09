@@ -392,7 +392,7 @@ export const claudeCodeDriver: AgentDriver = {
     const busy = captureOutput.split(/\r?\n/u).some((line) => {
       if (/^[^\S\r\n]*⏺/u.test(line)) return false;
       if (/^[^\S\r\n]*[✢✽✶✻✳✺✹✸✷✵·]\s+\S/u.test(line)) {
-        return /(?:…|\.\.\.)/u.test(line) || !/\bfor\s+\d+(?:\.\d+)?[smh]\s*·\s*done\b/u.test(line);
+        return /(?:…|\.\.\.)/u.test(line) || !/\bfor\s+(?:\d+d\s+\d+h\s+\d+m|\d+h\s+\d+m\s+\d+s|\d+m\s+\d+s|\d+(?:\.\d+)?[smhd])\s*·\s*done\b/u.test(line);
       }
       if (/(?:…|\.\.\.)\s*(?:\(\s*)?\d+(?:\.\d+)?\s*(?:ms|s|m|h)\b/u.test(line)) return true;
       return /(?:…|\.\.\.)[^\S\r\n]*$/u.test(line);

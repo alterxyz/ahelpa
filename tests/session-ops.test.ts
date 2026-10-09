@@ -237,7 +237,7 @@ describe("session operations", () => {
     expect(startDaemon).not.toHaveBeenCalled();
   });
 
-  test("a concurrent intervention that already resumed monitoring keeps its wakeup pipe", async () => {
+  test("a running row from another intervention is not this delivery confirmation and keeps its wakeup pipe", async () => {
     db = new StateDB(TEST_DB);
     const id = "concurrent-intervention";
     db.createSession({ id, parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT });
@@ -251,7 +251,7 @@ describe("session operations", () => {
     const cleanup = spyOn(defaultWakeup, "cleanup").mockImplementation(() => {});
     spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
 
-    await send(db, id, "tok", "Follow-up task");
+    await expect(send(db, id, "tok", "Follow-up task")).rejects.toThrow("monitoring was not resumed");
 
     expect(db.getSession(id)?.status).toBe("running");
     expect(cleanup).not.toHaveBeenCalled();

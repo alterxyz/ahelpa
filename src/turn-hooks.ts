@@ -29,7 +29,7 @@ const digest = (value: unknown): value is string => typeof value === "string" &&
 
 export const normalizeTurnInput = (input: string): string => input.replace(/\r\n?/g, "\n").trim();
 
-function claudePromptInput(input: string): string {
+export function claudePromptInput(input: string): string {
   const normalized = normalizeTurnInput(input);
   // Claude expands a whole-message paste into this documented wrapper before
   // UserPromptSubmit. Only unwrap a complete, paired wrapper; partial/mixed

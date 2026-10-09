@@ -18,6 +18,8 @@ Claude 通过 `--settings` 加载 `.ahelpa/<id>/claude-settings.json`，该会�
 
 隐藏命令 `__turn-hook` 读取 stdin（Claude）或最后一个 JSON 参数（Codex），过滤支持的事件，仅把标识、时间、失败类型、输入 SHA-256 摘要和消息存在性／长度追加到会话的 `turns.log`。它不打开状态数据库，不执行 payload 中的指令，不输出 stdout。无效输入及不可用文件会被忽略，stdin 读取有时限。写入器要求 `.ahelpa` 下已有的会话目录，并拒绝 symlink 和 hardlink 目标；打开后检查 regular file 只有一个链接且 device／inode 与检查路径一致，通过该 descriptor 写入。保存的 runtime 不存在或不可用时，hook wrapper 静默退出 0。不保留 assistant 正文或 input-messages 内容。这是可信本地进程提供的时机提示，不是经过认证的成功信号或权限边界。
 
+Hook 对日志文件提供 symlink 和 hardlink 防护，但不能防止已拥有用户权限的进程并发替换会话目录本身。
+
 ## 实用防护
 
 - **用 `--project` 收窄范围。** 把 helper 指向最小可用工作目录。它设置 cwd 和任务意图边界，但不是 filesystem sandbox。做 review 时，应在 prompt 中明确禁止读取无关 home 目录、全局 `~/.ahelpa/archive` 和其他项目，除非任务确实需要。

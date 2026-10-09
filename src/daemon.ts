@@ -11,6 +11,7 @@ import { SESSION_STATUS, outcomeFromCapture } from "./session-lifecycle";
 import { defaultRuntimeLayout } from "./runtime-layout";
 import { shellEscape } from "./shell";
 import type { AgentDriver, DriverRuntime } from "./drivers/types";
+import { deliverTurn } from "./turn-delivery";
 import { planFileHandoff } from "./file-handoff";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
@@ -102,6 +103,11 @@ export async function refreshSessionStatuses(
 
   for (let session of sessions) {
     try {
+      // A monitor must not settle/consume an incompletely delivered turn.
+      if (session.turnDeliveryPending) {
+        if (!db.recoverTurnDelivery(session.id)) continue;
+        session = db.getSession(session.id)!;
+      }
       if (session.launchPid) {
         let launcherAlive = true;
         try { process.kill(session.launchPid, 0); } catch (error) {
@@ -217,9 +223,9 @@ export async function refreshSessionStatuses(
         // is ready, rather than consume it and lose the early-nudge opportunity.
         if (!failure && summary && session.nudgedAt == null) {
           if (shouldNudgeForCompletion(db, session, driver, output, true)) {
-            if (!db.consumeTurnHook(session.id, session.version, turn.offset, true)) continue;
             idleCount.delete(session.id);
-            await Tmux.sendKeys(session.id, COMPLETION_NUDGE);
+            await deliverTurn(db, session, COMPLETION_NUDGE, () => Tmux.sendKeys(session.id, COMPLETION_NUDGE),
+              { nudge: true, hookOffset: turn.offset });
             log(`${session.id}: summary present without signal, nudged for completion (turn hook)`);
             continue;
           }
@@ -252,8 +258,7 @@ export async function refreshSessionStatuses(
           // but only into a composer that is really ready: a menu, approval, or trust
           // dialog also reads as idle, and sendKeys ends with Enter.
           if (shouldNudgeForCompletion(db, session, driver, output)) {
-            db.markNudged(session.id);
-            await Tmux.sendKeys(session.id, COMPLETION_NUDGE);
+            await deliverTurn(db, session, COMPLETION_NUDGE, () => Tmux.sendKeys(session.id, COMPLETION_NUDGE), { nudge: true });
             log(`${session.id}: summary present without signal, nudged for completion`);
             continue;
           }
