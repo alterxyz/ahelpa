@@ -274,13 +274,13 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   },
   {
     name: "kill",
-    usage: "kill <id> --token <token>",
-    description: "Terminate helper",
+    usage: "kill <id> --token <token> [--tree]",
+    description: "Terminate helper, optionally including descendants",
     minPositionals: 1,
-    flags: { token: { kind: "string", required: true } },
+    flags: { token: { kind: "string", required: true }, tree: { kind: "boolean" } },
     async run(ctx) {
-      await kill(ctx.db, ctx.positionals[0], ctx.flags.strings.token!);
-      ctx.print("killed");
+      const result = await kill(ctx.db, ctx.positionals[0], ctx.flags.strings.token!, { tree: ctx.flags.booleans.tree });
+      ctx.print(result ? JSON.stringify(result, null, 2) : "killed");
     },
   },
   {

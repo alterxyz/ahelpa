@@ -115,7 +115,7 @@ Use advisors for analysis, plans, and review; use workers for execution against 
 | `capture <id> --token <tok>` | Snapshot terminal output (debugging only) |
 | `task <id> --file <path> --token <tok>` | Deliver a task file for long instructions |
 | `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | Switch a running helper's model |
-| `kill <id> --token <tok>` | Terminate a helper session |
+| `kill <id> --token <tok> [--tree]` | Terminate a helper; `--tree` also stops descendants and reports `killed` / `missed` |
 | `logs <id> --token <tok>` | Read live or archived session output |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper; an existing safe posture is inherited |
 | `status` | Show all sessions and daemon state |
