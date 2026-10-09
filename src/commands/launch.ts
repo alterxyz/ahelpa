@@ -682,6 +682,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     if (wakeupOwned) defaultWakeup.cleanup(sessionId);
     if (handoffOwned) {
       try { rmSync(fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
+    }
     if (hookDirOwned) {
       try { rmSync(handoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
     }

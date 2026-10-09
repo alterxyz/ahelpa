@@ -78,10 +78,14 @@ export const send = withAuth(async ({ db, session }, message: string) => {
   let submissionContext: TaskSubmissionContext = {};
   await deliverTurn(db, session, message, () => Tmux.sendKeys(session.id, message), {
     prepare: async () => {
-      if (canResumeMonitoring(session)) submissionContext = await captureSubmissionContext(session.id);
+      // Even a running row may settle while transport is pending. Keep the
+      // pre-send pane so the driver can confirm this delivery before rearming.
+      submissionContext = await captureSubmissionContext(session.id);
     },
     afterSend: async registered => {
-      if (canResumeMonitoring(session)) await resumeMonitoringAfterIntervention(db, { ...registered, status: session.status }, submissionContext);
+      if (canResumeMonitoring(registered) || canResumeMonitoring(session)) {
+        await resumeMonitoringAfterIntervention(db, canResumeMonitoring(registered) ? registered : { ...registered, status: session.status }, submissionContext);
+      }
     },
   });
 });
@@ -103,10 +107,12 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   await deliverTurn(db, session, instruction, () => Tmux.sendKeys(session.id, instruction), {
     prepare: async () => {
       prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd });
-      if (canResumeMonitoring(session)) submissionContext = await captureSubmissionContext(session.id);
+      submissionContext = await captureSubmissionContext(session.id);
     },
     afterSend: async registered => {
-      if (canResumeMonitoring(session)) await resumeMonitoringAfterIntervention(db, { ...registered, status: session.status }, submissionContext);
+      if (canResumeMonitoring(registered) || canResumeMonitoring(session)) {
+        await resumeMonitoringAfterIntervention(db, canResumeMonitoring(registered) ? registered : { ...registered, status: session.status }, submissionContext);
+      }
     },
   });
 });

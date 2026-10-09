@@ -199,6 +199,125 @@ test("stale registration CAS still sends and persists ambiguity", async () => {
   expect(db.getSession("session-test")?.status).toBe("running");
 });
 
+test("A pending, B success, C registration keeps C ambiguous across reopen until A finishes", async () => {
+  seed();
+  let release!: () => void, started!: () => void;
+  const gate = new Promise<void>(resolve => release = resolve);
+  const pending = new Promise<void>(resolve => started = resolve);
+  spyOn(Tmux, "sendKeys").mockImplementation(async (_id, input) => {
+    if (input === "A") { started(); await gate; }
+  });
+  const a = send(db, "session-test", "tok", "A");
+  let other = new StateDB(join(root, "state.db"));
+  try {
+    await pending;
+    await send(other, "session-test", "tok", "B");
+    other.close(); other = new StateDB(join(root, "state.db"));
+    await send(other, "session-test", "tok", "C");
+    const current = other.getSession("session-test")!;
+    expect(current.turnInputDigest).toBe(inputDigest("C"));
+    expect(current.turnInputAmbiguous).toBe(true);
+    prompt("C", "C"); stop("C", true);
+    await daemon.refreshSessionStatuses(other, ["session-test"]);
+    expect(other.getSession("session-test")?.status).toBe("running");
+  } finally { release(); await a; other.close(); }
+  expect(db.getSession("session-test")?.turnInputDigest).toBe(inputDigest("C"));
+  expect(db.getSession("session-test")?.turnInputAmbiguous).toBe(true);
+  expect(db.getSession("session-test")?.status).toBe("running");
+  await send(db, "session-test", "tok", "clean D");
+  expect(db.getSession("session-test")?.turnInputAmbiguous).toBe(false);
+});
+
+test.each([false, true])("five-minute in-flight bound ignores only stale entries (stale=%s)", async stale => {
+  seed();
+  const a = db.registerTurn("session-test", db.getSession("session-test")!.version, "crashed A");
+  const raw = new Database(join(root, "state.db"));
+  try {
+    const entries = [{ generation: a.registered.version, startedAt: new Date(Date.now() - (stale ? 300_001 : 240_000)).toISOString() }];
+    raw.prepare("UPDATE sessions SET turn_in_flight=? WHERE id=?").run(JSON.stringify(entries), "session-test");
+  } finally { raw.close(); }
+  db.close(); db = new StateDB(join(root, "state.db"));
+  await send(db, "session-test", "tok", "clean after crash");
+  expect(db.getSession("session-test")?.turnInputAmbiguous).toBe(!stale);
+  prompt("clean after crash", "after-crash"); stop("after-crash", true);
+  await daemon.refreshSessionStatuses(db, ["session-test"]);
+  expect(db.getSession("session-test")?.status).toBe(stale ? "needs_attention" : "running");
+});
+
+test.each([false, true])("finishing older A removes only its generation when B remains in flight (A fails=%s)", failA => {
+  seed();
+  const a = db.registerTurn("session-test", db.getSession("session-test")!.version, "A");
+  const b = db.registerTurn("session-test", db.getSession("session-test")!.version, "B");
+  db.finishTurn(a, !failA);
+  const raw = new Database(join(root, "state.db"));
+  try {
+    const row = raw.prepare("SELECT turn_in_flight FROM sessions WHERE id=?").get("session-test") as { turn_in_flight: string };
+    expect(JSON.parse(row.turn_in_flight).map((entry: { generation: number }) => entry.generation)).toEqual([b.registered.version]);
+    db.finishTurn(b, false);
+    expect((raw.prepare("SELECT turn_in_flight FROM sessions WHERE id=?").get("session-test") as { turn_in_flight: string }).turn_in_flight).toBe("[]");
+  } finally { raw.close(); }
+  const c = db.registerTurn("session-test", db.getSession("session-test")!.version, "C");
+  expect(c.overlap).toBe(false);
+  expect(c.session.turnInputAmbiguous).toBe(false);
+  db.finishTurn(c, true);
+});
+
+for (const operation of ["send", "task"]) {
+  test.each(["needs_attention", "error"] as const)(`${operation} late success rearms monitoring after another turn settles to %s`, async status => {
+    seed();
+    writeFileSync(join(root, "next.md"), "follow-up");
+    let release!: () => void, started!: () => void;
+    const gate = new Promise<void>(resolve => release = resolve);
+    const pending = new Promise<void>(resolve => started = resolve);
+    const confirm = spyOn(getDriver("claude-code"), "afterTaskSubmitted").mockResolvedValue(true);
+    const prepare = spyOn(defaultWakeup, "prepare").mockResolvedValue();
+    const cleanup = spyOn(defaultWakeup, "cleanup").mockImplementation(() => {});
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, input) => {
+      if (input !== "B" && input !== "C") { started(); await gate; }
+    });
+    const a = operation === "send" ? send(db, "session-test", "tok", "A") : sendTask(db, "session-test", "tok", join(root, "next.md"));
+    try {
+      await pending;
+      await send(db, "session-test", "tok", "B");
+      // A stale entry can expire while its transport is still alive. C may
+      // then be clean and its event accepted before A finally succeeds.
+      const raw = new Database(join(root, "state.db"));
+      try {
+        if ((raw.prepare("PRAGMA table_info(sessions)").all() as { name: string }[]).some(column => column.name === "turn_in_flight")) {
+          const row = raw.prepare("SELECT turn_in_flight FROM sessions WHERE id=?").get("session-test") as { turn_in_flight: string };
+          const entries = JSON.parse(row.turn_in_flight) as { generation: number; startedAt: string }[];
+          for (const entry of entries) entry.startedAt = new Date(Date.now() - 300_001).toISOString();
+          raw.prepare("UPDATE sessions SET turn_in_flight=? WHERE id=?").run(JSON.stringify(entries), "session-test");
+        }
+      } finally { raw.close(); }
+      await send(db, "session-test", "tok", "C");
+      prompt("C", "C"); stop("C", true);
+      await daemon.refreshSessionStatuses(db, ["session-test"]);
+      expect(db.getSession("session-test")?.status).toBe("needs_attention");
+      if (status === "error") db.updateStatus("session-test", status);
+      cleanup.mockClear(); // The accepted hook normally cleans up its old FIFO.
+    } finally { release(); await a; }
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0]?.[2]?.beforeOutput).toContain("Working");
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(cleanup).not.toHaveBeenCalled();
+    expect(db.getSession("session-test")?.status).toBe("running");
+    expect(db.getSession("session-test")?.turnInputDigest).toBe(inputDigest("C"));
+  });
+
+  test(`${operation} late success still requires driver confirmation before rearming`, async () => {
+    seed();
+    writeFileSync(join(root, "next.md"), "follow-up");
+    spyOn(getDriver("claude-code"), "afterTaskSubmitted").mockResolvedValue(false);
+    const prepare = spyOn(defaultWakeup, "prepare").mockResolvedValue();
+    spyOn(Tmux, "sendKeys").mockImplementation(async () => { db.updateStatus("session-test", "needs_attention"); });
+    const sending = operation === "send" ? send(db, "session-test", "tok", "A") : sendTask(db, "session-test", "tok", join(root, "next.md"));
+    await expect(sending).rejects.toThrow("did not expose a new turn");
+    expect(prepare).not.toHaveBeenCalled();
+    expect(db.getSession("session-test")?.status).toBe("needs_attention");
+  });
+}
+
 test.each([false, true])("overlap preserves ambiguity when A succeeds/fails after B fails (A fails=%s)", async failA => {
   seed();
   let release!: () => void, started!: () => void;

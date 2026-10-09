@@ -259,7 +259,7 @@ ahelpa task "$session_id" --file ./next-task.md --token "$token"
 
 Prefer `task` over `send` for anything longer than a sentence — it avoids tmux's keystroke-based input limits.
 
-Overlapping `send`, `task`, and automatic completion nudges to one session are allowed. When deliveries overlap, ahelpa marks the current turn ambiguous and ignores its turn-end hooks, disabling the hook fast path and using the inactivity fallback. A later clean registration clears overlap ambiguity; hook attribution still requires an unambiguous input digest. Send follow-ups one at a time if you need the hook fast path.
+Overlapping `send`, `task`, and automatic completion nudges to one session are allowed. When deliveries overlap, ahelpa marks the current turn ambiguous and ignores its turn-end hooks, disabling the hook fast path and using the inactivity fallback. A later registration clears overlap ambiguity when no other delivery remains in flight (entries older than five minutes expire to recover from a crashed sender); hook attribution still requires an unambiguous input digest. Send follow-ups one at a time if you need the hook fast path.
 
 ## Monitor Sessions
 
