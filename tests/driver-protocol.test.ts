@@ -52,6 +52,111 @@ const claudeTrustFixtures: Record<string, string> = JSON.parse(
 const claudeSubmitFixtures: Record<string, string> = JSON.parse(
   readFileSync(new URL("./fixtures/claude-submit.json", import.meta.url), "utf8"),
 );
+// Claude 2.1.295 source-derived adversarial screens from the previous review.
+const claudeSubmitAdversarialFixtures: Record<string, string> = JSON.parse(
+  readFileSync(new URL("./fixtures/claude-submit-adversarial.json", import.meta.url), "utf8"),
+);
+
+describe("claude-code submit nudge adversarial regressions", () => {
+  test.each(["word-wrapped-prefix-40", "character-wrapped-prefix-40"])(
+    "%s submits a wrapped composer once and waits for evidence",
+    async (name) => {
+      const queued = claudeSubmitAdversarialFixtures[name];
+      for (const context of [undefined, { beforeOutput: "❯" }]) {
+        const runtime = probeRuntime([queued, queued, `${queued}\n✢ Working…`]);
+        expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, context)).toBe(true);
+        expect(runtime.sent).toEqual([""]);
+        expect(runtime.keys).toEqual([]);
+        expect(runtime.captures).toHaveLength(context ? 3 : 1);
+      }
+    },
+  );
+
+  test.each(["question-other-input-column-zero", "question-side-by-side-preview"])(
+    "%s never receives Enter",
+    async (name) => {
+      for (const context of [undefined, { beforeOutput: "❯" }]) {
+        const runtime = probeRuntime([claudeSubmitAdversarialFixtures[name]]);
+        expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, context)).toBe(false);
+        expect(runtime.sent).toEqual([]);
+        expect(runtime.keys).toEqual([]);
+      }
+    },
+  );
+
+  const instruction = "Please read and complete the task described in /tmp/task.md.";
+  test.each([
+    `❯ 3. ${instruction}`, // Numbered cursor alone, without sibling options or footer.
+    `❯ ${instruction}\n  4. Chat about this`,
+    `❯ ${instruction}\n4. Chat about this`,
+    `❯ ${instruction}\n  4.`,
+    `❯ ${instruction}\nEnter to select · Esc to cancel`,
+    `❯ The instruction is: ${instruction}`,
+    `❯ Explain the handoff\n  ${instruction}`,
+    `❯ Use original                 │ ${instruction} │`,
+    `❯                    ${instruction}`,
+    `❯ Please read                 │ and complete the task described in /tmp/task.md │`,
+    `❯ Please read\n                                  and complete the task described in /tmp/task.md`,
+    `❯\n  ${instruction}`,
+    `❯ Please read\nUnindented reply\n  and complete the task described in /tmp/task.md`,
+  ])("ambiguous menu or quoted instruction is not a draft: %s", async (screen) => {
+    for (const context of [undefined, { beforeOutput: "❯" }]) {
+      const runtime = probeRuntime([screen]);
+      expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, context)).toBe(false);
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+    }
+  });
+
+  const workingIndicators = [
+    ...["·", "✢", "✳", "✶", "✻", "✽", "*"].flatMap((frame) =>
+      [`${frame} Working… (2s)`, `${frame} Working... (2s)`]),
+    ...[".", "..", "...", "…"].flatMap((dots) =>
+      [`  Working${dots}`, `  Gitifying${dots}  2 in background`]),
+  ];
+  test.each(workingIndicators)("working indicator '%s' blocks Enter and establishes a new turn", async (indicator) => {
+    const driver = getDriver("claude-code");
+    const screen = `❯ ${instruction}\n${indicator}\n  0% ctx`;
+    expect(driver.detectActivity(screen)).toBe("working");
+    expect(driver.acceptsInput?.(`${screen}\n❯`)).toBe(false);
+    for (const context of [undefined, { beforeOutput: "❯" }]) {
+      const runtime = probeRuntime([screen]);
+      expect(await driver.afterTaskSubmitted("claude-test", runtime, context)).toBe(true);
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+      expect(runtime.captures).toHaveLength(1);
+    }
+    const unchanged = probeRuntime([screen]);
+    expect(await driver.afterTaskSubmitted("claude-test", unchanged, { beforeOutput: screen })).toBe(false);
+    expect(unchanged.sent).toEqual([]);
+  });
+
+  test.each([
+    "  Fixed.",
+    "Done.",
+    "* Fixed the bug.",
+    "· Removed the stale branch.",
+    "  Summary...",
+  ])("reply line '%s' is not working evidence", (line) => {
+    const driver = getDriver("claude-code");
+    // No ⏺ in view: a long reply pushed the bullet out of the capture.
+    const screen = `${line}\n\n❯`;
+    expect(driver.detectActivity(screen)).not.toBe("working");
+    expect(driver.acceptsInput?.(screen)).toBe(true);
+  });
+
+  test.each(["dot-spinner-submitted", "brief-spinner-submitted"])(
+    "%s acknowledges submission without Enter",
+    async (name) => {
+      for (const context of [undefined, { beforeOutput: "❯" }]) {
+        const runtime = probeRuntime([claudeSubmitAdversarialFixtures[name]]);
+        expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, context)).toBe(true);
+        expect(runtime.sent).toEqual([]);
+        expect(runtime.captures).toHaveLength(1);
+      }
+    },
+  );
+});
 
 describe("claude-code queued-task submit nudge", () => {
   test.each(["queued-ctx-only", "queued-no-footer", "queued-zero-tokens", "queued-after-old-reply"])(

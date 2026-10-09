@@ -1,5 +1,5 @@
 import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
-import { isTaskInstructionEcho } from "../file-handoff";
+import { TASK_INSTRUCTION_PREFIX } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelOutcome, detectSentinelStatus } from "./sentinels";
 import { findModelChoice, findSelectedChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
@@ -12,17 +12,40 @@ function claudeNeedsSubmitNudge(captureOutput: string): boolean {
   // A later indented cursor belongs to a menu, not the column-0 composer.
   const cursors = [...current.matchAll(/^[^\S\r\n]*❯(?:[^\S\r\n]+.*)?$/gmu)];
   if (cursors.at(-1)?.index !== 0) return false;
-  // Only the composer row and its indented continuations can hold the draft;
-  // an instruction echoed in scrollback or a reply is not pending input.
-  const draft = current.match(/^❯[^\r\n]*(?:\r?\n[^\S\r\n]+[^\r\n]*)*/u)?.[0] ?? "";
-  return isTaskInstructionEcho(draft)
+  // AskUserQuestion's Other input and preview layouts also have column-0
+  // cursors. A numbered cursor, sibling option or selection footer blocks Enter.
+  if (/^❯[^\S\r\n]+\d+\./u.test(current)
+    || /^[^\S\r\n]*\d+\.(?:[^\S\r\n]|$)/mu.test(current)
+    || /\bEnter to select\b/iu.test(current)) return false;
+
+  const rows = current.split(/\r?\n/u);
+  // Remove only the gutter spacer: an empty left column must not expose a preview.
+  const first = rows[0].replace(/^❯[^\S\r\n]/u, "");
+  if (!first.trim()) return false;
+  const draftRows = [first];
+  for (const row of rows.slice(1)) {
+    // The composer has a two-column gutter; deeper rows can be a preview pane.
+    const continuation = row.match(/^ {2}(\S.*)$/u);
+    if (!continuation) break;
+    draftRows.push(continuation[1]);
+  }
+  // Exclude right-hand columns, then compare only the start of the draft.
+  // Removing whitespace also joins word and mid-word wraps of the known prefix.
+  const draft = draftRows.map((row) => row.split(/[^\S\r\n]{2,}|[│┌└]/u)[0]).join("").replace(/\s/gu, "");
+  return draft.startsWith(TASK_INSTRUCTION_PREFIX.replace(/\s/gu, ""))
     && !claudeIsWorking(current)
     && detectSentinelStatus(current) === "running";
 }
 
 function claudeIsWorking(captureOutput: string): boolean {
+  // Default/ghostty frames include ·; ASCII dots count only before the timer
+  // so a reply bullet such as "* Fixed the bug." is not a live turn. Brief and
+  // reduced-motion rows have no icon: a single capitalized gerund ("Working...",
+  // "Gitifying… 2 in background"); requiring -ing keeps reply lines such as
+  // "Done." or "Fixed." out. Keep all submission/activity checks here.
   return captureOutput.includes("⏺")
-    || /^\s*[✢✽✶✻✳]\s+\S.*…(?:\s+\(|\s*$)/mu.test(captureOutput);
+    || /^[^\S\r\n]*[·✢✽✶✻✳*][^\S\r\n]+\S[^\r\n]*?(?:…(?:[^\S\r\n]+\(|[^\S\r\n]*$)|\.{1,3}[^\S\r\n]+\()/mu.test(captureOutput)
+    || /^[^\S\r\n]*[A-Z][a-zA-Z-]*ing(?:…|\.{1,3})(?:[^\S\r\n]+(?:\(|\d+ in background)|[^\S\r\n]*$)/mu.test(captureOutput);
 }
 
 function claudeNeedsFolderTrust(captureOutput: string): boolean {
