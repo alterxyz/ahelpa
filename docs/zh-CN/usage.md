@@ -284,7 +284,7 @@ ahelpa capture "$session_id" --token "$token" --lines 100  # 最近 100 行
 
 ## 查看日志
 
-读取完整 session 输出；tmux session 消失后会读取 archived output：
+读取 session 输出；结算或显式执行 `kill`（包括 `--tree`）后，tmux session 消失时读取 archived pane snapshot：
 
 ```bash
 ahelpa logs "$session_id" --token "$token"
@@ -315,13 +315,15 @@ ahelpa resume "$session_id" --token "$token"
 ahelpa kill "$session_id" --token "$token"
 ```
 
+`kill` 在终止 tmux 前捕获最后 500 行 pane 输出，并沿用现有格式保存 archive，让 `logs` 继续可用。捕获或归档写入失败不会阻止终止；pane 不可用时保留已有 archive。预留的启动记录即使尚未创建终端，也会被标为 `dead`，取消启动发布，让启动进程回滚。
+
 使用指定 helper 自身的 token，终止它及其后代：
 
 ```bash
 ahelpa kill "$session_id" --token "$token" --tree
 ```
 
-`--tree` 在停止任何 session 之前校验指定 session 的 token，沿 SQLite `parent_id` 遍历 lineage，先按深度从深到浅停止活跃后代，再停止指定 session。它重新扫描以捕获晚注册的后代，最多执行四轮终止（`MAX_TREE_KILL_PASSES`），扫描没有发现新的活跃后代时结束。每个后代只尝试一次。JSON 输出为 `{ "killed": ["id", ...], "missed": ["id", ...] }`：`killed` 列出成功停止的 session，包括本次停止的指定 session；`missed` 列出最后一次扫描时仍活跃的后代，包括终止失败及超过轮次上限的晚注册 session。确认整棵树已停止前，请检查 `missed`。指定 session 终止失败时，命令仍按普通 `kill` 的方式报错；此前已执行的后代终止保留。
+`--tree` 在停止任何 session 之前校验指定 session 的 token，沿 SQLite `parent_id` 遍历 lineage，先按深度从深到浅停止活跃后代，再停止指定 session。它重新扫描以捕获晚注册的后代，最多执行四轮终止（`MAX_TREE_KILL_PASSES`），扫描没有发现新的活跃后代时结束。轮次之间不额外暂停：launch 在创建 tmux 前就预留记录，启动延迟不会让它从扫描中隐藏。每个后代只尝试一次。JSON 输出为 `{ "killed": ["id", ...], "missed": ["id", ...] }`：`killed` 列出成功停止的 session，包括本次停止的指定 session；`missed` 列出最后一次扫描时仍活跃的后代，包括终止失败及超过轮次上限的晚注册 session。确认整棵树已停止前，请检查 `missed`。指定 session 终止失败时，命令仍按普通 `kill` 的方式报错；此前已执行的后代终止保留。
 
 已结算的后代（`idle`、`dead` 或 `error`）会被跳过，不列入 `missed`，沿用现有活跃 session 定义（`running`、`draining`、`needs_attention`）。仍会经过它们的 lineage 记录，继续清扫已结算父 session 下的活跃子 session。指定 session 已为 dead 时仍允许清扫活跃后代，但不会再次列入 `killed`。结果是有界扫描的快照；最后一次扫描后才注册的 session 需要再次执行 `kill --tree`。
 

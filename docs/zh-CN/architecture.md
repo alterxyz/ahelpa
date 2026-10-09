@@ -39,7 +39,7 @@ SQLite 建表和 schema 迁移在同一个 immediate transaction 内执行。CLI
 4. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
 5. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、清理 pipe。
 6. **Wakeup**：`wait` 收到 FIFO 事件后返回，调用者从文件交接目录读取结果。
-7. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。显式 `kill` 后记录保持为 `dead`；已经开始的刷新不会在 capture 或终端清理结束后覆盖该状态。
+7. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。显式 `kill`（包括 `kill --tree` 的每次终止）在终止 tmux 前尝试捕获最后 500 行 pane 输出，并沿用 settlement 的 archive 格式保存。捕获或归档写入失败不会阻止终止，pane 不可用时保留已有 archive。没有终端的预留记录也会被标为 `dead`，取消启动发布。`kill` 后记录保持为 `dead`；已经开始的刷新不会在 capture 或终端清理结束后覆盖该状态。
 
 ### 状态转换
 
@@ -155,7 +155,7 @@ Host 每次直接 launch 都创建独立的 helper tree；不会对 host 的不�
 
 ## Archives
 
-Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`。这样 tmux session 清理后，`logs` 仍能读取输出。Archive 由 daemon 或 inline refresh 在 settlement 中写入，不会自动裁剪。
+Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`。这样 tmux session 清理后，`logs` 仍能读取输出。Archive 由 daemon 或 inline refresh 在 settlement 中写入，显式 `kill` 也会在终止终端前写入；不会自动裁剪。
 
 保留的 SQLite 记录提供 owner 校验和 resume 设置。运行 `clean` 删除记录后，该 session 的带 token 的 `logs`、`resume` 调用不再可用；archive 和项目交接文件仍留在磁盘上。
 
