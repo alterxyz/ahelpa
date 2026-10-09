@@ -16,6 +16,8 @@ export interface FileHandoffPlan {
   // Durable copy of what the helper was asked, beside its summary. The tmp
   // task file is reclaimed with the session; this one survives for the record.
   taskCopyPath: string;
+  // Host-authored text only, safe to link from a blind review.
+  askPath: string;
   taskInstruction: string;
 }
 
@@ -24,7 +26,7 @@ export interface HandoffContext {
   // Acceptance command the host will rerun on the final diff (see --check).
   check?: string | null;
   // The hand this one follows (see --after): where to read its ask and claims.
-  previous?: { sessionId: string; taskCopyPath: string; summaryPath: string; artifactsDir: string; baseCommit?: string | null } | null;
+  previous?: { sessionId: string; taskCopyPath: string; askPath?: string | null; summaryPath: string; artifactsDir: string; baseCommit?: string | null } | null;
   targetFingerprint?: TargetFingerprint | null;
   unblind?: boolean;
 }
@@ -48,6 +50,7 @@ export function planFileHandoff(
     summaryPath,
     artifactsDir,
     taskCopyPath,
+    askPath: join(sessionDeliveryDir, "ask.md"),
     taskInstruction: buildTaskInstruction({ taskFilePath, sessionDeliveryDir, summaryPath, artifactsDir }),
   };
 }
@@ -58,7 +61,11 @@ export function buildPreviousHandSection(previous: NonNullable<HandoffContext["p
     blind
       ? `This task follows session ${previous.sessionId}. Review independently from its ask and the code; form your verdict before seeing the author's claims.`
       : `This task follows session ${previous.sessionId}. Before starting, read what it was asked and what it claims:`,
-    `- Its task: ${previous.taskCopyPath}`,
+    ...(blind
+      ? [previous.askPath
+        ? `- Its ask: ${previous.askPath}`
+        : `- Original ask unavailable: this older session has no ask.md. Ask the host for the original requirements; the audit task is withheld because it contains generated handoff and result context.`]
+      : [`- Its task: ${previous.taskCopyPath}`]),
   ];
   if (!blind) lines.push(
     `- Its summary: ${previous.summaryPath}`,
@@ -121,7 +128,7 @@ export function buildContractSection(
 export function buildTaskFileContent(plan: FileHandoffPlan, task: string, context: HandoffContext = {}): string {
   const sections = [task];
   if (context.previous) sections.push(buildPreviousHandSection(context.previous, context));
-  if (context.targetFingerprint && !(context.previous && context.role === "reviewer")) sections.push(reviewTargetLine(context.targetFingerprint));
+  if (context.role === "reviewer" && context.targetFingerprint && !context.previous) sections.push(reviewTargetLine(context.targetFingerprint));
   sections.push(buildContractSection(plan, context));
   sections.push(`## ahelpa signals\n\n${[
     `Print the applicable signal alone on a line: finished output ${SENTINEL.Done}; stuck output ${SENTINEL.NeedHelp}.`,
@@ -141,6 +148,8 @@ export function prepareFileHandoff(plan: FileHandoffPlan, task: string, context:
   // A follow-up task must not erase the record of the first ask.
   if (existsSync(plan.taskCopyPath)) appendFileSync(plan.taskCopyPath, `\n\n===== follow-up task =====\n\n${content}`);
   else writeFileSync(plan.taskCopyPath, content);
+  if (existsSync(plan.askPath)) appendFileSync(plan.askPath, `\n\n===== follow-up task =====\n\n${task}`);
+  else writeFileSync(plan.askPath, task);
 }
 
 // ponytail: TUI input ceiling is HEAD + 60 chars; Claude truncated ~1.2k but accepted ~0.6k, so details belong in the task file.

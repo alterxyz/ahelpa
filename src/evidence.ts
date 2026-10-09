@@ -1,8 +1,9 @@
 import { $ } from "bun";
-import { mkdirSync, realpathSync, statSync, writeFileSync } from "fs";
-import { dirname, relative, resolve, sep } from "path";
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "fs";
+import { dirname, join, relative, resolve, sep } from "path";
 import { createHash } from "crypto";
 import { planFileHandoff } from "./file-handoff";
+import type { HelperRole } from "./drivers/types";
 
 // Objective facts a host can hold against summary.md. Archived sessions
 // showed self-reported "all green" refuted by review often enough that the
@@ -41,6 +42,7 @@ export interface EvidenceSubject {
   projectPath: string;
   baseCommit?: string | null;
   checkCmd?: string | null;
+  role?: HelperRole | null;
   targetFingerprint?: TargetFingerprint | null;
   targetResultDirs?: string[] | null;
 }
@@ -75,22 +77,39 @@ export async function computeTargetFingerprint(projectPath: string, resultDirs: 
   // delivery directory does not exist yet at launch; anchor its relative
   // path to the existing project's real path instead of realpath'ing it.
   const physicalProject = realpathSync(projectPath);
+  const physicalResultDirs: string[] = [];
   const paths = ["."];
   for (const dir of resultDirs) {
     const physicalDir = resolve(physicalProject, relative(resolve(projectPath), resolve(dir)));
+    physicalResultDirs.push(physicalDir);
     const path = relative(repoPath, physicalDir);
     if (path && path !== ".." && !path.startsWith(`..${sep}`)) paths.push(`:(top,exclude,literal)${path}`);
   }
-  const [head, status, unstaged, staged] = await Promise.all([
+  const [head, status, unstaged, staged, index] = await Promise.all([
     $`git -C ${repoPath} rev-parse HEAD`.quiet().nothrow(),
     $`git -C ${repoPath} status --porcelain -z --untracked-files=all -- ${paths}`.quiet().nothrow(),
     $`git -C ${repoPath} diff --no-ext-diff --no-textconv --no-color --binary -- ${paths}`.quiet().nothrow(),
     $`git -C ${repoPath} diff --cached --no-ext-diff --no-textconv --no-color --binary -- ${paths}`.quiet().nothrow(),
+    $`git -C ${repoPath} ls-files --stage -z -- ${paths}`.quiet().nothrow(),
   ]);
-  if ([head, status, unstaged, staged].some((result) => result.exitCode !== 0)) return null;
+  if ([head, status, unstaged, staged, index].some((result) => result.exitCode !== 0)) return null;
+  const hash = createHash("sha256").update(status.stdout).update(unstaged.stdout).update(staged.stdout);
+  // A dirty gitlink's patch only says "-dirty", so a second edit would be
+  // invisible. Include each initialized submodule's own index/worktree and
+  // recurse for nested modules; untracked contents remain names-only.
+  const submodules = new Set(index.text().split("\0")
+    .filter((entry) => entry.startsWith("160000 "))
+    .map((entry) => entry.slice(entry.indexOf("\t") + 1)));
+  for (const path of submodules) {
+    const submodule = join(repoPath, path);
+    if (!existsSync(join(submodule, ".git"))) continue;
+    const fingerprint = await computeTargetFingerprint(submodule, physicalResultDirs);
+    if (!fingerprint) return null;
+    hash.update(JSON.stringify({ submodule: path, ...fingerprint }));
+  }
   return {
     head: head.text().trim(),
-    treeHash: createHash("sha256").update(status.stdout).update(unstaged.stdout).update(staged.stdout).digest("hex"),
+    treeHash: hash.digest("hex"),
   };
 }
 
@@ -126,7 +145,7 @@ export async function collectEvidence(subject: EvidenceSubject, options: Evidenc
       : { command: subject.checkCmd, exitCode: null, timedOut: false, output: "", logPath, skipped: "wait budget exhausted before the check could run; re-wait to run it" };
   }
   // Take the final snapshot after --check, which can itself touch the tree.
-  if (subject.targetFingerprint) {
+  if (subject.role === "reviewer" && subject.targetFingerprint) {
     const current = await computeTargetFingerprint(subject.projectPath, subject.targetResultDirs ?? [sessionDeliveryDir]);
     if (current) {
       evidence.targetFingerprint = subject.targetFingerprint;
