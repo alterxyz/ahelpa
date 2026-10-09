@@ -12,6 +12,8 @@ Codex is a `worker` by default (`gpt-6.1-sol`, `high` effort). `--role reviewer`
 
 ahelpa probes the Codex executable from the caller's PATH in the target project and uses the same absolute path for launch and resume. It adds `--no-daemon` when the bounded help probe confirms support, keeping work within the helper's tmux lifecycle on CLIs that otherwise use a shared background server. Older CLIs and failed probes keep the previous flags; a login-shell-only Codex falls back to its command name without the new flag. ahelpa's own monitoring daemon is unchanged.
 
+Launch and resume add a per-invocation `-c notify=[...]` override, leaving user config untouched and replacing its notify command only for this invocation. The runtime filters background title threads and records metadata in the session’s `turns.log`; native Codex hooks are not added. Native resume binds the recorded thread token immediately so ordinary follow-ups can notify without repeating the task instruction.
+
 ## Binary Mapping
 
 - `ahelpa launch codex ...` uses the `codex` CLI

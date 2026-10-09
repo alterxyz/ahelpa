@@ -1,5 +1,5 @@
-export interface LaunchOptions { cwd: string; safe?: boolean; model?: string; effort?: string; }
-export interface ResumeOptions { cwd: string; resumeId: string; safe?: boolean; model?: string; effort?: string; }
+export interface LaunchOptions { cwd: string; sessionId?: string; safe?: boolean; model?: string; effort?: string; }
+export interface ResumeOptions { cwd: string; sessionId?: string; resumeId: string; safe?: boolean; model?: string; effort?: string; }
 export interface ModelSwitchOptions { model: string; effort?: string; persist?: boolean; }
 export type HelperRole = "worker" | "advisor" | "reviewer";
 
@@ -61,6 +61,8 @@ export type ActivitySignal = "working" | "booting" | "idle";
 export interface AgentDriver {
   name: string;
   sessionPrefix: string;
+  turnHooks?: boolean;
+  prepareLaunchFiles?(opts: LaunchOptions): void;
   launchProfiles?: {
     defaultRole: HelperRole;
     profiles: Partial<Record<HelperRole, { model: string; effort: string }>>;
@@ -85,5 +87,7 @@ export interface AgentDriver {
   // True only when the chat composer is the thing that would receive typed
   // text: no menu, approval, or trust dialog. Idle alone is not enough.
   acceptsInput?(captureOutput: string): boolean;
+  // Only the monitor may use this with a validated current-turn end event.
+  acceptsInputAfterTurn?(captureOutput: string): boolean;
   gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void>;
 }

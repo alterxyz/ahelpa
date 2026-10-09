@@ -1,3 +1,5 @@
+import { defaultRuntimeLayout } from "../runtime-layout";
+import { turnHookCommand } from "../turn-hooks";
 import type { AgentDriver, DetectedOutcome, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
 import { ModelSwitchAppliedError } from "./types";
 import { isTaskInstructionEcho } from "../file-handoff";
@@ -248,6 +250,13 @@ function freshModelConfirmation(output: string, model: string, baseline: ModelEv
   return occurrences(events) > occurrences(baseline) ? latest.text : undefined;
 }
 
+function notifyArgs(opts: LaunchOptions & { resumeId?: string }): string[] {
+  if (!opts.sessionId) return [];
+  const command = turnHookCommand(defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "codex", opts.resumeId);
+  // JSON string arrays are valid TOML basic-string arrays; shell-quote once.
+  return ["-c", shellEscape(`notify=${JSON.stringify(command)}`)];
+}
+
 export const codexDriver: AgentDriver = {
   checkReadiness: checkCodexReadiness,
   name: "codex",
@@ -276,13 +285,15 @@ export const codexDriver: AgentDriver = {
     ],
   },
 
+  turnHooks: true,
+
   buildLaunchCommand(opts: LaunchOptions): string {
     const cwd = resolve(opts.cwd);
     const capabilities = getCodexCapabilities(cwd);
     const executable = capabilities.executable ? shellEscape(capabilities.executable) : "codex";
     // Shared servers outlive terminal clients. Keep supported Codex versions
     // inside ahelpa's tmux lifecycle, including sessions without effort overrides.
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...notifyArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
     return `cd ${shellEscape(cwd)} && ${executable} ${args.join(" ")}`;
   },
 
@@ -290,7 +301,7 @@ export const codexDriver: AgentDriver = {
     const cwd = resolve(opts.cwd);
     const capabilities = getCodexCapabilities(cwd);
     const executable = capabilities.executable ? shellEscape(capabilities.executable) : "codex";
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...notifyArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
     return `cd ${shellEscape(cwd)} && ${executable} resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
   },
 

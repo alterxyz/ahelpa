@@ -3,6 +3,14 @@ import { unlinkSync, existsSync } from "fs";
 import { SESSION_STATUS, type SessionStatus } from "./session-lifecycle";
 import type { HelperRole } from "./drivers/types";
 import type { TargetFingerprint } from "./evidence";
+import { claudePromptInput, inputDigest } from "./turn-hooks";
+
+// Registration includes preparation: Codex allows ~88s of startup polling,
+// and the launch lease is 180s. Five minutes leaves margin for local I/O but
+// lets a crashed sender stop suppressing hooks. This never excludes a send.
+export const TURN_IN_FLIGHT_MAX_AGE_MS = 5 * 60_000;
+
+interface InFlightTurn { generation: number; startedAt: string; }
 
 export interface SessionRecord {
   id: string;
@@ -34,6 +42,10 @@ export interface SessionRecord {
   // in that native conversation, even if old session rows are later reaped.
   targetResultDirs?: string[] | null;
   unblind?: boolean;
+  turnHookOffset?: number | null;
+  turnStartedAt?: string | null;
+  turnInputDigest?: string | null;
+  turnInputAmbiguous?: boolean;
 }
 
 export interface CreateSessionInput {
@@ -88,6 +100,13 @@ interface SessionRow {
   target_fingerprint: string | null;
   target_result_dirs: string | null;
   unblind: string | null;
+  turn_hook_offset: number | null;
+  turn_started_at: string | null;
+  turn_input_digest: string | null;
+  turn_input_history: string | null;
+  turn_input_ambiguous: number | null;
+  turn_input_sent: number | null;
+  turn_in_flight: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -119,6 +138,11 @@ function rowToRecord(row: SessionRow): SessionRecord {
     targetFingerprint: row.target_fingerprint ? JSON.parse(row.target_fingerprint) : null,
     targetResultDirs: row.target_result_dirs ? JSON.parse(row.target_result_dirs) : null,
     unblind: row.unblind === "true",
+    turnHookOffset: row.turn_hook_offset,
+    turnStartedAt: row.turn_started_at,
+    turnInputDigest: row.turn_input_digest,
+    turnInputAmbiguous: row.turn_input_ambiguous === 1 || row.turn_input_digest != null
+      && (JSON.parse(row.turn_input_history ?? "[]") as string[]).filter(value => value === row.turn_input_digest).length > 1,
   };
 }
 
@@ -205,10 +229,19 @@ export class StateDB {
         }
         // Migration: acceptance command, launch baseline, and hand lineage for evidence.
         // job_id groups the hands of one change so they can be checked and awaited together.
-        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind"]) {
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history", "turn_in_flight"]) {
           if (!columns.some((existing) => existing.name === column)) {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
+        }
+        if (!columns.some((column) => column.name === "turn_input_ambiguous")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN turn_input_ambiguous INTEGER");
+        }
+        if (!columns.some((column) => column.name === "turn_input_sent")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN turn_input_sent INTEGER");
+        }
+        if (!columns.some((column) => column.name === "turn_hook_offset")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN turn_hook_offset INTEGER");
         }
         if (!columns.some((column) => column.name === "launch_pid")) {
           this.db.exec("ALTER TABLE sessions ADD COLUMN launch_pid INTEGER");
@@ -302,6 +335,104 @@ export class StateDB {
   markNudged(id: string): void {
     this.db.prepare("UPDATE sessions SET nudged_at = ?, updated_at = ?, version = version + 1 WHERE id = ?")
       .run(new Date().toISOString(), new Date().toISOString(), id);
+  }
+
+  // Claim a log batch under the row-version guard, including the nudge marker
+  // when applicable. Concurrent inline monitors cannot consume it twice.
+  consumeTurnHook(id: string, version: number, offset: number, nudge = false): boolean {
+    return this.db.prepare(`UPDATE sessions SET turn_hook_offset = ?,
+      nudged_at = CASE WHEN ? THEN ? ELSE nudged_at END, version = version + 1
+      WHERE id = ? AND status = ? AND version = ? AND (? = 0 OR nudged_at IS NULL)`)
+      .run(offset, nudge ? 1 : 0, new Date().toISOString(), id, SESSION_STATUS.Running, version, nudge ? 1 : 0).changes > 0;
+  }
+
+  beginTurn(id: string, version: number, input: string): SessionRecord | null {
+    return this.immediateTransaction(() => {
+      const row = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as SessionRow | null;
+      if (!row || row.version !== version) return null;
+      const digest = inputDigest(input);
+      const candidates = [...new Set([digest, ...(row.agent_type === "claude-code" ? [inputDigest(claudePromptInput(input))] : [])])];
+      const history = JSON.parse(row.turn_input_history ?? "[]") as string[];
+      // Literal markup cannot be distinguished from the renderer's envelope.
+      // Store both aliases in history, but keep the submitted digest unstripped.
+      const ambiguous = (row.agent_type === "claude-code" && /<\/?pasted_content\b/u.test(input))
+        || candidates.some(candidate => history.includes(candidate));
+      // An idle terminal can still accept follow-ups; register the delivery
+      // without rearming its settled status. Dead launches remain cancelled.
+      const changed = this.db.prepare(`UPDATE sessions SET turn_started_at = ?, turn_input_digest = ?,
+        turn_input_history = ?, turn_input_ambiguous = ?, turn_input_sent = 1, version = version + 1
+        WHERE id = ? AND version = ? AND status IN (?, ?, ?, ?)`)
+        .run(new Date().toISOString(), digest, JSON.stringify([...history, ...candidates]), ambiguous ? 1 : 0,
+          id, version, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Error, SESSION_STATUS.Idle).changes;
+      return changed ? this.getSession(id) : null;
+    });
+  }
+
+  // turn_input_sent records transport success, never ownership or exclusion.
+  // An interrupted sender cannot block later sends or daemon/launch-lease work.
+  // Register optimistically before transport. A stale snapshot may still send,
+  // but its turn cannot safely use hooks: another registration may be in flight.
+  registerTurn(id: string, version: number, input: string, options: { nudge?: boolean; hookOffset?: number } = {}) {
+    return this.immediateTransaction(() => {
+      const previous = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as SessionRow | null;
+      if (!previous || (options.nudge && previous.nudged_at != null)) {
+        throw new Error(`Session ${id} changed before sending the new turn`);
+      }
+      let session = this.beginTurn(id, version, input);
+      const stale = !session && previous.version !== version;
+      if (stale) session = this.beginTurn(id, previous.version, input);
+      if (!session) throw new Error(`Session ${id} changed before sending the new turn`);
+      const now = Date.now();
+      const inFlight = (JSON.parse(previous.turn_in_flight ?? "[]") as InFlightTurn[])
+        .filter(entry => now - Date.parse(entry.startedAt) <= TURN_IN_FLIGHT_MAX_AGE_MS);
+      const overlap = stale || inFlight.length > 0;
+      inFlight.push({ generation: session.version, startedAt: new Date(now).toISOString() });
+      this.db.prepare(`UPDATE sessions SET
+        turn_input_sent = 0, turn_in_flight = ?,
+        turn_input_ambiguous = CASE WHEN ? THEN 1 ELSE turn_input_ambiguous END,
+        nudged_at = CASE WHEN ? THEN ? ELSE nudged_at END,
+        turn_hook_offset = COALESCE(?, turn_hook_offset) WHERE id = ?`)
+        .run(JSON.stringify(inFlight), overlap ? 1 : 0, options.nudge ? 1 : 0, new Date().toISOString(), options.hookOffset ?? null, id);
+      const registered = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as SessionRow;
+      return { previous, registered, overlap, session: rowToRecord(registered) };
+    });
+  }
+
+  finishTurn(registration: ReturnType<StateDB["registerTurn"]>, delivered: boolean): SessionRecord | null {
+    return this.immediateTransaction(() => {
+      const { previous, registered } = registration;
+      const current = this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(previous.id) as SessionRow | null;
+      if (!current) return null;
+      // Remove only this generation, even if a newer input replaced it or the
+      // sender failed. Rollback must not restore a completed sender's entry.
+      const inFlight = (JSON.parse(current.turn_in_flight ?? "[]") as InFlightTurn[])
+        .filter(entry => entry.generation !== registered.version);
+      this.db.prepare("UPDATE sessions SET turn_in_flight = ? WHERE id = ?")
+        .run(JSON.stringify(inFlight), previous.id);
+      // History is appended atomically with every registration, even when inputs
+      // repeat or the wall clock stands still. Row versions also change for hooks,
+      // model updates and kill; those alone do not mean another input was sent.
+      if (current.turn_input_history !== registered.turn_input_history) {
+        this.db.prepare(`UPDATE sessions SET turn_input_ambiguous = 1, version = version + 1
+          WHERE id = ? AND version = ? AND COALESCE(turn_input_ambiguous, 0) != 1`)
+          .run(previous.id, current.version);
+      } else if (!delivered) {
+        // Restore only our own failed registration. Never overwrite a newer
+        // delivery or revive a status changed by kill/settle during transport.
+        this.db.prepare(`UPDATE sessions SET turn_started_at = ?, turn_input_digest = ?,
+          turn_input_history = ?, turn_input_ambiguous = ?, turn_input_sent = ?, nudged_at = ?,
+          turn_hook_offset = ?, version = version + 1 WHERE id = ? AND version = ?`)
+          .run(previous.turn_started_at, previous.turn_input_digest, previous.turn_input_history,
+            registration.overlap || current.turn_input_ambiguous !== registered.turn_input_ambiguous
+              ? 1 : previous.turn_input_ambiguous,
+            previous.turn_input_sent, previous.nudged_at, previous.turn_hook_offset,
+            previous.id, current.version);
+      } else {
+        this.db.prepare(`UPDATE sessions SET turn_input_sent = 1, version = version + 1 WHERE id = ? AND version = ?`)
+          .run(previous.id, current.version);
+      }
+      return this.getSession(previous.id);
+    });
   }
 
   updateModel(id: string, model: string, effort: string | null): void {

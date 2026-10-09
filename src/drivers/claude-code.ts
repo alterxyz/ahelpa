@@ -1,3 +1,6 @@
+import { writeFileSync } from "fs";
+import { defaultRuntimeLayout } from "../runtime-layout";
+import { turnHookCommand } from "../turn-hooks";
 import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
 import { TASK_INSTRUCTION_PREFIX } from "../file-handoff";
 import { shellEscape } from "../shell";
@@ -238,13 +241,21 @@ export const claudeCodeDriver: AgentDriver = {
     effortNote: "effort: low, medium, high, xhigh, max (via --effort <level>)",
   },
 
+  turnHooks: true,
+  prepareLaunchFiles(opts: LaunchOptions): void {
+    if (!opts.sessionId) return;
+    const command = turnHookCommand(defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "claude-code").map(shellEscape).join(" ");
+    const hook = [{ hooks: [{ type: "command", command, timeout: 2 }] }];
+    writeFileSync(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId), JSON.stringify({ promptSuggestionEnabled: false, hooks: { UserPromptSubmit: hook, Stop: hook, StopFailure: hook } }) + "\n", { flag: "wx", mode: 0o600 });
+  },
+
   buildLaunchCommand(opts: LaunchOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(opts.sessionId ? ["--settings", shellEscape(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId))] : [])];
     return `cd ${shellEscape(opts.cwd)} && claude ${args.join(" ")}`;
   },
 
   buildResumeCommand(opts: ResumeOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(opts.sessionId ? ["--settings", shellEscape(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId))] : [])];
     return `cd ${shellEscape(opts.cwd)} && claude --resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
   },
 
@@ -372,6 +383,26 @@ export const claudeCodeDriver: AgentDriver = {
     const latest = cursors.at(-1);
     if (!latest) return false;
     return latest[1].length === 0 && (latest[2] ?? "").trim() === "";
+  },
+
+  acceptsInputAfterTurn(captureOutput: string): boolean {
+    // An attributed Stop allows historical bullets, but any continuing activity
+    // anywhere on screen vetoes input, even above a more recent tool bullet.
+    if (claudeNeedsFolderTrust(captureOutput) || /esc\s+to\s+interrupt/i.test(captureOutput)) return false;
+    const busy = captureOutput.split(/\r?\n/u).some((line) => {
+      if (/^[^\S\r\n]*⏺/u.test(line)) return false;
+      if (/^[^\S\r\n]*[✢✽✶✻✳✺✹✸✷✵·]\s+\S/u.test(line)) {
+        return /(?:…|\.\.\.)/u.test(line) || !/\bfor\s+(?:\d+d\s+\d+h\s+\d+m|\d+h\s+\d+m\s+\d+s|\d+m\s+\d+s|\d+(?:\.\d+)?[smhd])\s*·\s*done\b/u.test(line);
+      }
+      if (/(?:…|\.\.\.)\s*(?:\(\s*)?\d+(?:\.\d+)?\s*(?:ms|s|m|h)\b/u.test(line)) return true;
+      return /(?:…|\.\.\.)[^\S\r\n]*$/u.test(line);
+    });
+    if (busy) return false;
+    const cursors = [...captureOutput.matchAll(/^([^\S\r\n]*)❯(?:[^\S\r\n]+(.*))?$/gmu)];
+    const latest = cursors.at(-1);
+    if (!latest || latest[1].length > 0 || (latest[2] ?? "").trim() !== "") return false;
+    const belowComposer = captureOutput.slice(latest.index! + latest[0].length);
+    return !/\b(?:enter\s+to\s+(?:confirm|select)|esc(?:ape)?\s+to\s+cancel|do\s+you\s+want\s+to\s+(?:proceed|allow)|permission\s+(?:required|request)|(?:requires?|waiting\s+for)\s+(?:approval|permission))\b|\ballow\b[^\r\n]*\?[^\S\r\n]*$|^[^\S\r\n]*\d+\.\s+\S/imu.test(belowComposer);
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {

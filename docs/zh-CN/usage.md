@@ -200,6 +200,8 @@ ahelpa wait "$session_id" --timeout 300    # 5 分钟
 
 ## 读取结果
 
+Claude 和 Codex 会向 ahelpa 提供回合结束时机。回合结束但没有暗号、也没写 summary 时，`wait` 可能更早返回 `needs_attention`。已有 summary 时，ahelpa 会在输入框就绪后请求一次完成暗号。收到可归属当前回合的 Claude Stop 后，历史回复／工具 bullet 和已完成的 spinner 行不会阻止该请求。整屏出现任何 spinner 或中断提示都会阻止，包括无计时器、无图标的省略号行及较新 bullet 上方的活动。Claude helper 通过会话设置关闭输入建议，避免建议文字阻碍就绪检查；真实输入草稿仍会阻止发送。最下方 column-0 composer 必须为空，其下方的对话提示或确认／选择／取消页脚也会阻止输入。这不验证任务成功，仍需照常读取 summary 和 evidence。中断及没有 hook 通知的 CLI 保留无活动兜底。结果目录还可能包含 `turns.log`（事件标识、输入摘要及正文长度／存在性元数据），Claude 会另有 `claude-settings.json`（会话 hooks）。
+
 Helper 完成后，输出位于项目目录：
 
 ```bash
@@ -255,6 +257,8 @@ ahelpa task "$session_id" --file ./next-task.md --token "$token"
 ```
 
 超过一句话的内容优先用 `task`，避免 tmux keystroke input 的长度限制。
+
+允许向同一 session 重叠投递 `send`、`task` 和自动 completion nudge。投递重叠时，ahelpa 会把当前回合标为归属不明确，忽略它的回合结束 hook，停用 hook 快速路径并使用无活动兜底。后续登记只有在没有其他在途投递时才会清除重叠造成的歧义（超过五分钟的条目会过期，以便从发送进程崩溃中恢复）；hook 归属仍要求输入摘要可明确区分。如果需要 hook 快速路径，请逐次发送后续任务。
 
 ## 观察 session
 
