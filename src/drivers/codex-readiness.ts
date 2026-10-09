@@ -19,6 +19,21 @@ function readCodexVersion(executable: string): string | null {
   return null;
 }
 
+// Check the simple field types even in providers that are not selected. Codex
+// deserializes the entire provider map; this is deliberately not a full schema.
+function validConfigFieldTypes(config: Record<string, unknown>): boolean {
+  if (["model", "model_provider"].some((key) => config[key] !== undefined && typeof config[key] !== "string")) return false;
+  if (config.model_providers === undefined) return true;
+  const providers = configObject(config.model_providers);
+  if (!providers) return false;
+  return Object.values(providers).every((value) => {
+    const provider = configObject(value);
+    return provider !== undefined
+      && ["name", "base_url", "env_key"].every((key) => provider[key] === undefined || typeof provider[key] === "string")
+      && (provider.requires_openai_auth === undefined || typeof provider.requires_openai_auth === "boolean");
+  });
+}
+
 // Read only the selection/auth facts. Profile formats have changed across
 // versions; leave their effective provider unknown rather than merging them.
 function providerAuth(config: Record<string, unknown>, runtime: ReadinessRuntime): "openai-auth" | "no-openai-auth" | "missing-credentials" | "unknown" {
@@ -134,6 +149,10 @@ export function checkCodexReadiness(cwd: string, runtime: ReadinessRuntime = rea
     store = config.cli_auth_credentials_store ?? "file";
   } catch {
     addReadiness(result, "unknown", "auth storage config unreadable or unrecognized");
+    return result;
+  }
+  if (!validConfigFieldTypes(config)) {
+    addReadiness(result, "unknown", "config field types unrecognized");
     return result;
   }
   if (typeof store !== "string" || !["file", "auto", "keyring", "ephemeral"].includes(store)) {

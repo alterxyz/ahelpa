@@ -158,6 +158,38 @@ describe("doctor", () => {
     expect(report(["codex"]).agents.codex.locally_ready).toBe("unknown");
   });
 
+  test.each([
+    { name: "local-invalid-model", top: "model = 123\n", extra: "" },
+    { name: "invalid-model-provider", top: "model_provider = 123\n", extra: "" },
+    { name: "invalid-provider-map", top: "model_providers = 123\n", extra: "" },
+    { name: "invalid-provider-entry", top: "", extra: "[model_providers]\nunselected = 123\n" },
+    { name: "local-invalid-unselected-provider", top: "", extra: "[model_providers.unselected]\nname = 123\n" },
+    { name: "invalid-unselected-base-url", top: "", extra: "[model_providers.unselected]\nbase_url = 123\n" },
+    { name: "invalid-unselected-env-key", top: "", extra: "[model_providers.unselected]\nenv_key = 123\n" },
+    { name: "invalid-unselected-auth-flag", top: "", extra: "[model_providers.unselected]\nrequires_openai_auth = \"false\"\n" },
+  ])("Codex rejects simple config type mismatches before accepting credentials: $name", ({ top, extra }) => {
+    stub("codex");
+    for (const selection of ["local", "openai"]) {
+      if (selection === "openai") fixture(join(home, ".codex/auth.json"), '{"OPENAI_API_KEY":"fixture-secret"}');
+      const provider = '[model_providers.local]\nname = "Fixture local"\nrequires_openai_auth = false\n';
+      const config = (top.includes("model_provider =") ? "" : `model_provider = "${selection}"\n`) + top
+        + (top.includes("model_providers =") ? "" : provider) + extra;
+      fixture(join(home, ".codex/config.toml"), config);
+      const output = report(["codex"]);
+      expect(output.agents.codex.locally_ready).toBe("unknown");
+      expect(output.agents.codex.reasons).toEqual(["config field types unrecognized"]);
+      expect(JSON.stringify(output)).not.toContain("fixture-secret");
+    }
+  });
+
+  test("Codex accepts valid simple config types without OpenAI credentials", () => {
+    stub("codex");
+    fixture(join(home, ".codex/config.toml"), 'model = "fixture-model"\nmodel_provider = "local"\n'
+      + '[model_providers.local]\nname = "Fixture local"\nbase_url = "http://127.0.0.1:59999/v1"\nrequires_openai_auth = false\n'
+      + '[model_providers.unselected]\nname = "Other provider"\nbase_url = "http://127.0.0.1:59998/v1"\nenv_key = "UNSELECTED_KEY"\nrequires_openai_auth = true\n');
+    expect(report(["codex"]).agents.codex).toMatchObject({ locally_ready: true, reasons: [] });
+  });
+
   test("Kimi requires model fields", () => {
     kimiMetadata();
     const model = 'default_model = "fixture"\n[models.fixture]\nprovider = "fixture"\n';
@@ -210,6 +242,28 @@ describe("doctor", () => {
     }
     fixture(join(home, ".claude.json"), JSON.stringify({ projects: { [root]: { hasTrustDialogAccepted: true } } }));
     expect(report(["claude-code", "--project", child]).agents["claude-code"].locally_ready).toBe(false);
+  });
+
+  test("Claude normalizes a decomposed common repository root trust key to NFC", () => {
+    stub("claude");
+    const main = join(root, "cafe\u0301"); mkdirSync(main);
+    const physical = realpathSync(main);
+    expect(physical).not.toBe(physical.normalize("NFC"));
+    const git = Bun.which("git")!;
+    const run = (args: string[]) => {
+      const result = Bun.spawnSync([git, ...args], { cwd: main, env: { ...process.env, HOME: home, GIT_CONFIG_NOSYSTEM: "1" }, stdout: "pipe", stderr: "pipe" });
+      expect(result.exitCode).toBe(0);
+    };
+    run(["init"]);
+    run(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "fixture"]);
+    const worktree = join(root, "worktree");
+    run(["worktree", "add", "-b", "fixture-worktree", worktree]);
+    const child = join(worktree, "nested"); mkdirSync(child);
+    symlinkSync(git, join(bin, "git"));
+    fixture(join(home, ".claude.json"), JSON.stringify({ projects: { [physical.normalize("NFC")]: { hasTrustDialogAccepted: true } } }));
+    const before = snapshot(root);
+    expect(report(["claude-code", "--project", child]).agents["claude-code"]).toMatchObject({ locally_ready: true, reasons: [] });
+    expect(snapshot(root)).toEqual(before);
   });
   test("reports present and missing agents with JSON reasons, using no model calls", () => {
     stub("claude");
