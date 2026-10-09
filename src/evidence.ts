@@ -75,21 +75,21 @@ interface FingerprintOptions {
   maxRepositories?: number;
 }
 
-// Git shims/hooks can hang or leave descendants holding pipes. Kill the process
-// group and cancel readers at the absolute deadline, including output reads.
+// Keep Git in the launcher's group so group signals also terminate it. At the
+// deadline kill Git directly and cancel its output reader. A rare grandchild
+// can outlive the deadline until Git's pipes close; do not wait for its EOF.
 async function fingerprintGit(cwd: string, args: string[], deadline: number): Promise<{ stdout: Buffer; exitCode: number; timedOut: boolean }> {
   if (Date.now() >= deadline) return { stdout: Buffer.alloc(0), exitCode: -1, timedOut: true };
-  const proc = Bun.spawn(["git", "-C", cwd, ...args], { env: process.env, stdout: "pipe", stderr: "ignore", stdin: "ignore", detached: true });
+  const proc = Bun.spawn(["git", "-C", cwd, ...args], { env: process.env, stdout: "pipe", stderr: "ignore", stdin: "ignore" });
   const reader = proc.stdout.getReader();
   const chunks: Uint8Array[] = [];
   let timedOut = false;
-  const killTree = () => {
-    try { process.kill(-proc.pid, "SIGKILL"); } catch {}
+  const killGit = () => {
     try { proc.kill("SIGKILL"); } catch {}
   };
   const timer = setTimeout(() => {
     timedOut = true;
-    killTree();
+    killGit();
     void reader.cancel().catch(() => {});
   }, Math.max(0, deadline - Date.now()));
   try {
@@ -104,7 +104,7 @@ async function fingerprintGit(cwd: string, args: string[], deadline: number): Pr
     return { stdout: Buffer.concat(chunks), exitCode, timedOut: timedOut || Date.now() >= deadline };
   } finally {
     clearTimeout(timer);
-    killTree();
+    killGit();
     await reader.cancel().catch(() => {});
   }
 }
