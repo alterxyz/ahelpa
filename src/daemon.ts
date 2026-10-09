@@ -103,11 +103,6 @@ export async function refreshSessionStatuses(
 
   for (let session of sessions) {
     try {
-      // A monitor must not settle/consume an incompletely delivered turn.
-      if (session.turnDeliveryPending) {
-        if (!db.recoverTurnDelivery(session.id)) continue;
-        session = db.getSession(session.id)!;
-      }
       if (session.launchPid) {
         let launcherAlive = true;
         try { process.kill(session.launchPid, 0); } catch (error) {

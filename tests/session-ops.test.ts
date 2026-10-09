@@ -237,7 +237,7 @@ describe("session operations", () => {
     expect(startDaemon).not.toHaveBeenCalled();
   });
 
-  test("a running row from another intervention is not this delivery confirmation and keeps its wakeup pipe", async () => {
+  test("a confirmed delivery can share an independently rearmed row and keeps its wakeup pipe", async () => {
     db = new StateDB(TEST_DB);
     const id = "concurrent-intervention";
     db.createSession({ id, parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT });
@@ -251,9 +251,26 @@ describe("session operations", () => {
     const cleanup = spyOn(defaultWakeup, "cleanup").mockImplementation(() => {});
     spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
 
-    await expect(send(db, id, "tok", "Follow-up task")).rejects.toThrow("monitoring was not resumed");
+    await send(db, id, "tok", "Follow-up task");
 
     expect(db.getSession(id)?.status).toBe("running");
     expect(cleanup).not.toHaveBeenCalled();
+  });
+
+  test("another running row cannot confirm a delivery whose driver saw no new turn", async () => {
+    db = new StateDB(TEST_DB);
+    const id = "unconfirmed-intervention";
+    db.createSession({ id, parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT });
+    db.updateStatus(id, "needs_attention");
+    spyOn(Tmux, "capture").mockResolvedValue("historical output");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(getDriver("codex"), "afterTaskSubmitted").mockImplementation(async () => {
+      db.updateStatus(id, "running");
+      return false;
+    });
+    const prepare = spyOn(defaultWakeup, "prepare").mockResolvedValue();
+    await expect(send(db, id, "tok", "new message")).rejects.toThrow("did not expose a new turn");
+    expect(prepare).not.toHaveBeenCalled();
+    expect(db.getSession(id)?.status).toBe("running");
   });
 });

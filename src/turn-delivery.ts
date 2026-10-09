@@ -1,7 +1,8 @@
 import { StateDB, type SessionRecord } from "./state";
 
-// All task/nudge deliveries reserve before any await and retain the lock through
-// confirmation. Only a failed transport/prepare rolls back the prior turn.
+// Register before transport; overlapping deliveries remain allowed. Completion
+// checks the registration again so delayed transport cannot leave a stale input
+// attributable to hooks. Only a failed prepare/transport rolls back its own turn.
 export async function deliverTurn<T>(
   db: StateDB,
   session: SessionRecord,
@@ -14,14 +15,15 @@ export async function deliverTurn<T>(
     afterSend?: (registered: SessionRecord) => Promise<T>;
   } = {},
 ): Promise<T | undefined> {
-  const reservation = db.reserveTurnDelivery(session.id, session.version, input, options);
+  const registration = db.registerTurn(session.id, session.version, input, options);
   let delivered = false;
   try {
     await options.prepare?.();
     await send();
     delivered = true;
-    return await options.afterSend?.(reservation.session);
+    const confirmed = db.finishTurn(registration, true);
+    return await options.afterSend?.(confirmed ?? registration.session);
   } finally {
-    db.finishTurnDelivery(reservation, delivered);
+    if (!delivered) db.finishTurn(registration, false);
   }
 }

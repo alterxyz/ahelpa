@@ -62,8 +62,13 @@ async function resumeMonitoringAfterIntervention(
   // Submission and FIFO creation both await external work. A concurrent kill
   // must win even if the driver confirmed a turn before the terminal closed.
   if (!db.compareAndSetStatus(session.id, session.status, SESSION_STATUS.Running, session.version)) {
-    if (db.getSession(session.id)?.status !== SESSION_STATUS.Running) defaultWakeup.cleanup(session.id);
-    throw new Error(`Session ${session.id} changed while sending the message; monitoring was not resumed`);
+    // This delivery has already succeeded and passed its driver check above.
+    // An independently rearmed row needs no second state transition; it is
+    // never used as evidence that this particular message was submitted.
+    if (db.getSession(session.id)?.status !== SESSION_STATUS.Running) {
+      defaultWakeup.cleanup(session.id);
+      throw new Error(`Session ${session.id} changed while sending the message; monitoring was not resumed`);
+    }
   }
   if (!daemon.isDaemonRunning()) daemon.startDaemon();
 }
@@ -76,7 +81,7 @@ export const send = withAuth(async ({ db, session }, message: string) => {
       if (canResumeMonitoring(session)) submissionContext = await captureSubmissionContext(session.id);
     },
     afterSend: async registered => {
-      if (canResumeMonitoring(registered)) await resumeMonitoringAfterIntervention(db, registered, submissionContext);
+      if (canResumeMonitoring(session)) await resumeMonitoringAfterIntervention(db, { ...registered, status: session.status }, submissionContext);
     },
   });
 });
@@ -101,7 +106,7 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
       if (canResumeMonitoring(session)) submissionContext = await captureSubmissionContext(session.id);
     },
     afterSend: async registered => {
-      if (canResumeMonitoring(registered)) await resumeMonitoringAfterIntervention(db, registered, submissionContext);
+      if (canResumeMonitoring(session)) await resumeMonitoringAfterIntervention(db, { ...registered, status: session.status }, submissionContext);
     },
   });
 });
