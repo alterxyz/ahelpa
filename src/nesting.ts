@@ -52,10 +52,10 @@ export function getSessionTreeId(db: StateDB, sessionId: string): string {
 
 // Retain the whole parent chain for future tree traversal, plus native resume
 // ancestry so a resumed root continues to share its original tree's quota.
-export function activeSessionAncestorIds(db: StateDB): Set<string> {
+export function activeSessionAncestorIds(db: StateDB, retainedSessionIds: Iterable<string> = []): Set<string> {
   const records = new Map(db.listSessions().map((session) => [session.id, session]));
   const retained = new Set<string>();
-  const pending = db.listActiveSessions().map((session) => session.id);
+  const pending = [...db.listActiveSessions().map((session) => session.id), ...retainedSessionIds];
   while (pending.length) {
     const id = pending.pop()!;
     if (retained.has(id)) continue;

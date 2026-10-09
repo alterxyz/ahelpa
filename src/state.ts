@@ -237,12 +237,12 @@ export class StateDB {
     return this.getSession(input.id) as SessionRecord;
   }
 
-  // Clear the launch window only after startup and resource preparation finish.
-  completeLaunch(id: string, baseCommit?: string | null, status?: SessionStatus): void {
-    this.db.prepare(`UPDATE sessions SET launch_pid = NULL, status = COALESCE(?, status),
+  // Publish only while the running reservation still belongs to this launcher.
+  completeLaunch(id: string, launchPid: number, baseCommit?: string | null, status?: SessionStatus): boolean {
+    return this.db.prepare(`UPDATE sessions SET launch_pid = NULL, status = COALESCE(?, status),
       base_commit = CASE WHEN ? THEN ? ELSE base_commit END,
-      updated_at = ?, version = version + 1 WHERE id = ?`)
-      .run(status ?? null, baseCommit !== undefined ? 1 : 0, baseCommit ?? null, new Date().toISOString(), id);
+      updated_at = ?, version = version + 1 WHERE id = ? AND status = ? AND launch_pid = ?`)
+      .run(status ?? null, baseCommit !== undefined ? 1 : 0, baseCommit ?? null, new Date().toISOString(), id, SESSION_STATUS.Running, launchPid).changes > 0;
   }
 
   immediateTransaction<T>(fn: () => T): T {
