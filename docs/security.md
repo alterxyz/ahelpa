@@ -12,6 +12,12 @@ This is a deliberate design choice for local development. The tradeoff: maximum 
 
 By default, Kimi launches as `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo`. The canonical update flag prevents a CLI self-update from interrupting the persistent tmux session. On the first launch in a directory, ahelpa automatically selects **Trust this folder** so task delivery can continue unattended. Kimi persists that directory trust, and trusted projects can supply MCP servers that Kimi may start. This automatic trust happens in both default and `--safe` modes. Therefore `--safe` only restores per-action native approvals by omitting `--yolo`; it does not make an untrusted project safe to run.
 
+## Session Turn Hooks
+
+Claude hooks are loaded from `.ahelpa/<id>/claude-settings.json` with `--settings`; Codex uses a per-invocation `notify` override. Launch and resume edit neither `~/.claude/settings.json` nor `~/.codex/config.toml`. Existing Claude project/user hooks still merge with the session hooks. A Codex notify override replaces the configured notify command for this invocation; native hooks and their trust settings are untouched.
+
+The hidden `__turn-hook` command parses stdin (Claude) or the final JSON argument (Codex), filters supported events, and appends only identifiers, timestamps, error kinds, and message presence/length to the session's `turns.log`. It opens no state database, executes no payload instructions, and produces no stdout. Invalid inputs or unavailable files are ignored; stdin has a bounded read deadline. The writer requires an existing session directory under `.ahelpa` and rejects symlink destinations. It does not retain assistant text or input-message contents. This is a timing hint from trusted local processes, not an authenticated success signal or a permissions boundary.
+
 ## Practical Mitigations
 
 - **Scope with `--project`.** Point helpers at the smallest useful working directory. This sets cwd and the intended task boundary; it is not a filesystem sandbox. In review prompts, explicitly forbid unrelated home directories, global `~/.ahelpa/archive`, and other projects unless the task truly requires them.

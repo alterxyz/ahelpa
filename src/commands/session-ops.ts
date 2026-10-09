@@ -59,7 +59,7 @@ async function resumeMonitoringAfterIntervention(
   await defaultWakeup.prepare(session.id);
   // Submission and FIFO creation both await external work. A concurrent kill
   // must win even if the driver confirmed a turn before the terminal closed.
-  if (!db.compareAndSetStatus(session.id, session.status, SESSION_STATUS.Running)
+  if (!db.compareAndSetStatus(session.id, session.status, SESSION_STATUS.Running, undefined, session.turnStartedAt)
     && db.getSession(session.id)?.status !== SESSION_STATUS.Running) {
     defaultWakeup.cleanup(session.id);
     throw new Error(`Session ${session.id} changed while sending the message; monitoring was not resumed`);
@@ -67,10 +67,22 @@ async function resumeMonitoringAfterIntervention(
   if (!daemon.isDaemonRunning()) daemon.startDaemon();
 }
 
+function beginHookTurn(db: StateDB, session: SessionRecord): SessionRecord {
+  if (!getDriver(session.agentType).turnHooks) return session;
+  // Settled sessions are not monitored until submission is confirmed. Publish
+  // their timestamp with the existing rearm transition, preserving its version.
+  if (canResumeMonitoring(session)) return { ...session, turnStartedAt: new Date().toISOString() };
+  if (session.status !== SESSION_STATUS.Running) return session;
+  const fresh = db.beginTurn(session.id, session.version);
+  if (!fresh) throw new Error(`Session ${session.id} changed before sending the new turn`);
+  return fresh;
+}
+
 export const send = withAuth(async ({ db, session }, message: string) => {
   const submissionContext = canResumeMonitoring(session)
     ? await captureSubmissionContext(session.id)
     : {};
+  session = beginHookTurn(db, session);
   await Tmux.sendKeys(session.id, message);
   // Host intervened — resume daemon monitoring
   if (canResumeMonitoring(session)) {
@@ -94,6 +106,7 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   const submissionContext = canResumeMonitoring(session)
     ? await captureSubmissionContext(session.id)
     : {};
+  session = beginHookTurn(db, session);
   await Tmux.sendKeys(session.id, fileHandoff.taskInstruction);
   if (canResumeMonitoring(session)) {
     await resumeMonitoringAfterIntervention(db, session, submissionContext);

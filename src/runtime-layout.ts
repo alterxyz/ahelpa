@@ -50,6 +50,18 @@ export class RuntimeLayout {
     return join(projectPath, ".ahelpa");
   }
 
+  sessionDeliveryDir(projectPath: string, sessionId: string): string {
+    return join(this.projectDeliveryDir(projectPath), sessionId);
+  }
+
+  turnsLogPath(projectPath: string, sessionId: string): string {
+    return join(this.sessionDeliveryDir(projectPath, sessionId), "turns.log");
+  }
+
+  claudeSettingsPath(projectPath: string, sessionId: string): string {
+    return join(this.sessionDeliveryDir(projectPath, sessionId), "claude-settings.json");
+  }
+
   taskFilePath(sessionId: string): string {
     return join(this.tmpDir, `ahelpa-task-${sessionId}.md`);
   }

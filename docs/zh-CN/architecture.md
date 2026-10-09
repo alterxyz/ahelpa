@@ -102,6 +102,10 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 5. 某个 session 的 capture 或 kill 失败会记录到日志。如果终端已消失，则补齐终态；否则留待之后重试。其他 session 的刷新继续执行。
 6. 没有 running、draining 或 attention session 后，daemon 退出。
 
+**回合结束时机信号**：Claude 的 launch 和 resume 通过 `--settings` 加载会话目录内的 `claude-settings.json`，注册 `Stop`、`StopFailure` command hooks。Codex 的 launch 和 resume 使用仅本次调用生效的 `notify` override，不配置 native hooks。两者通过隐藏命令 `__turn-hook` 再次调用正在运行的 ahelpa runtime，把元数据追加到 `.ahelpa/<id>/turns.log`。Codex 用首个包含任务投递指令的通知绑定主 thread，忽略其他 thread，包括后台标题生成。原生 resume 直接绑定已记录的 thread token，普通 follow-up 无需重复任务投递指令也能通知。
+
+下一次刷新收到有效事件、本轮尚无暗号时：已有 summary 且 composer 可接收输入，则立即执行 completion nudge。收到当前回合的有效 Stop 后，Claude 使用专用 readiness 检查：历史 `⏺` bullet 不再代表仍在工作，但最下方 column-0 composer 必须为空，且不能有活跃 spinner、中断提示或信任／权限／提问菜单。没有 hook 证据时，原有活动和输入检测逻辑不变。Stop 早于输入就绪时保留待处理事件；持续空闲的菜单仍使用四次 poll 的兜底。没有 summary，或收到 `StopFailure`，立即进入 `needs_attention`，失败类型记入日志。Hook 不代表成功。SQLite 可空字段 `turn_hook_offset` 和 row-version 条件更新避免重启重放及并发 monitor 重复处理；host 提交新回合时，`turn_started_at` 排除旧事件。没有通知时（中断、不支持的 CLI、Kimi），保留原有无活动判断。
+
 **Inline refresh**：daemon 未运行时，`wait`、`check`、`status` 会在返回前执行同样的刷新逻辑。短任务不依赖常驻 daemon。tmux 的权限或连接错误不代表会话死亡，monitor 会保留状态并重试。`clean` 会保留已预留的启动记录，并在清理孤立运行文件前检查终端是否存活。
 
 **进程管理**：PID 文件为 `~/.ahelpa/daemon.pid`，日志为 `~/.ahelpa/daemon.log`。没有 supervisor 在 daemon 崩溃后立即重启它。下一次 launch 或 resume 在 PID 存活检查认定 daemon 已停止时启动它；未检测到 daemon 时，`wait`、`check`、`status` 使用 inline refresh。

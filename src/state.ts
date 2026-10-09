@@ -34,6 +34,8 @@ export interface SessionRecord {
   // in that native conversation, even if old session rows are later reaped.
   targetResultDirs?: string[] | null;
   unblind?: boolean;
+  turnHookOffset?: number | null;
+  turnStartedAt?: string | null;
 }
 
 export interface CreateSessionInput {
@@ -88,6 +90,8 @@ interface SessionRow {
   target_fingerprint: string | null;
   target_result_dirs: string | null;
   unblind: string | null;
+  turn_hook_offset: number | null;
+  turn_started_at: string | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -119,6 +123,8 @@ function rowToRecord(row: SessionRow): SessionRecord {
     targetFingerprint: row.target_fingerprint ? JSON.parse(row.target_fingerprint) : null,
     targetResultDirs: row.target_result_dirs ? JSON.parse(row.target_result_dirs) : null,
     unblind: row.unblind === "true",
+    turnHookOffset: row.turn_hook_offset,
+    turnStartedAt: row.turn_started_at,
   };
 }
 
@@ -205,10 +211,13 @@ export class StateDB {
         }
         // Migration: acceptance command, launch baseline, and hand lineage for evidence.
         // job_id groups the hands of one change so they can be checked and awaited together.
-        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind"]) {
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at"]) {
           if (!columns.some((existing) => existing.name === column)) {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
+        }
+        if (!columns.some((column) => column.name === "turn_hook_offset")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN turn_hook_offset INTEGER");
         }
         if (!columns.some((column) => column.name === "launch_pid")) {
           this.db.exec("ALTER TABLE sessions ADD COLUMN launch_pid INTEGER");
@@ -284,11 +293,11 @@ export class StateDB {
       .run(SESSION_STATUS.Dead, new Date().toISOString(), id);
   }
 
-  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus, expectedVersion?: number): boolean {
+  compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus, expectedVersion?: number, turnStartedAt?: string | null): boolean {
     // Increment under SQLite's write lock: processes must not read/increment/write in JS.
-    return this.db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, version = version + 1
+    return this.db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, turn_started_at = COALESCE(?, turn_started_at), version = version + 1
       WHERE id = ? AND status = ? AND (? IS NULL OR version = ?)`)
-      .run(status, new Date().toISOString(), id, expected, expectedVersion ?? null, expectedVersion ?? null).changes > 0;
+      .run(status, new Date().toISOString(), turnStartedAt ?? null, id, expected, expectedVersion ?? null, expectedVersion ?? null).changes > 0;
   }
 
   updateResumeId(id: string, agentResumeId: string): void {
@@ -302,6 +311,22 @@ export class StateDB {
   markNudged(id: string): void {
     this.db.prepare("UPDATE sessions SET nudged_at = ?, updated_at = ?, version = version + 1 WHERE id = ?")
       .run(new Date().toISOString(), new Date().toISOString(), id);
+  }
+
+  // Claim a log batch under the row-version guard, including the nudge marker
+  // when applicable. Concurrent inline monitors cannot consume it twice.
+  consumeTurnHook(id: string, version: number, offset: number, nudge = false): boolean {
+    return this.db.prepare(`UPDATE sessions SET turn_hook_offset = ?,
+      nudged_at = CASE WHEN ? THEN ? ELSE nudged_at END, version = version + 1
+      WHERE id = ? AND status = ? AND version = ? AND (? = 0 OR nudged_at IS NULL)`)
+      .run(offset, nudge ? 1 : 0, new Date().toISOString(), id, SESSION_STATUS.Running, version, nudge ? 1 : 0).changes > 0;
+  }
+
+  beginTurn(id: string, version: number): SessionRecord | null {
+    const changed = this.db.prepare(`UPDATE sessions SET turn_started_at = ?, version = version + 1
+      WHERE id = ? AND version = ? AND status IN (?, ?, ?)`)
+      .run(new Date().toISOString(), id, version, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Error).changes;
+    return changed ? this.getSession(id) : null;
   }
 
   updateModel(id: string, model: string, effort: string | null): void {

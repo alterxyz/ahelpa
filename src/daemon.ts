@@ -1,5 +1,6 @@
 import { existsSync, appendFileSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
-import { join } from "path";
+import { getSelfCommand } from "./self-command";
+import { readTurnEvents } from "./turn-hooks";
 import { StateDB, type SessionRecord } from "./state";
 import { Tmux } from "./tmux";
 import { Archive } from "./archive";
@@ -41,8 +42,11 @@ const IDLE_DEBOUNCE = 4;
 // no sentinel token so the echoed prompt can never be mistaken for the signal.
 export const COMPLETION_NUDGE = "If your task is finished, print the done signal from the task file alone on a line; if not, continue working.";
 
-export function shouldNudgeForCompletion(db: StateDB, session: SessionRecord, driver: AgentDriver, output: string): boolean {
-  if (!driver.acceptsInput?.(output)) return false;
+export function shouldNudgeForCompletion(db: StateDB, session: SessionRecord, driver: AgentDriver, output: string, turnEnded = false): boolean {
+  const ready = turnEnded && driver.acceptsInputAfterTurn
+    ? driver.acceptsInputAfterTurn(output)
+    : driver.acceptsInput?.(output);
+  if (!ready) return false;
   if (!existsSync(planFileHandoff(session.projectPath, session.id).summaryPath)) return false;
   // Re-read: the host may have sent a new turn since this capture was taken.
   const fresh = db.getSession(session.id);
@@ -155,6 +159,10 @@ export async function refreshSessionStatuses(
       const driver = getDriver(session.agentType);
       const outcome = outcomeFromCapture(output, driver);
       const newStatus = outcome.status;
+      const turn = driver.turnHooks
+        ? readTurnEvents(defaultRuntimeLayout.turnsLogPath(session.projectPath, session.id), session.turnHookOffset ?? 0,
+          session.turnStartedAt ?? session.createdAt, session.agentType)
+        : { offset: session.turnHookOffset ?? 0, event: null };
       if (newStatus !== SESSION_STATUS.Running) {
         // Snapshot before settle awaits the wakeup, so a later model switch cannot relabel this event.
         const ledgerSession = db.getSession(session.id) ?? session;
@@ -194,6 +202,36 @@ export async function refreshSessionStatuses(
             log(`${session.id}: sent graceful exit, draining`);
           }
         }
+      } else if (turn.event) {
+        const summary = existsSync(planFileHandoff(session.projectPath, session.id).summaryPath);
+        const failure = turn.event.event === "stop_failure";
+        // Stop can precede engine shutdown. Keep it pending until the composer
+        // is ready, rather than consume it and lose the early-nudge opportunity.
+        if (!failure && summary && session.nudgedAt == null) {
+          if (shouldNudgeForCompletion(db, session, driver, output, true)) {
+            if (!db.consumeTurnHook(session.id, session.version, turn.offset, true)) continue;
+            idleCount.delete(session.id);
+            await Tmux.sendKeys(session.id, COMPLETION_NUDGE);
+            log(`${session.id}: summary present without signal, nudged for completion (turn hook)`);
+            continue;
+          }
+          if (driver.detectActivity(output) !== "idle") {
+            idleCount.delete(session.id);
+            continue;
+          }
+          // A permanent menu/approval must still reach the inactivity fallback.
+          const count = (idleCount.get(session.id) ?? 0) + 1;
+          idleCount.set(session.id, count);
+          if (count < IDLE_DEBOUNCE) continue;
+        }
+        if (!db.consumeTurnHook(session.id, session.version, turn.offset)) continue;
+        idleCount.delete(session.id);
+        const settled = await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
+          status: SESSION_STATUS.NeedsAttention,
+          lastOutput: output.slice(-500),
+          reason: failure ? `turn hook stop_failure: ${turn.event.error}` : "turn ended without signal",
+        }, SESSION_STATUS.Running, session.version + 1);
+        if (settled) log(`${session.id}: needs attention (turn hook ${turn.event.event}${failure ? `: ${turn.event.error}` : ""})`);
       } else if (driver.detectActivity(output) !== "idle") {
         idleCount.delete(session.id);
       } else {
@@ -261,20 +299,7 @@ export function getDaemonLaunchCommand(
   execPath: string = process.execPath,
   moduleDir: string = import.meta.dir,
 ): string[] {
-  // Dev mode: running from the source tree (`bun run src/cli.ts`). execPath is
-  // the bun runtime, so re-invoke it against cli.ts.
-  const cliPath = join(moduleDir, "cli.ts");
-  if (existsSync(cliPath)) {
-    return [execPath, cliPath, DAEMON_SUBCOMMAND];
-  }
-
-  // Compiled single-file binary (`bun build --compile`) — macOS or Linux alike:
-  // process.execPath IS the ahelpa binary, so re-invoke it directly. Do NOT
-  // append argv[1]: for a compiled binary argv[1] is the binary path itself,
-  // which duplicates execPath and shifts the daemon's args. The daemon then
-  // received `ahelpa <binpath> __daemon`, exited as "Unknown command", never
-  // ran, and wait/settle silently broke.
-  return [execPath, DAEMON_SUBCOMMAND];
+  return [...getSelfCommand(execPath, moduleDir), DAEMON_SUBCOMMAND];
 }
 
 export function spawnDetached(command: string[], logPath?: string): number {

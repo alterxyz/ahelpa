@@ -1,3 +1,6 @@
+import { writeFileSync } from "fs";
+import { defaultRuntimeLayout } from "../runtime-layout";
+import { turnHookCommand } from "../turn-hooks";
 import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
 import { TASK_INSTRUCTION_PREFIX } from "../file-handoff";
 import { shellEscape } from "../shell";
@@ -238,13 +241,21 @@ export const claudeCodeDriver: AgentDriver = {
     effortNote: "effort: low, medium, high, xhigh, max (via --effort <level>)",
   },
 
+  turnHooks: true,
+  prepareLaunchFiles(opts: LaunchOptions): void {
+    if (!opts.sessionId) return;
+    const command = turnHookCommand(defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "claude-code").map(shellEscape).join(" ");
+    const hook = [{ hooks: [{ type: "command", command, timeout: 2 }] }];
+    writeFileSync(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId), JSON.stringify({ hooks: { Stop: hook, StopFailure: hook } }) + "\n", { flag: "wx", mode: 0o600 });
+  },
+
   buildLaunchCommand(opts: LaunchOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(opts.sessionId ? ["--settings", shellEscape(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId))] : [])];
     return `cd ${shellEscape(opts.cwd)} && claude ${args.join(" ")}`;
   },
 
   buildResumeCommand(opts: ResumeOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(opts.sessionId ? ["--settings", shellEscape(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId))] : [])];
     return `cd ${shellEscape(opts.cwd)} && claude --resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
   },
 
@@ -372,6 +383,18 @@ export const claudeCodeDriver: AgentDriver = {
     const latest = cursors.at(-1);
     if (!latest) return false;
     return latest[1].length === 0 && (latest[2] ?? "").trim() === "";
+  },
+
+  acceptsInputAfterTurn(captureOutput: string): boolean {
+    // A Stop proves the response ended, so old tool/reply bullets are not live
+    // activity. Composer focus and continuing work still need independent checks.
+    if (claudeNeedsFolderTrust(captureOutput) || /esc\s+to\s+interrupt/i.test(captureOutput)) return false;
+    const cursors = [...captureOutput.matchAll(/^([^\S\r\n]*)❯(?:[^\S\r\n]+(.*))?$/gmu)];
+    const latest = cursors.at(-1);
+    if (!latest || latest[1].length > 0 || (latest[2] ?? "").trim() !== "") return false;
+    const lastReply = [...captureOutput.matchAll(/^[^\S\r\n]*⏺.*$/gmu)].at(-1);
+    const afterReply = captureOutput.slice(lastReply?.index ?? 0);
+    return !/^[^\S\r\n]*[✢✽✶✻✳✺✹✸✷✵·]\s+\S[^\r\n]*…[^\S\r\n]*\(/mu.test(afterReply);
   },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
