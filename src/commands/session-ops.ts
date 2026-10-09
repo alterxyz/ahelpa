@@ -125,25 +125,38 @@ export const switchModel = withAuth(async ({ db, session }, opts: ModelSwitchOpt
 });
 
 async function stopSession(db: StateDB, session: SessionRecord, descendant = false): Promise<boolean> {
-  // The root may have changed while its descendants were being stopped.
-  const observed = db.getSession(session.id);
-  if (!observed) return false;
   let archive: Archive | undefined;
+  let archiveRevision: string | null = null;
+  let shouldCapture = false;
+  // Read the row and archive marker under the same lock so a separate
+  // settler cannot publish its archive between these two observations.
+  const observed = db.immediateTransaction(() => {
+    const current = db.getSession(session.id);
+    if (!current) return null;
+    try {
+      archive = new Archive(defaultRuntimeLayout.archiveDir());
+      archiveRevision = archive.revision(session.id);
+      // A previous turn's archive on a running session is not its final result.
+      shouldCapture = current.status === SESSION_STATUS.Running || !archive.get(session.id);
+    } catch {}
+    return current;
+  });
+  if (!observed) return false;
   let lastOutput: string | undefined;
-  try {
-    archive = new Archive(defaultRuntimeLayout.archiveDir());
-    // Settlement includes attention/error and the idle -> draining window.
-    // A previous turn's archive on a running session is not its final result.
-    if (observed.status === SESSION_STATUS.Running || !archive.get(session.id)) {
-      lastOutput = await Tmux.capture(session.id, 500);
-    }
-  } catch {}
+  if (shouldCapture) {
+    try { lastOutput = await Tmux.capture(session.id, 500); } catch {}
+  }
+  const hasNewSettlement = (current: SessionRecord): boolean => {
+    if (!archive || current.status === SESSION_STATUS.Running || current.launchPid) return false;
+    const revision = archive.revision(session.id);
+    return revision !== null && revision !== archiveRevision;
+  };
   if (descendant) {
     const current = db.getSession(session.id);
     // Settlement while capture awaited owns both the result and its cleanup.
     if (!current || current.status === SESSION_STATUS.Idle
       || current.status === SESSION_STATUS.Dead || current.status === SESSION_STATUS.Error
-      || (current.version !== observed.version && current.status !== SESSION_STATUS.Running)) return false;
+      || (current.version !== observed.version && hasNewSettlement(current))) return false;
   }
   try {
     await Tmux.kill(session.id);
@@ -152,26 +165,37 @@ async function stopSession(db: StateDB, session: SessionRecord, descendant = fal
     // reserved launch may not have created it yet. Dead cancels its launch CAS.
     if (await Tmux.hasSession(session.id)) throw error;
   }
-  // Mirror settle's transaction: a stale kill cannot relabel its winner or
-  // overwrite its archive. Capture must precede termination, commit must follow.
-  let committed = false;
-  try {
-    db.transaction(() => {
-      if (!db.compareAndSetStatus(session.id, observed.status, SESSION_STATUS.Dead, observed.version)) return;
-      if (lastOutput !== undefined) archive!.save(session.id, {
-        status: SESSION_STATUS.Dead,
-        lastOutput,
-        agentResumeId: observed.agentResumeId ?? undefined,
+  // Capture precedes termination; only then can we commit dead + archive.
+  // A version conflict may be metadata, publication, or a re-armed turn.
+  // Re-arbitrate under the write lock, preserving only a newer settlement.
+  let expected = observed;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let committed = false;
+    let finished = false;
+    try {
+      db.immediateTransaction(() => {
+        if (attempt > 0) {
+          const current = db.getSession(session.id);
+          if (!current || hasNewSettlement(current)) { finished = true; return; }
+          expected = current;
+        }
+        if (!db.compareAndSetStatus(session.id, expected.status, SESSION_STATUS.Dead, expected.version)) return;
+        if (lastOutput !== undefined) archive!.save(session.id, {
+          status: SESSION_STATUS.Dead,
+          lastOutput,
+          agentResumeId: expected.agentResumeId ?? undefined,
+        });
+        committed = true;
       });
-      committed = true;
-    });
-  } catch {
-    // Archive failure rolls the row back; still cancel an unpublished launch
-    // and record the successful termination, using the same observed version.
-    committed = db.compareAndSetStatus(session.id, observed.status, SESSION_STATUS.Dead, observed.version);
+    } catch {
+      // Archive failure rolls the row back. Cancel the launch and record the
+      // termination only if this attempt's row has not changed meanwhile.
+      committed = db.compareAndSetStatus(session.id, expected.status, SESSION_STATUS.Dead, expected.version);
+    }
+    if (committed) defaultWakeup.cleanup(session.id);
+    if (committed || finished) return true;
   }
-  if (committed) defaultWakeup.cleanup(session.id);
-  return true;
+  throw new Error(`Session ${session.id} changed repeatedly after termination; kill status was not committed`);
 }
 
 export const MAX_TREE_KILL_PASSES = 4;
@@ -210,7 +234,8 @@ export const kill = withAuth(async ({ db, session }, opts: { tree?: boolean } = 
     }
   }
   // Also includes children first registered during the last allowed pass.
-  return { killed, missed: listActiveDescendants(db, session.id).map((child) => child.id) };
+  return { killed, missed: listActiveDescendants(db, session.id)
+    .filter((child) => !killed.includes(child.id)).map((child) => child.id) };
 });
 
 export const logs = withAuth(async ({ session }) => {
