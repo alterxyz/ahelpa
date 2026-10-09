@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { StateDB, type CreateSessionInput } from "../src/state";
 import { runCli } from "../src/command-contract";
@@ -66,13 +66,24 @@ describe("peer mail adversarial regressions", () => {
     const plan = planLaunch({ db, agentType: "codex", parentId: "host", projectPath: root, task: "work", job: "job" });
     spyOn(plan.driver, "prepareForTask").mockResolvedValue();
     spyOn(plan.driver, "afterTaskSubmitted").mockResolvedValue(true);
+    function snapshotDeliveryTree(path = plan.fileHandoff.sessionDeliveryDir, name = "."): Array<{ name: string; size: number }> {
+      if (!existsSync(path)) return [];
+      const stat = lstatSync(path);
+      return [{ name, size: stat.size }, ...(stat.isDirectory()
+        ? readdirSync(path).sort().flatMap(child => snapshotDeliveryTree(join(path, child), `${name}/${child}`))
+        : [])];
+    }
     spyOn(Tmux, "create").mockImplementation(async () => {
       expect(db.getSession(plan.sessionId)?.launchPid).toBe(process.pid);
+      const beforeBroadcast = snapshotDeliveryTree();
       expect((await cli(["mail", "--peers", "--text", "claiming src/parser/*"], "a")).code).toBe(0);
+      expect(snapshotDeliveryTree()).toEqual(beforeBroadcast);
+      const beforeExplicit = snapshotDeliveryTree();
       const explicit = await cli(["mail", plan.sessionId, "--text", "request"], "a");
       expect(explicit.code).toBe(1);
       expect(explicit.err.join("")).toContain("still launching; retry after launch completes");
-      expect(existsSync(plan.fileHandoff.sessionDeliveryDir)).toBe(false);
+      expect(snapshotDeliveryTree()).toEqual(beforeExplicit);
+      expect(existsSync(join(plan.fileHandoff.sessionDeliveryDir, "inbox"))).toBe(false);
       expect(db.listPeerMail(plan.sessionId)).toEqual([]);
     });
     await executeLaunch(plan);
