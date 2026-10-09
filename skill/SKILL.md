@@ -165,6 +165,8 @@ Known tags:
 
 The daemon (or inline refresh) detects these and transitions session state: `DONE` → `idle`, `NEED_HELP` → `error`. If `wait` returns `error`, check `capture` or `logs` first: a Codex model/account error can also cause it. For NEED_HELP, read `summary.md`, then intervene with `send` without bypassing refusals.
 
+Claude Stop/StopFailure and Codex notify provide session-scoped turn-end timing. Without a sentinel or summary, a completed turn can reach `needs_attention` sooner; with a summary, ahelpa asks once for the signal only when the composer is ready. Hooks do not prove success. Session directories may contain metadata-only `turns.log` and Claude's `claude-settings.json`; user configuration files are not edited. Missing notifications retain the inactivity fallback.
+
 Only NEED_HELP writes a line to the global ledger `${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl`; tags are helper self-reports, not verified causes. Count tags with:
 
 ```bash

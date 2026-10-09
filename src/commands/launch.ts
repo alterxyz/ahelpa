@@ -255,6 +255,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   const fileHandoff = planFileHandoff(input.projectPath, sessionId);
   const baseLaunchCmd = driver.buildLaunchCommand({
     cwd: input.projectPath,
+    sessionId,
     safe: input.safe,
     model: input.model,
     effort: input.effort,
@@ -393,6 +394,7 @@ function rollbackReservation(db: StateDB, sessionId: string): void {
 export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   let tmuxCreated = false;
   let handoffOwned = false;
+  let taskFileOwned = false;
   let dbCreated = false;
   let wakeupOwned = false;
   let worktreeCreated = false;
@@ -436,13 +438,21 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       ? await computeTargetFingerprint(plan.input.projectPath, targetResultDirs, { deadline: Date.now() + LAUNCH_FINGERPRINT_TIMEOUT_MS })
       : null;
     plan.handoffContext.targetFingerprint = targetFingerprint;
+    if (plan.driver.turnHooks) {
+      mkdirSync(plan.fileHandoff.projectDeliveryDir, { recursive: true });
+      mkdirSync(plan.fileHandoff.sessionDeliveryDir);
+      handoffOwned = true;
+      plan.driver.prepareLaunchFiles?.({ cwd: plan.input.projectPath, sessionId: plan.sessionId });
+    }
     await Tmux.create(plan.sessionId, plan.launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(plan.input.db, plan.sessionId);
-    // Re-check after tmux creation so a concurrent/stale handoff is never
-    // overwritten by this launch. We own the tmux, but not those files.
-    assertFileHandoffAvailable(plan.fileHandoff);
+    // Hook-enabled drivers reserved their delivery directory before startup.
+    // Re-check the separate tmp task path after tmux creation as well.
+    if (!handoffOwned) assertFileHandoffAvailable(plan.fileHandoff);
+    else if (existsSync(plan.fileHandoff.taskFilePath)) throw new Error("Refusing to overwrite existing task file");
     handoffOwned = true;
+    taskFileOwned = true;
     prepareFileHandoff(plan.fileHandoff, plan.input.task, plan.handoffContext);
     await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
     const submissionContext: TaskSubmissionContext = {};
@@ -503,8 +513,10 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     if (dbCreated) {
       try { rollbackReservation(plan.input.db, plan.sessionId); } catch {}
     }
-    if (handoffOwned) {
+    if (taskFileOwned) {
       try { unlinkSync(plan.fileHandoff.taskFilePath); } catch {}
+    }
+    if (handoffOwned) {
       try { rmSync(plan.fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
     }
     if (worktreeCreated && plan.worktreeSource) {
@@ -588,6 +600,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
 
   const resumeCmd = driver.buildResumeCommand({
     cwd: projectPath,
+    sessionId,
     resumeId: oldSession.agentResumeId,
     safe,
     model: oldSession.model ?? undefined,
@@ -602,6 +615,8 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   let dbCreated = false;
   let wakeupOwned = false;
   let handoffOwned = false;
+  let hookDirOwned = false;
+  const handoff = planFileHandoff(projectPath, sessionId);
   try {
     reserveSession(input.db, {
       id: sessionId,
@@ -629,6 +644,13 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+    if (driver.turnHooks) {
+      assertFileHandoffAvailable(handoff);
+      mkdirSync(handoff.projectDeliveryDir, { recursive: true });
+      mkdirSync(handoff.sessionDeliveryDir);
+      hookDirOwned = true;
+      driver.prepareLaunchFiles?.({ cwd: projectPath, sessionId });
+    }
     await Tmux.create(sessionId, launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(input.db, sessionId);
@@ -660,6 +682,8 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     if (wakeupOwned) defaultWakeup.cleanup(sessionId);
     if (handoffOwned) {
       try { rmSync(fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
+    if (hookDirOwned) {
+      try { rmSync(handoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
     }
     if (dbCreated) {
       try { rollbackReservation(input.db, sessionId); } catch {}

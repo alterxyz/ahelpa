@@ -5,8 +5,13 @@ import { StateDB } from "./state";
 import { daemonLoop, DAEMON_SUBCOMMAND } from "./daemon";
 import { defaultRuntimeLayout } from "./runtime-layout";
 import { COMMAND_CONTRACTS, runCli } from "./command-contract";
+import { runTurnHook, TURN_HOOK_SUBCOMMAND } from "./turn-hooks";
 
 const args = process.argv.slice(2);
+if (args[0] === TURN_HOOK_SUBCOMMAND) {
+  await runTurnHook(args.slice(1));
+  process.exit(0);
+}
 const io = {
   print: (text: string) => console.log(text),
   printError: (text: string) => console.error(text),

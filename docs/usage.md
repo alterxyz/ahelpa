@@ -201,6 +201,8 @@ ahelpa wait "$session_id" --timeout 300    # 5 minutes
 
 ## Read Results
 
+Claude and Codex report turn-end timing to ahelpa. When a turn ends without a signal, `wait` may return `needs_attention` sooner if no summary was written. If a summary exists, ahelpa asks once for the completion signal when the input composer is ready. After an accepted Claude Stop, old reply/tool bullets do not block this request; an active spinner, menu, or draft still does. This does not verify task success; read the summary and evidence as usual. Interrupted turns and CLIs that emit no hook keep the inactivity fallback. The result directory may also contain `turns.log` (event identifiers and length/presence metadata) and, for Claude, `claude-settings.json` (session hooks).
+
 After a helper completes, its output lives in the project directory:
 
 ```bash

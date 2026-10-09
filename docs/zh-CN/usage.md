@@ -200,6 +200,8 @@ ahelpa wait "$session_id" --timeout 300    # 5 分钟
 
 ## 读取结果
 
+Claude 和 Codex 会向 ahelpa 提供回合结束时机。回合结束但没有暗号、也没写 summary 时，`wait` 可能更早返回 `needs_attention`。已有 summary 时，ahelpa 会在输入框就绪后请求一次完成暗号。收到有效的 Claude Stop 后，旧回复／工具 bullet 不会阻止该请求；活跃 spinner、菜单或输入草稿仍会阻止。这不验证任务成功，仍需照常读取 summary 和 evidence。中断及没有 hook 通知的 CLI 保留无活动兜底。结果目录还可能包含 `turns.log`（事件标识及正文长度／存在性元数据），Claude 会另有 `claude-settings.json`（会话 hooks）。
+
 Helper 完成后，输出位于项目目录：
 
 ```bash
