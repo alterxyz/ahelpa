@@ -46,6 +46,7 @@ export interface SessionRecord {
   turnStartedAt?: string | null;
   turnInputDigest?: string | null;
   turnInputAmbiguous?: boolean;
+  mailBudget?: number | null;
 }
 
 export interface CreateSessionInput {
@@ -70,6 +71,7 @@ export interface CreateSessionInput {
   targetFingerprint?: TargetFingerprint | null;
   targetResultDirs?: string[] | null;
   unblind?: boolean;
+  mailBudget?: number | null;
 }
 
 export interface PeerMailRecord {
@@ -117,6 +119,7 @@ interface SessionRow {
   turn_input_ambiguous: number | null;
   turn_input_sent: number | null;
   turn_in_flight: string | null;
+  mail_budget: number | null;
 }
 
 function rowToRecord(row: SessionRow): SessionRecord {
@@ -153,6 +156,7 @@ function rowToRecord(row: SessionRow): SessionRecord {
     turnInputDigest: row.turn_input_digest,
     turnInputAmbiguous: row.turn_input_ambiguous === 1 || row.turn_input_digest != null
       && (JSON.parse(row.turn_input_history ?? "[]") as string[]).filter(value => value === row.turn_input_digest).length > 1,
+    mailBudget: row.mail_budget,
   };
 }
 
@@ -259,6 +263,9 @@ export class StateDB {
         if (!columns.some((column) => column.name === "mail_sent")) {
           this.db.exec("ALTER TABLE sessions ADD COLUMN mail_sent INTEGER NOT NULL DEFAULT 0");
         }
+        if (!columns.some((column) => column.name === "mail_budget")) {
+          this.db.exec("ALTER TABLE sessions ADD COLUMN mail_budget INTEGER");
+        }
         // Metadata survives clean so recipient sequences and receipt evidence
         // do not depend on the sender's continued presence or project path.
         this.db.exec(`CREATE TABLE IF NOT EXISTS peer_mail (
@@ -277,8 +284,8 @@ export class StateDB {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id, launch_pid, target_fingerprint, target_result_dirs, unblind)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id, launch_pid, target_fingerprint, target_result_dirs, unblind, mail_budget)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -304,6 +311,7 @@ export class StateDB {
       input.targetFingerprint ? JSON.stringify(input.targetFingerprint) : null,
       input.targetResultDirs ? JSON.stringify(input.targetResultDirs) : null,
       input.unblind === undefined ? null : String(input.unblind),
+      input.mailBudget ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
   }

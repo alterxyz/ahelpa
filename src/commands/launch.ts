@@ -193,7 +193,6 @@ function helperEnvironmentPrefix(sessionId: string, maxDepth: number, jobId: str
     `AHELPA_PARENT_ID=${sessionId}`,
     `AHELPA_MAX_NESTING_DEPTH=${maxDepth}`,
     `AHELPA_MAX_ACTIVE_PER_TREE=${getMaxActivePerTree()}`,
-    `AHELPA_MAIL_BUDGET=${readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8)}`,
     `AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`,
     `AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`,
   ];
@@ -424,6 +423,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       jobId: plan.jobId,
       targetResultDirs: plan.input.role === "reviewer" ? [plan.fileHandoff.sessionDeliveryDir] : null,
       unblind: plan.input.unblind,
+      mailBudget: readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8),
     }, plan.callerId, plan.maxDepth);
     dbCreated = true;
     if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
@@ -642,6 +642,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
         ? [...(oldSession.targetResultDirs ?? [planFileHandoff(projectPath, oldSession.id).sessionDeliveryDir]), planFileHandoff(projectPath, sessionId).sessionDeliveryDir]
         : null,
       unblind: oldSession.unblind,
+      mailBudget: readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8),
     }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });

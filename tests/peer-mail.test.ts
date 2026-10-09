@@ -64,10 +64,10 @@ describe("bounded peer mail", () => {
     let listed = JSON.parse((await cli(["inbox"], "b")).out[0]);
     expect(listed).toHaveLength(1);
     expect(listed[0]).toMatchObject({ from: "a", to: "b", seq: 1, readAt: null });
-    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe(message);
+    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe("> 接口说明：保留 UTF-8\n> ");
     listed = JSON.parse((await cli(["inbox"], "b")).out[0]);
     expect(listed[0].readAt).toBeString();
-    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe(message);
+    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe("> 接口说明：保留 UTF-8\n> ");
     expect((await cli(["mail", "a", "--text", "noted"], "b")).code).toBe(0);
     expect(readFileSync(join(a.projectPath, ".ahelpa/a/inbox/1-from-b.md"), "utf8")).toBe("noted");
     db.updateStatus("a", "idle"); db.updateStatus("b", "idle"); db.updateStatus(untouched.id, "idle");
@@ -108,7 +108,7 @@ describe("bounded peer mail", () => {
   });
 
   test("broadcast excludes sender, reviewers, finished and other-job sessions and charges each recipient", async () => {
-    const a = session("a"); session("b"); session("c"); session("review", { role: "reviewer" });
+    const a = session("a", { mailBudget: 3 }); session("b"); session("c"); session("review", { role: "reviewer" });
     session("outside", { jobId: "elsewhere" }); session("done"); db.updateStatus("done", "idle");
     process.env.AHELPA_MAIL_BUDGET = "3";
     const result = await cli(["mail", "--peers", "--text", "question"], "a");
@@ -154,7 +154,7 @@ describe("bounded peer mail", () => {
   });
 
   test("failed file delivery does not consume budget, sequence or ledger entries", async () => {
-    const a = session("a"), b = session("b"); process.env.AHELPA_MAIL_BUDGET = "1";
+    const a = session("a", { mailBudget: 1 }), b = session("b");
     const obstruction = join(b.projectPath, ".ahelpa"); writeFileSync(obstruction, "blocked");
     expect((await cli(["mail", "b", "--text", "fails"], "a")).code).toBe(1);
     rmSync(obstruction);
@@ -199,11 +199,15 @@ describe("bounded peer mail", () => {
     session("a"); const b = session("b"); session("c");
     const modulePath = join(import.meta.dir, "../src/command-contract.ts");
     const statePath = join(import.meta.dir, "../src/state.ts");
+    const daemonPath = join(import.meta.dir, "../src/daemon.ts");
     const callers = [...Array<string>(12).fill("a"), ...Array<string>(4).fill("c")];
     const children = callers.map((caller, index) => Bun.spawn([process.execPath, "-e", `
       import { existsSync, writeFileSync } from "fs";
       import { StateDB } from ${JSON.stringify(statePath)};
       import { runCli } from ${JSON.stringify(modulePath)};
+      import { spyOn } from "bun:test";
+      import * as daemon from ${JSON.stringify(daemonPath)};
+      spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
       writeFileSync(${JSON.stringify(join(root, `ready-${index}`))}, "ready");
       const deadline = Date.now() + 10000;
       while (!existsSync(${JSON.stringify(join(root, "start"))})) {
@@ -243,14 +247,14 @@ describe("bounded peer mail", () => {
     session("a"); session("b"); session("c");
     expect((await cli(["mail", "b", "--text", "one"], "a")).code).toBe(0);
     db.deleteSession("a");
-    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe("one");
+    expect((await cli(["inbox", "--read", "1"], "b")).out[0]).toBe("> one");
     expect((await cli(["mail", "b", "--text", "two"], "c")).code).toBe(0);
     expect(db.listPeerMail("b").map((m) => m.seq)).toEqual([1, 2]);
     expect(db.peerMailCounts("b").received).toBe(2);
   });
 
   test("changing stored project paths or deleting a ledger cannot reset the SQLite send budget", async () => {
-    const a = session("a"); session("b"); session("c"); process.env.AHELPA_MAIL_BUDGET = "1";
+    const a = session("a", { mailBudget: 1 }); session("b"); session("c");
     expect((await cli(["mail", "b", "--text", "one"], "a")).code).toBe(0);
     rmSync(join(a.projectPath, ".ahelpa/jobs/job/mail.jsonl"));
     const elsewhere = join(root, "elsewhere"); mkdirSync(elsewhere);
@@ -262,19 +266,19 @@ describe("bounded peer mail", () => {
     expect(existsSync(join(elsewhere, ".ahelpa"))).toBe(false);
   });
 
-  test("orphan delivery files and non-regular ledgers are preserved and refused", async () => {
+  test("orphan files are preserved and skipped; non-regular ledgers are refused", async () => {
     const a = session("a"), b = session("b");
     const inboxPath = join(b.projectPath, ".ahelpa/b/inbox"); mkdirSync(inboxPath, { recursive: true });
     const orphan = join(inboxPath, "1-from-a.md"); writeFileSync(orphan, "uncertain");
     let result = await cli(["mail", "b", "--text", "replacement"], "a");
-    expect(result.code).toBe(1); expect(result.err.join("")).toContain("uncertain");
+    expect(result.code).toBe(0);
+    expect(db.listPeerMail("b")[0].seq).toBe(2);
     expect(readFileSync(orphan, "utf8")).toBe("uncertain");
-    rmSync(orphan);
-    const ledger = join(a.projectPath, ".ahelpa/jobs/job/mail.jsonl"); mkdirSync(ledger);
+    const ledger = join(a.projectPath, ".ahelpa/jobs/job/mail.jsonl"); rmSync(ledger); mkdirSync(ledger);
     result = await cli(["mail", "b", "--text", "body"], "a");
     expect(result.code).toBe(1); expect(result.err.join("")).toContain("regular file");
-    expect(db.peerMailCounts("a").sent).toBe(0);
-    expect(readdirSync(inboxPath)).toEqual([]);
+    expect(db.peerMailCounts("a").sent).toBe(1);
+    expect(readdirSync(inboxPath).sort()).toEqual(["1-from-a.md", "2-from-a.md"]);
   });
 
   test("relative legacy projects are refused and a failed inbox read does not mark the message", async () => {
@@ -298,11 +302,11 @@ describe("bounded peer mail", () => {
     expect(buildTaskFileContent(plan.fileHandoff, "work", plan.handoffContext)).toContain("ahelpa check --job job.with-dots_1");
   });
 
-  test("budget configuration is exported for every driver's launch and resume", async () => {
+  test("budget configuration stays out of every driver's launch and resume environment", async () => {
     delete process.env.AHELPA_PARENT_ID; process.env.AHELPA_MAIL_BUDGET = "3";
     for (const agentType of ["codex", "claude-code", "kimi"]) {
       const plan = planLaunch({ db, agentType, parentId: "host", projectPath: root, task: "work" });
-      expect(plan.launchCmd).toContain("AHELPA_MAIL_BUDGET=3");
+      expect(plan.launchCmd).not.toContain("AHELPA_MAIL_BUDGET=");
       const old = session(`old-${agentType}`, { agentType });
       db.updateStatus(old.id, "idle"); db.updateResumeId(old.id, "resume-token");
       const create = spyOn(Tmux, "create").mockResolvedValue();
@@ -313,8 +317,9 @@ describe("bounded peer mail", () => {
       const { defaultWakeup } = await import("../src/wakeup");
       spyOn(defaultWakeup, "prepare").mockResolvedValue();
       const { resume } = await import("../src/commands/launch");
-      await resume({ db, sessionId: old.id, ownerToken: "tok" });
-      expect(create.mock.calls.at(-1)?.[1]).toContain("AHELPA_MAIL_BUDGET=3");
+      const resumed = await resume({ db, sessionId: old.id, ownerToken: "tok" });
+      expect(db.getSession(resumed.sessionId)?.mailBudget).toBe(3);
+      expect(create.mock.calls.at(-1)?.[1]).not.toContain("AHELPA_MAIL_BUDGET=");
     }
   });
 

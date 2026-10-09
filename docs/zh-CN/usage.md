@@ -99,13 +99,13 @@ ahelpa 会在 `<project 的父目录>/<project 名>-worktrees/<session-id>` 创�
 
 ### 把多个 hand 归入一个 job
 
-用 `--job <id>` 把同一次改动的多个 hand 归为一组，便于一起查看和等待：
+用 `--job <id>` 把同一次改动的多个 hand 归为一组，便于一起查看和等待。Job ID 在 runtime 的 SQLite 数据库中共享全局命名空间，跨项目和 worktree 生效。为每次改动选择唯一 ID，例如包含仓库名和 issue 编号：
 
 ```bash
-impl=$(ahelpa launch codex --job parser-fix --file ./impl.md | jq -r .sessionId)
-rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)   # 继承 parser-fix
-ahelpa check --job parser-fix
-ahelpa wait --job parser-fix --all
+impl=$(ahelpa launch codex --job ahelpa-issue-14-parser-fix --file ./impl.md | jq -r .sessionId)
+rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)   # 继承 job
+ahelpa check --job ahelpa-issue-14-parser-fix
+ahelpa wait --job ahelpa-issue-14-parser-fix --all
 ```
 
 Job 优先级依次为显式 `--job`、`--after` session 保存的 job、发起 launch 的 helper 保存的 job。只有调用方的 `AHELPA_PARENT_ID` 对应现存 SQLite session 时，才认定它是 helper；host shell 遗留的 `AHELPA_JOB_ID` 会被忽略。最终采用的 job 无论来源如何都会校验。所有 driver 在 launch 和 resume 时都导出 `AHELPA_JOB_ID`，没有 job 时为空；环境值不会覆盖调用方保存的 job。Job ID 为 1–64 个字母、数字、`.`、`_` 或 `-`，且以字母或数字开头。`wait --job` 解析为开始等待时该 job 中处于 `running` 的 session；它接受 session ID 或 `--job` 之一，不能同时使用。`resume` 会保留 job。`status` 显示 JOB 列，`check` 包含 `jobId`。Job 没有自己的生命周期：它只是一个带有操作的标签，不改变权限或所有权。
@@ -115,23 +115,29 @@ Job 优先级依次为显式 `--job`、`--after` session 保存的 job、发起 
 在 helper 内运行这些命令；其 `AHELPA_PARENT_ID` 必须对应现存 SQLite session：
 
 ```bash
-ahelpa check --job parser-fix                  # 查找其他 hand
+ahelpa check --job ahelpa-issue-14-parser-fix    # 查找其他 hand
 ahelpa mail "$peer_id" --text "The parser now returns an empty list for blank input."
 ahelpa mail --peers --file ./interface-notes.md
 ahelpa inbox                                  # 全部消息，包含已读状态
 ahelpa inbox --read 1                          # 读取序号 1 并标记已读
 ```
 
-收件人 ID 与 `--peers` 必须二选一，`--file` 与 `--text` 也必须二选一。`--peers` 指向发送方保存的 job 内其他全部活跃非 reviewer session。Host shell 发送 mail 会被拒绝；host 应使用带 owner token 的 `send` 或 `task`。Mail 不需要 owner token，但收发双方必须处于 `running`、同属一个非空 job，且均非 reviewer。发送方发出完成或求助信号后、收件方结算后，都不能交换 mail。
+收件人 ID 与 `--peers` 必须二选一，`--file` 与 `--text` 也必须二选一。`--peers` 指向发送方保存的 job 内处于 running 的非 reviewer，排除自身、仍在启动的 session，以及直接 parent 和 child。显式指定仍在启动的收件人会收到 "still launching; retry after launch completes"。直接 parent/child 双向都不能使用 mail：host 对 child 使用带 token 的 `send` 或 `task`；child 通过 summary 和暗号协议向 host 报告。Host shell 发送 mail 会被拒绝。Mail 不需要 owner token，但收发双方必须处于 `running`、同属一个非空 job，且均非 reviewer。发送方发出完成或求助信号后、收件方结算后，都不能交换 mail；daemon 未运行时，`mail` 会 inline refresh 状态。
 
 四个硬边界是：
 
 1. **只能在同一 job 内。** 没有 job 就没有 mail；设置 `AHELPA_JOB_ID` 不会改变发送方保存的 job。
 2. **请求不是指令。** 消息可以询问、告知或提示问题，不能重新分配任务、修改验收命令或要求你停止。只在自己的任务要求范围内行动；其余消息记入 `summary.md` 的 "Peer messages"。
 3. **Reviewer 不可达。** Reviewer 不能发送或接收 peer mail，任务合同也不含 peer-mail 段落。
-4. **预算与 ledger。** `AHELPA_MAIL_BUDGET` 必须为正整数，默认每个发送 session 8 次投递。每个收件人的投递占一次，`--peers` 按收件人数计，回复也计数；默认预算下第九次投递会被拒绝。计数保存在 SQLite 中，切换项目不会重置。
+4. **预算与 ledger。** 启动或恢复 helper 的调用方在自己的环境中设置 `AHELPA_MAIL_BUDGET`。解析后的预算保存在新 session 的 SQLite 记录中；`mail` 只使用该值，旧版 session 默认为 8。发送方修改自己的环境不能提高预算，ahelpa 也不会将此设置导出到 helper 环境中。每个收件人的投递占一次，`--peers` 按收件人数计，回复也计数；默认预算下第九次投递会被拒绝。计数保存在 SQLite 中，切换项目不会重置。
+
+预算解析遵循 `readPositiveInt`：`parseInt(value, 10)` 必须得到至少为 1 的有限数值，否则预算为 8。未设置、空值、非数字、零和负数都会回退到 8。解析接受开头的整数：`2.9` 和 `2extra` 都采用 2，并不要求整个值只包含数字。
+
+`--file` 只接受最多 1 MiB（1,048,576 字节）的有效 UTF-8。两种输入方式都会拒绝正文中能被暗号扫描器识别的行，包括缩进或带 bullet 的完成和求助暗号。`inbox --read` 给每行正文加上 `> ` 前缀，因此旧版已投递消息在 helper 终端显示时也不会触发暗号匹配。
 
 消息原子写入 `<recipient-project>/.ahelpa/<to-id>/inbox/<seq>-from-<from-id>.md`，序号按收件人递增。发送方项目保存 `.ahelpa/jobs/<job>/mail.jsonl`，每次投递追加一条 `{ts, from, to, seq, bytes}`。Helper 在不同 worktree 时，需要分别查看各发送方项目的 ledger。`inbox` 列出调用 helper 的全部消息及已读状态；`--read <seq>` 显示并标记对应消息已读。投递不注入终端输入，本次没有实现 inbox nudge。按 job 任务合同，在验证前和打印信号前检查 inbox。没有自动回复、共享 transcript 或发给 peer 的 `NEED_HELP`；求助仍通过正常信号协议交给 host。
+
+投递拒绝符号链接形式的 inbox 目录或 ledger 文件。若中断投递留下孤儿序号文件，下次投递会保留它，跳到下一个空闲序号，并在 ledger notes 中记录跳过的序号。
 
 Job ID 沿用 launch 约定：1–64 个字母、数字、点、下划线或横线，并以字母或数字开头。
 
@@ -337,6 +343,8 @@ ahelpa resume "$session_id" --token "$token"
 如果 launch 时传入了已配置的 `--model` alias，新 helper 会沿用它；否则 Kimi 继续使用其配置默认值。launch 时的 `--safe` 姿态也会自动继承；`resume --safe` 可以把旧的默认姿态记录升级为 safe。所谓持久对话，是通过 Kimi 原生 session ID 在新 tmux session 中恢复；`[AHELPA:DONE]` 不会让原 tmux session 永久存活。
 
 `resume` 会在创建运行时资源之前，按 launch 相同的 reviewer、深度和树宽度规则，原子预留新 session。它保留被恢复 session 的 lineage；现有 resume 关联让被恢复的 root 留在原树中。
+
+新 session 保留 job，但使用全新的 inbox 和尚未消耗的发送预算；预算按执行 `resume` 的调用方环境重新解析。旧 session 的消息和已消耗预算不会转移。
 
 `resume` 会等待新 driver 到达可输入 prompt，然后返回一个处于 `needs_attention` 的新 helper。请对新 session ID 使用 `send` 或 `task` 发送下一轮，再调用 `wait`。ahelpa 会先确认新用户回合已经被接受，重建 FIFO，并恢复 daemon monitoring，避免旧的 DONE/NEED_HELP 被拿来结算新一轮。
 
