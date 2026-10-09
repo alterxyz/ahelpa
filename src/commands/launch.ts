@@ -13,6 +13,7 @@ import { isTaskInstructionEcho, ORIGINAL_ASK_UNAVAILABLE, planFileHandoff, prepa
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
+import { deliverTurn } from "../turn-delivery";
 import { resolveLaunchProfile } from "../launch-profiles";
 import { computeTargetFingerprint, LAUNCH_FINGERPRINT_TIMEOUT_MS } from "../evidence";
 
@@ -461,18 +462,11 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     } catch {
       // The snapshot only helps history-aware drivers reject stale sentinels.
     }
-    if (plan.driver.turnHooks) {
-      const row = plan.input.db.getSession(plan.sessionId)!;
-      if (!plan.input.db.beginTurn(plan.sessionId, row.version, plan.fileHandoff.taskInstruction)) {
-        throw new Error(`Launch cancelled before task submission: ${plan.sessionId}`);
-      }
-    }
-    await driverRuntime.sendKeys(plan.sessionId, plan.fileHandoff.taskInstruction);
-    const submitted = await plan.driver.afterTaskSubmitted(
-      plan.sessionId,
-      driverRuntime,
-      submissionContext,
-    );
+    const row = plan.input.db.getSession(plan.sessionId)!;
+    const submitted = await deliverTurn(plan.input.db, row, plan.fileHandoff.taskInstruction,
+      () => driverRuntime.sendKeys(plan.sessionId, plan.fileHandoff.taskInstruction), {
+        afterSend: () => plan.driver.afterTaskSubmitted(plan.sessionId, driverRuntime, submissionContext),
+      });
     if (!submitted) {
       // If the task instruction is visibly on the pane, the agent has it: do not
       // kill a healthy session just because turn evidence is late (Codex 0.145
