@@ -8,7 +8,7 @@ import { executeLaunch, planLaunch, resume } from "../src/commands/launch";
 import { sendTask } from "../src/commands/session-ops";
 import { wait } from "../src/commands/wait";
 import * as evidence from "../src/evidence";
-import { buildTaskFileContent, planFileHandoff } from "../src/file-handoff";
+import { buildTaskFileContent, planFileHandoff, prepareFileHandoff } from "../src/file-handoff";
 import { COMMAND_CONTRACTS } from "../src/command-contract";
 import { Tmux } from "../src/tmux";
 import { FIFO } from "../src/fifo";
@@ -53,8 +53,8 @@ describe("review target and blind handoff", () => {
     return (await $`git -C ${project} rev-parse HEAD`.text()).trim();
   }
 
-  async function launchHand(role: "worker" | "reviewer" = "reviewer", after?: string, unblind?: boolean) {
-    const plan = planLaunch({ db, agentType: "codex", task: "inspect the code", projectPath: project, parentId: "host", role, after, unblind });
+  async function launchHand(role: "worker" | "reviewer" | "advisor" = "reviewer", after?: string, unblind?: boolean) {
+    const plan = planLaunch({ db, agentType: role === "advisor" ? "claude-code" : "codex", task: "inspect the code", projectPath: project, parentId: "host", role, after, unblind });
     spyOn(plan.driver, "prepareForTask").mockResolvedValue();
     spyOn(plan.driver, "afterTaskSubmitted").mockResolvedValue(true);
     await executeLaunch(plan);
@@ -146,15 +146,22 @@ describe("review target and blind handoff", () => {
   test.each([false, true])("reviewer after is blind unless unblind=%s", async (unblind) => {
     const baseCommit = await initRepo();
     db.createSession({ id: "impl", parentId: "host", agentType: "codex", task: "implement", projectPath: project, ownerToken: "tok", baseCommit });
+    prepareFileHandoff(planFileHandoff(project, "impl"), "implement the feature");
     writeFileSync(join(project, "code.ts"), "export const n = 2;\n");
-    await $`git -C ${project} add code.ts`.quiet();
+    mkdirSync(join(project, "tests"));
+    writeFileSync(join(project, "tests/code.test.ts"), "// author's test\n");
+    await $`git -C ${project} add code.ts tests/code.test.ts`.quiet();
     await $`git -C ${project} -c user.email=t@t -c user.name=t commit -q -m implementation`.quiet();
+    const launchHead = (await $`git -C ${project} rev-parse HEAD`.text()).trim();
     const plan = await launchHand("reviewer", "impl", unblind);
-    expect(db.getSession(plan.sessionId)?.baseCommit).toBe(baseCommit);
+    expect(db.getSession(plan.sessionId)?.baseCommit).toBe(launchHead);
     expect(db.getSession(plan.sessionId)?.targetFingerprint?.head).not.toBe(baseCommit);
+    const ownEvidence = await collectEvidence(db.getSession(plan.sessionId)!);
+    expect(ownEvidence.changedFiles).not.toContain("code.ts");
+    expect(ownEvidence.testFilesChanged).not.toContain("tests/code.test.ts");
     const content = readFileSync(plan.fileHandoff.taskCopyPath, "utf8");
     const section = content.split("## ahelpa previous hand")[1].split("\n\n---")[0];
-    expect(section).toContain(`${project}/.ahelpa/impl/task.md`);
+    expect(section).toContain(`${project}/.ahelpa/impl/${unblind ? "task" : "ask"}.md`);
     expect(section.includes(`${project}/.ahelpa/impl/summary.md`)).toBe(unblind);
     expect(section.includes(`${project}/.ahelpa/impl/artifacts`)).toBe(unblind);
     expect(section).toContain(baseCommit);
@@ -169,7 +176,8 @@ describe("review target and blind handoff", () => {
       targetFingerprint: { head: "head-sha", treeHash: "tree-hash" },
       previous: { sessionId: "author", taskCopyPath: previous.taskCopyPath, summaryPath: previous.summaryPath, artifactsDir: previous.artifactsDir, baseCommit: "base-sha" },
     });
-    expect(content).toContain(previous.taskCopyPath);
+    expect(content).toContain("Original ask unavailable");
+    expect(content).not.toContain(previous.taskCopyPath);
     expect(content).not.toContain(previous.summaryPath);
     expect(content).not.toContain(previous.artifactsDir);
     expect(content).toContain("base-sha");
@@ -185,14 +193,119 @@ describe("review target and blind handoff", () => {
     expect(readFileSync(plan.fileHandoff.taskCopyPath, "utf8")).toContain(`- Diff base commit: ${head}`);
   });
 
-  test("worker after keeps author notes and also gets a fingerprint", async () => {
+  test.each(["worker", "advisor"] as const)("%s after keeps author notes without review-target tracking", async (role) => {
     await initRepo();
     db.createSession({ id: "review", parentId: "host", agentType: "codex", task: "review", projectPath: project, ownerToken: "tok" });
-    const plan = await launchHand("worker", "review");
+    const plan = await launchHand(role, "review");
     const content = readFileSync(plan.fileHandoff.taskCopyPath, "utf8");
     expect(content).toContain(`${project}/.ahelpa/review/summary.md`);
     expect(content).toContain(`${project}/.ahelpa/review/artifacts`);
-    expect(db.getSession(plan.sessionId)?.targetFingerprint?.treeHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(content).toContain(`${project}/.ahelpa/review/task.md`);
+    expect(content).not.toContain("Review target:");
+    const session = db.getSession(plan.sessionId)!;
+    expect(session.afterId).toBe("review");
+    expect(session.targetFingerprint).toBeNull();
+    expect(session.targetResultDirs).toBeNull();
+    writeFileSync(join(project, "code.ts"), "rework\n");
+    expect((await collectEvidence(session)).targetChanged).toBeUndefined();
+  });
+
+  test("blind reviewer links only original asks across rework and task follow-ups", async () => {
+    await initRepo();
+    const prior = await launchHand("worker");
+    writeFileSync(prior.fileHandoff.summaryPath, "CLAIM: all tests pass");
+    const author = await launchHand("worker", prior.sessionId);
+    writeFileSync(author.fileHandoff.summaryPath, "CLAIM: feature is correct");
+    const followup = join(root, "follow-up.md");
+    writeFileSync(followup, "also implement the edge case\n");
+    await sendTask(db, author.sessionId, author.ownerToken, followup);
+    const audit = readFileSync(author.fileHandoff.taskCopyPath, "utf8");
+    expect(audit).toContain(prior.fileHandoff.summaryPath);
+    expect(audit).toContain(author.fileHandoff.summaryPath);
+    const reviewer = await launchHand("reviewer", author.sessionId);
+    const section = readFileSync(reviewer.fileHandoff.taskCopyPath, "utf8").split("## ahelpa previous hand")[1].split("\n\n---")[0];
+    const links = [...section.matchAll(/^- Its ask: (.+)$/gm)].map((match) => match[1]);
+    expect(links).toEqual([join(author.fileHandoff.sessionDeliveryDir, "ask.md")]);
+    expect(section).not.toContain(author.fileHandoff.taskCopyPath);
+    for (const link of links) {
+      const ask = readFileSync(link, "utf8");
+      expect(ask).toBe("inspect the code\n\n===== follow-up task =====\n\nalso implement the edge case\n");
+      for (const hand of [prior, author]) {
+        expect(ask).not.toContain(hand.fileHandoff.summaryPath);
+        expect(ask).not.toContain(hand.fileHandoff.artifactsDir);
+      }
+      expect(ask).not.toContain("CLAIM:");
+      expect(ask).not.toContain("## ahelpa");
+    }
+  });
+
+  test("non-reviewer legacy fingerprints are ignored by evidence and dropped on resume", async () => {
+    await initRepo();
+    const original = await launchHand("worker");
+    const fingerprint = await computeTargetFingerprint(project);
+    db.createSession({ ...db.getSession(original.sessionId)!, id: "old-worker", ownerToken: "tok", resumedFrom: undefined, targetFingerprint: fingerprint, targetResultDirs: [original.fileHandoff.sessionDeliveryDir] });
+    const legacy = db.getSession("old-worker")!;
+    expect((await collectEvidence(legacy)).targetChanged).toBeUndefined();
+    expect((await collectEvidence({ ...legacy, role: "advisor" })).targetChanged).toBeUndefined();
+    expect((await collectEvidence({ ...legacy, role: null })).targetChanged).toBeUndefined();
+    db.updateStatus(legacy.id, "dead");
+    db.updateResumeId(legacy.id, "native-token");
+    spyOn(original.driver, "prepareForResume").mockResolvedValue();
+    const resumed = await resume({ db, sessionId: legacy.id, ownerToken: "tok" });
+    const record = db.getSession(resumed.sessionId)!;
+    expect(record.targetFingerprint).toBeNull();
+    expect(record.targetResultDirs).toBeNull();
+  });
+
+  test("legacy previous hand without ask explicitly reports unavailable without linking task", async () => {
+    await initRepo();
+    db.createSession({ id: "legacy", parentId: "host", agentType: "codex", task: "old ask", projectPath: project, ownerToken: "tok" });
+    const handoff = planFileHandoff(project, "legacy");
+    mkdirSync(handoff.sessionDeliveryDir, { recursive: true });
+    writeFileSync(handoff.taskCopyPath, `old ask\nResult: ${handoff.summaryPath}`);
+    const reviewer = await launchHand("reviewer", "legacy");
+    const content = readFileSync(reviewer.fileHandoff.taskCopyPath, "utf8");
+    expect(content).toContain("Original ask unavailable");
+    expect(content).not.toContain(handoff.taskCopyPath);
+    expect(content).not.toContain(handoff.summaryPath);
+  });
+
+  test("already dirty nested submodules include tracked edits, staged edits and untracked names", async () => {
+    await initRepo();
+    const child = join(root, "child");
+    mkdirSync(child);
+    await $`git -C ${child} init -q`.quiet();
+    writeFileSync(join(child, "tracked.ts"), "base\n");
+    await $`git -C ${child} add .`.quiet();
+    await $`git -C ${child} -c user.email=t@t -c user.name=t commit -qm base`.quiet();
+    const middle = join(root, "middle");
+    mkdirSync(middle);
+    await $`git -C ${middle} init -q`.quiet();
+    await $`git -C ${middle} -c protocol.file.allow=always submodule add -q ${child} inner`.quiet();
+    await $`git -C ${middle} -c user.email=t@t -c user.name=t commit -qam middle`.quiet();
+    await $`git -C ${project} -c protocol.file.allow=always submodule add -q ${middle} vendor`.quiet();
+    await $`git -C ${project} -c user.email=t@t -c user.name=t commit -qam submodule`.quiet();
+    await $`git -C ${project} -c protocol.file.allow=always submodule update --init --recursive`.quiet();
+    const nested = join(project, "vendor", "inner");
+    writeFileSync(join(nested, "tracked.ts"), "first dirty version\n");
+    const reviewer = await launchHand();
+    expect((await collectEvidence(db.getSession(reviewer.sessionId)!)).targetChanged).toBe(false);
+    writeFileSync(join(nested, "tracked.ts"), "second dirty version\n");
+    expect((await collectEvidence(db.getSession(reviewer.sessionId)!)).targetChanged).toBe(true);
+    await $`git -C ${nested} add tracked.ts`.quiet();
+    const staged = await computeTargetFingerprint(project);
+    // Restore the worktree bytes after changing the index: staged content must
+    // still participate even though the superproject only reports dirty.
+    writeFileSync(join(nested, "tracked.ts"), "third version\n");
+    await $`git -C ${nested} add tracked.ts`.quiet();
+    writeFileSync(join(nested, "tracked.ts"), "second dirty version\n");
+    expect(await computeTargetFingerprint(project)).not.toEqual(staged);
+    const beforeName = await computeTargetFingerprint(project);
+    writeFileSync(join(nested, "untracked.txt"), "one");
+    const named = await computeTargetFingerprint(project);
+    expect(named).not.toEqual(beforeName);
+    writeFileSync(join(nested, "untracked.txt"), "two");
+    expect(await computeTargetFingerprint(project)).toEqual(named);
   });
 
   test("wait fingerprints after the acceptance command and ignores its own check log", async () => {

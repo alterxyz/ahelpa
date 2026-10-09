@@ -106,7 +106,7 @@ Use advisors for analysis, plans, and review; use workers for execution against 
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`) |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`); `--after` chains hands, and explicit `--role reviewer` adds blind review and target evidence |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh |
 | `models [agent]` | List launch-time model options |

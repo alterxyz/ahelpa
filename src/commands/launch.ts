@@ -111,6 +111,7 @@ function previousHandContext(db: StateDB, afterId: string): NonNullable<HandoffC
   return {
     sessionId: previous.id,
     taskCopyPath: plan.taskCopyPath,
+    ...(existsSync(plan.askPath) ? { askPath: plan.askPath } : {}),
     summaryPath: plan.summaryPath,
     artifactsDir: plan.artifactsDir,
     ...(previous.baseCommit ? { baseCommit: previous.baseCommit } : {}),
@@ -404,7 +405,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       checkCmd: plan.input.check,
       afterId: plan.input.after,
       jobId: plan.jobId,
-      targetResultDirs: plan.input.role === "reviewer" || plan.input.after ? [plan.fileHandoff.sessionDeliveryDir] : null,
+      targetResultDirs: plan.input.role === "reviewer" ? [plan.fileHandoff.sessionDeliveryDir] : null,
       unblind: plan.input.unblind,
     }, plan.callerId, plan.maxDepth);
     dbCreated = true;
@@ -414,13 +415,12 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       await createWorktree(plan.worktreeSource, plan.input.projectPath, plan.sessionId);
       worktreeCreated = true;
     }
-    const baseCommit = (plan.input.role === "reviewer" ? plan.handoffContext.previous?.baseCommit : null)
-      ?? await currentCommit(plan.input.projectPath);
+    const baseCommit = await currentCommit(plan.input.projectPath);
     if (plan.input.role === "reviewer" && plan.handoffContext.previous) {
-      plan.handoffContext.previous.baseCommit = baseCommit;
+      plan.handoffContext.previous.baseCommit ??= baseCommit;
     }
     const targetResultDirs = [plan.fileHandoff.sessionDeliveryDir];
-    const targetFingerprint = plan.input.role === "reviewer" || plan.input.after
+    const targetFingerprint = plan.input.role === "reviewer"
       ? await computeTargetFingerprint(plan.input.projectPath, targetResultDirs)
       : null;
     plan.handoffContext.targetFingerprint = targetFingerprint;
@@ -606,8 +606,8 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       baseCommit: oldSession.baseCommit,
       afterId: oldSession.afterId,
       jobId: validateJobId(oldSession.jobId ?? null),
-      targetFingerprint: oldSession.targetFingerprint,
-      targetResultDirs: oldSession.targetFingerprint
+      targetFingerprint: oldSession.role === "reviewer" ? oldSession.targetFingerprint : null,
+      targetResultDirs: oldSession.role === "reviewer" && oldSession.targetFingerprint
         ? [...(oldSession.targetResultDirs ?? [planFileHandoff(projectPath, oldSession.id).sessionDeliveryDir]), planFileHandoff(projectPath, sessionId).sessionDeliveryDir]
         : null,
       unblind: oldSession.unblind,

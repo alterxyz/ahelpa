@@ -66,6 +66,7 @@ describe("file handoff", () => {
     expect(plan.sessionDeliveryDir).toBe(`${TEST_PROJECT}/.ahelpa/codex-abc123`);
     expect(plan.summaryPath).toBe(`${TEST_PROJECT}/.ahelpa/codex-abc123/summary.md`);
     expect(plan.artifactsDir).toBe(`${TEST_PROJECT}/.ahelpa/codex-abc123/artifacts`);
+    expect(plan.askPath).toBe(`${TEST_PROJECT}/.ahelpa/codex-abc123/ask.md`);
   });
 
   test("prepares task file and result artifact directory", () => {
@@ -73,6 +74,7 @@ describe("file handoff", () => {
     const { plan, content } = readPreparedTask(task);
 
     expect(content.slice(0, task.length)).toBe(task);
+    expect(readFileSync(plan.askPath, "utf-8")).toBe(task);
     expect(content.slice(task.length)).toStartWith("\n\n---\n\n## ahelpa contract\n\n");
     expect(content).toContain("\n\n## ahelpa signals\n\n");
     expect(existsSync(plan.sessionDeliveryDir)).toBe(true);
@@ -182,11 +184,13 @@ describe("file handoff", () => {
   test("keeps a durable copy of every task beside the summary, appending follow-ups", () => {
     const { plan, content } = readPreparedTask("first ask");
     expect(readFileSync(plan.taskCopyPath, "utf-8")).toBe(content);
+    expect(readFileSync(plan.askPath, "utf-8")).toBe("first ask");
 
     prepareFileHandoff(plan, "second ask");
     const copy = readFileSync(plan.taskCopyPath, "utf-8");
     expect(copy).toStartWith("first ask");
     expect(copy).toContain("\n\n===== follow-up task =====\n\nsecond ask");
+    expect(readFileSync(plan.askPath, "utf-8")).toBe("first ask\n\n===== follow-up task =====\n\nsecond ask");
     expect(readFileSync(plan.taskFilePath, "utf-8")).toStartWith("second ask");
   });
 
