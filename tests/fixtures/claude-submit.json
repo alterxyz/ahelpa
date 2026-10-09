@@ -1,0 +1,18 @@
+{
+  "queued-ctx-only": "────────────────\n❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n  Use .ahelpa/claude-x as your result directory.\n  When you are finished, output [AHELPA:DONE] on its own line.\n────────────────\n  0% ctx",
+  "queued-no-footer": "────────────────\n❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n  Use .ahelpa/claude-x as your result directory.\n  When you are finished, output [AHELPA:DONE] on its own line.\n────────────────",
+  "queued-zero-tokens": "────────────────\n❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n  Use .ahelpa/claude-x as your result directory.\n  When you are finished, output [AHELPA:DONE] on its own line.\n────────────────\n0 tokens",
+  "queued-after-old-reply": "❯ Old task\n⏺ Finished the old task.\n  [AHELPA:DONE]\n────────────────\n❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n  Use .ahelpa/claude-x as your result directory.\n  When you are finished, output [AHELPA:DONE] on its own line.\n────────────────",
+  "submitted-working": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n✢ Working… (2s)\n0 tokens",
+  "submitted-answered": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n⏺ Summary written.\n  [AHELPA:DONE]\n────────────────\n❯\n────────────────\n0 tokens",
+  "submitted-answered-header-scrolled-out": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n  Summary written.\n────────────────\n❯\n────────────────\n0 tokens",
+  "submitted-empty-composer": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n────────────────\n❯\n────────────────\n0 tokens",
+  "submitted-placeholder-composer": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n────────────────\n❯ Try asking about this codebase\n────────────────\n0 tokens",
+  "indented-task-echo": "  ❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n0 tokens",
+  "echo-in-reply": "❯ Explain the handoff\n  The instruction is: Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n────────────────\n❯\n────────────────\n0 tokens",
+  "permission-menu": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n────────────────\n Edit file\n .ahelpa/claude-x/summary.md\n Do you want to make this edit?\n ❯ 1. Yes\n   2. Yes, allow all edits during this session\n   3. No\n0 tokens",
+  "permission-menu-column-zero": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n0 tokens",
+  "question-menu": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\nWhich approach should I take?\n ❯ 1. Keep the current schema\n   2. Migrate\n Enter to select · Esc to cancel\n0 tokens",
+  "submitted-done-no-bullet": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n  [AHELPA:DONE]\n0 tokens",
+  "submitted-need-help-no-bullet": "❯ Please read and complete the task described in /tmp/ahelpa/ahelpa-task-claude-x.md.\n  [AHELPA:NEED_HELP:review]\n0 tokens"
+}

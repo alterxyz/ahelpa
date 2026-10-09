@@ -1,18 +1,57 @@
 import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
-import { isTaskInstructionEcho } from "../file-handoff";
+import { TASK_INSTRUCTION_PREFIX } from "../file-handoff";
 import { shellEscape } from "../shell";
 import { detectSentinelOutcome, detectSentinelStatus } from "./sentinels";
 import { findModelChoice, findSelectedChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
 
 function claudeNeedsSubmitNudge(captureOutput: string): boolean {
-  return isTaskInstructionEcho(captureOutput)
-    && /\b0 tokens\b/.test(captureOutput)
-    && !captureOutput.includes("⏺");
+  if (claudeNeedsFolderTrust(captureOutput)) return false;
+  const composer = userTurnMatches(captureOutput).at(-1);
+  if (composer?.index === undefined) return false;
+  const current = captureOutput.slice(composer.index);
+  // A later indented cursor belongs to a menu, not the column-0 composer.
+  const cursors = [...current.matchAll(/^[^\S\r\n]*❯(?:[^\S\r\n]+.*)?$/gmu)];
+  if (cursors.at(-1)?.index !== 0) return false;
+  // AskUserQuestion's Other input and preview layouts also have column-0
+  // cursors. A numbered cursor, sibling option or selection footer blocks Enter.
+  if (/^❯[^\S\r\n]+\d+\./u.test(current)
+    || /^[^\S\r\n]*\d+\.(?:[^\S\r\n]|$)/mu.test(current)
+    || /\bEnter to select\b/iu.test(current)) return false;
+
+  const rows = current.split(/\r?\n/u);
+  // Remove only the gutter spacer: an empty left column must not expose a preview.
+  const first = rows[0].replace(/^❯[^\S\r\n]/u, "");
+  if (!first.trim()) return false;
+  const draftRows = [first];
+  for (const row of rows.slice(1)) {
+    // The composer has a two-column gutter; deeper rows can be a preview pane.
+    const continuation = row.match(/^ {2}(\S.*)$/u);
+    if (!continuation) break;
+    draftRows.push(continuation[1]);
+  }
+  // Exclude right-hand columns, then compare only the start of the draft.
+  // Removing whitespace also joins word and mid-word wraps of the known prefix.
+  const draft = draftRows.map((row) => row.split(/[^\S\r\n]{2,}|[│┌└]/u)[0]).join("").replace(/\s/gu, "");
+  // These ambiguous rows only veto Enter; they are not evidence that a turn
+  // started. Brief mode and spinnerVerbs allow arbitrary labels. Keep this
+  // conservative check local to the submit nudge, after the latest composer.
+  const mayBeRunning = claudeIsWorking(current)
+    || /\besc to interrupt\b/iu.test(current)
+    || /^[^\S\r\n]*[·●✢✽✶✻✳*][^\S\r\n]+\S[^\r\n]*?\.{1,3}(?:[^\S\r\n]+\(|[^\S\r\n]*$)/mu.test(current)
+    || /^[^\S\r\n]*\S[^\r\n]*?(?:…|\.{3})(?:[^\S\r\n]+(?:\([^\r\n]*|\d+ in background))?[^\S\r\n]*$/mu.test(current)
+    || /^[^\S\r\n]*[^\s./]+\.{1,2}(?:[^\S\r\n]+\d+ in background)?[^\S\r\n]*$/mu.test(current);
+  return draft.startsWith(TASK_INSTRUCTION_PREFIX.replace(/\s/gu, ""))
+    && !mayBeRunning
+    && detectSentinelStatus(current) === "running";
 }
 
 function claudeIsWorking(captureOutput: string): boolean {
+  // Original frames keep the exact base rule. The new default · and reduced-
+  // motion ● frames require a timer to distinguish reply bullets from spinners.
+  // Ambiguous brief/dot rows only veto submit nudges.
   return captureOutput.includes("⏺")
-    || /^\s*[✢✽✶✻✳]\s+\S.*…(?:\s+\(|\s*$)/mu.test(captureOutput);
+    || /^\s*[✢✽✶✻✳]\s+\S.*…(?:\s+\(|\s*$)/mu.test(captureOutput)
+    || /^\s*[·●]\s+\S.*…\s+\(/mu.test(captureOutput);
 }
 
 function claudeNeedsFolderTrust(captureOutput: string): boolean {
