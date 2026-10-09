@@ -32,20 +32,26 @@ function claudeNeedsSubmitNudge(captureOutput: string): boolean {
   // Exclude right-hand columns, then compare only the start of the draft.
   // Removing whitespace also joins word and mid-word wraps of the known prefix.
   const draft = draftRows.map((row) => row.split(/[^\S\r\n]{2,}|[│┌└]/u)[0]).join("").replace(/\s/gu, "");
+  // These ambiguous rows only veto Enter; they are not evidence that a turn
+  // started. Brief mode and spinnerVerbs allow arbitrary labels. Keep this
+  // conservative check local to the submit nudge, after the latest composer.
+  const mayBeRunning = claudeIsWorking(current)
+    || /\besc to interrupt\b/iu.test(current)
+    || /^[^\S\r\n]*[·●✢✽✶✻✳*][^\S\r\n]+\S[^\r\n]*?\.{1,3}(?:[^\S\r\n]+\(|[^\S\r\n]*$)/mu.test(current)
+    || /^[^\S\r\n]*\S[^\r\n]*?(?:…|\.{3})(?:[^\S\r\n]+(?:\([^\r\n]*|\d+ in background))?[^\S\r\n]*$/mu.test(current)
+    || /^[^\S\r\n]*[^\s./]+\.{1,2}(?:[^\S\r\n]+\d+ in background)?[^\S\r\n]*$/mu.test(current);
   return draft.startsWith(TASK_INSTRUCTION_PREFIX.replace(/\s/gu, ""))
-    && !claudeIsWorking(current)
+    && !mayBeRunning
     && detectSentinelStatus(current) === "running";
 }
 
 function claudeIsWorking(captureOutput: string): boolean {
-  // Default/ghostty frames include ·; ASCII dots count only before the timer
-  // so a reply bullet such as "* Fixed the bug." is not a live turn. Brief and
-  // reduced-motion rows have no icon: a single capitalized gerund ("Working...",
-  // "Gitifying… 2 in background"); requiring -ing keeps reply lines such as
-  // "Done." or "Fixed." out. Keep all submission/activity checks here.
+  // Original frames keep the exact base rule. The new default · and reduced-
+  // motion ● frames require a timer to distinguish reply bullets from spinners.
+  // Ambiguous brief/dot rows only veto submit nudges.
   return captureOutput.includes("⏺")
-    || /^[^\S\r\n]*[·✢✽✶✻✳*][^\S\r\n]+\S[^\r\n]*?(?:…(?:[^\S\r\n]+\(|[^\S\r\n]*$)|\.{1,3}[^\S\r\n]+\()/mu.test(captureOutput)
-    || /^[^\S\r\n]*[A-Z][a-zA-Z-]*ing(?:…|\.{1,3})(?:[^\S\r\n]+(?:\(|\d+ in background)|[^\S\r\n]*$)/mu.test(captureOutput);
+    || /^\s*[✢✽✶✻✳]\s+\S.*…(?:\s+\(|\s*$)/mu.test(captureOutput)
+    || /^\s*[·●]\s+\S.*…\s+\(/mu.test(captureOutput);
 }
 
 function claudeNeedsFolderTrust(captureOutput: string): boolean {
