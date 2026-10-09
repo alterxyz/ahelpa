@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "fs";
+import { mkdirSync, writeFileSync, readFileSync, existsSync, statSync } from "fs";
 import type { SessionStatus } from "./session-lifecycle";
 
 // What the daemon keeps per settled session, and what `logs` reads back
@@ -29,5 +29,18 @@ export class Archive {
     const path = `${this.basePath}/${sessionId}/message.json`;
     if (!existsSync(path)) return null;
     return JSON.parse(readFileSync(path, "utf-8"));
+  }
+
+  // archivedAt has millisecond precision; even an identical settlement in
+  // that same millisecond must be distinguishable from a previous turn.
+  revision(sessionId: string): string | null {
+    const path = `${this.basePath}/${sessionId}/message.json`;
+    try {
+      const stat = statSync(path, { bigint: true });
+      return `${stat.ino}:${stat.mtimeNs}:${stat.ctimeNs}`;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
   }
 }
