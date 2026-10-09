@@ -114,17 +114,19 @@ describe("claude-code submit nudge adversarial regressions", () => {
     ...[".", "..", "...", "…"].flatMap((dots) =>
       [`  Working${dots}`, `  Gitifying${dots}  2 in background`]),
   ];
-  test.each(workingIndicators)("working indicator '%s' blocks Enter and establishes a new turn", async (indicator) => {
+  const sharedEvidence = new Set(["·", "✢", "✳", "✶", "✻", "✽"].map((frame) => `${frame} Working… (2s)`));
+  test.each(workingIndicators)("indicator '%s' blocks Enter; only base renderer shapes establish a turn", async (indicator) => {
     const driver = getDriver("claude-code");
     const screen = `❯ ${instruction}\n${indicator}\n  0% ctx`;
-    expect(driver.detectActivity(screen)).toBe("working");
-    expect(driver.acceptsInput?.(`${screen}\n❯`)).toBe(false);
+    const evidenced = sharedEvidence.has(indicator);
+    expect(driver.detectActivity(screen)).toBe(evidenced ? "working" : "idle");
+    expect(driver.acceptsInput?.(`${screen}\n❯`)).toBe(!evidenced);
     for (const context of [undefined, { beforeOutput: "❯" }]) {
       const runtime = probeRuntime([screen]);
-      expect(await driver.afterTaskSubmitted("claude-test", runtime, context)).toBe(true);
+      expect(await driver.afterTaskSubmitted("claude-test", runtime, context)).toBe(evidenced);
       expect(runtime.sent).toEqual([]);
       expect(runtime.keys).toEqual([]);
-      expect(runtime.captures).toHaveLength(1);
+      expect(runtime.captures).toHaveLength(evidenced ? 1 : 10);
     }
     const unchanged = probeRuntime([screen]);
     expect(await driver.afterTaskSubmitted("claude-test", unchanged, { beforeOutput: screen })).toBe(false);
@@ -132,10 +134,74 @@ describe("claude-code submit nudge adversarial regressions", () => {
   });
 
   test.each([
+    "  Beboppin'...", "  Beboppin'…", "  Flambéing...", "  Sautéing…",
+    "  Compacting conversation...", "  Running PreCompact hooks…",
+    "  Running PreCompact hooks…...", "  思考中...", "  thinking...",
+    "  Working… (2s)", "  Beboppin'... (2s)", "* Working...", "* Working…",
+    "● Working... (2s)", "✢ Working. (2s)", "✢ Working.. (2s)", "esc to interrupt",
+    "· Working…", "● Working…",
+  ])("ambiguous running row '%s' vetoes Enter without claiming submission", async (indicator) => {
+    const driver = getDriver("claude-code");
+    const screen = `❯ ${instruction}\n${indicator}\n  0% ctx`;
+    expect(driver.detectActivity(screen)).toBe("idle");
+    for (const context of [undefined, { beforeOutput: "❯" }]) {
+      const runtime = probeRuntime([screen]);
+      expect(await driver.afterTaskSubmitted("claude-test", runtime, context)).toBe(false);
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+      expect(runtime.captures).toHaveLength(10);
+    }
+  });
+
+  test.each(["·", "●"])("frame %s with Unicode ellipsis and timer is shared working evidence", async (frame) => {
+    const driver = getDriver("claude-code");
+    for (const suffix of [" (2s)", " (2m 7s · ↓ 7.8k tokens)"]) {
+      const screen = `❯ ${instruction}\n${frame} Working…${suffix}`;
+      expect(driver.detectActivity(screen)).toBe("working");
+      expect(driver.acceptsInput?.(`${screen}\n❯`)).toBe(false);
+      for (const context of [undefined, { beforeOutput: "❯" }]) {
+        const runtime = probeRuntime([screen]);
+        expect(await driver.afterTaskSubmitted("claude-test", runtime, context)).toBe(true);
+        expect(runtime.sent).toEqual([]);
+        expect(runtime.keys).toEqual([]);
+        expect(runtime.captures).toHaveLength(1);
+      }
+      for (const prepare of ["prepareForTask", "prepareForResume"] as const) {
+        const runtime = probeRuntime([screen]);
+        await expect(driver[prepare]("claude-test", runtime)).rejects.toThrow("did not reach its input prompt");
+        expect(runtime.sent).toEqual([]);
+        expect(runtime.keys).toEqual([]);
+      }
+    }
+  });
+
+  test.each(["✢", "✽", "✶", "✻", "✳"])("original frame %s keeps base evidence without a timer", async (frame) => {
+    const driver = getDriver("claude-code");
+    const screen = `❯ ${instruction}\n${frame} Working…`;
+    expect(driver.detectActivity(screen)).toBe("working");
+    expect(driver.acceptsInput?.(`${screen}\n❯`)).toBe(false);
+    for (const context of [undefined, { beforeOutput: "❯" }]) {
+      const runtime = probeRuntime([screen]);
+      expect(await driver.afterTaskSubmitted("claude-test", runtime, context)).toBe(true);
+      expect(runtime.sent).toEqual([]);
+      expect(runtime.keys).toEqual([]);
+    }
+  });
+
+  test("ambiguous spinner in an older turn does not veto the current draft", async () => {
+    const screen = `❯ Previous task\n  Beboppin'...\n❯ ${instruction}\n  0% ctx`;
+    const runtime = probeRuntime([screen, `${screen}\n✢ Working…`]);
+    expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, { beforeOutput: "❯" })).toBe(true);
+    expect(runtime.sent).toEqual([""]);
+  });
+
+  test.each([
     "  Fixed.",
     "Done.",
     "* Fixed the bug.",
     "· Removed the stale branch.",
+    "· Removed the stale branch…",
+    "● Done…",
     "  Summary...",
   ])("reply line '%s' is not working evidence", (line) => {
     const driver = getDriver("claude-code");
@@ -146,13 +212,14 @@ describe("claude-code submit nudge adversarial regressions", () => {
   });
 
   test.each(["dot-spinner-submitted", "brief-spinner-submitted"])(
-    "%s acknowledges submission without Enter",
+    "%s never receives Enter; only the icon frame confirms submission",
     async (name) => {
+      const evidenced = name === "dot-spinner-submitted";
       for (const context of [undefined, { beforeOutput: "❯" }]) {
         const runtime = probeRuntime([claudeSubmitAdversarialFixtures[name]]);
-        expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, context)).toBe(true);
+        expect(await getDriver("claude-code").afterTaskSubmitted("claude-test", runtime, context)).toBe(evidenced);
         expect(runtime.sent).toEqual([]);
-        expect(runtime.captures).toHaveLength(1);
+        expect(runtime.captures).toHaveLength(evidenced ? 1 : 10);
       }
     },
   );
