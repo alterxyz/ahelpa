@@ -17,6 +17,7 @@ let root: string, dir: string, db: StateDB;
 const initial = "Please read and complete the task described in fixture";
 const pane = readFileSync(join(import.meta.dir, "fixtures/turn-hooks/claude-completed.txt"), "utf8");
 beforeEach(() => {
+  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
   root = mkdtempSync(join(process.cwd(), ".ahelpa", "delivery-test-"));
   dir = join(root, ".ahelpa", "session-test");
   mkdirSync(dir, { recursive: true });

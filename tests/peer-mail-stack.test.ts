@@ -14,6 +14,7 @@ let db: StateDB;
 let caller: string | undefined;
 
 beforeEach(() => {
+  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
   root = mkdtempSync(join(process.cwd(), ".ahelpa", "mail-stack-test-"));
   db = new StateDB(join(root, "state.db"));
   caller = process.env.AHELPA_PARENT_ID;

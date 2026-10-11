@@ -16,6 +16,7 @@ let root: string;
 let db: StateDB;
 let serial = 0;
 beforeEach(() => {
+  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
   root = mkdtempSync(join(process.cwd(), ".ahelpa", "hook-daemon-test-"));
   db = new StateDB(join(root, "state.db"));
   spyOn(Tmux, "hasSession").mockResolvedValue(true);

@@ -12,6 +12,7 @@ const fixture = (name: string) => readFileSync(join(import.meta.dir, "fixtures/t
 let root: string;
 let dir: string;
 beforeEach(() => {
+  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
   root = mkdtempSync(join(process.cwd(), ".ahelpa", "hooks-test-"));
   dir = join(root, ".ahelpa", "codex-fixture");
   mkdirSync(dir, { recursive: true });

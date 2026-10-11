@@ -5,6 +5,7 @@ import { shellEscape } from "../src/shell";
 import { turnHookCommand, writeTurnHook } from "../src/turn-hooks";
 let root: string, dir: string;
 beforeEach(() => {
+  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
   root = mkdtempSync(join(process.cwd(), ".ahelpa", "safety-test-"));
   dir = join(root, ".ahelpa", "session-test");
   mkdirSync(dir, { recursive: true });

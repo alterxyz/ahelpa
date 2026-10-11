@@ -11,6 +11,7 @@ import { writeTurnHook } from "../src/turn-hooks";
 let root: string, dir: string, db: StateDB;
 const initial = "Please read and complete the task described in original-task";
 beforeEach(() => {
+  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
   root = mkdtempSync(join(process.cwd(), ".ahelpa", "attribution-test-"));
   dir = join(root, ".ahelpa", "session-test");
   mkdirSync(dir, { recursive: true });

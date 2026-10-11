@@ -12,6 +12,7 @@ import * as daemon from "../src/daemon";
 let root: string;
 let db: StateDB;
 beforeEach(() => {
+  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
   root = mkdtempSync(join(process.cwd(), ".ahelpa", "hook-launch-test-"));
   db = new StateDB(join(root, "state.db"));
   spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
