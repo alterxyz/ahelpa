@@ -271,7 +271,12 @@ run_integration_gate() (
   run_gate claude-code
   run_gate claude-code worker
   run_gate codex
-  run_gate kimi
+  # ponytail: Kimi is shelved; its driver and unit tests stay, its live run is opt-in.
+  if [ "${AHELPA_GATE_KIMI:-}" = 1 ]; then
+    run_gate kimi
+  else
+    echo "skip > kimi (set AHELPA_GATE_KIMI=1 to include)"
+  fi
 )
 
 main() {

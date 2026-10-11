@@ -160,7 +160,7 @@ bun test                       # 单元测试
 bun run build                  # 编译二进制到 dist/
 bun run package:skill          # 构建带 runtime bundle 的 skill package
 bash scripts/deploy-local.sh   # 安装 runtime + 全局 hard-copy skills
-bun run closure:gate           # 三个 driver 的端到端 gate
+bun run closure:gate           # 端到端 gate（Claude Code + Codex；AHELPA_GATE_KIMI=1 加入 Kimi）
 ```
 
 仓库不跟踪编译后的 bundle；它们是 git-ignored 生成物。

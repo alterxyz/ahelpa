@@ -160,7 +160,7 @@ bun test                       # Unit tests
 bun run build                  # Compile binary to dist/
 bun run package:skill          # Build skill package with runtime bundle
 bash scripts/deploy-local.sh   # Install runtime + global hard-copy skills
-bun run closure:gate           # End-to-end gate across all three drivers
+bun run closure:gate           # End-to-end gate (Claude Code + Codex; AHELPA_GATE_KIMI=1 adds Kimi)
 ```
 
 The repository does not track compiled bundles — they are generated artifacts ignored by git.

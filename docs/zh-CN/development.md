@@ -153,7 +153,7 @@ Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 
 
 ## Closure gate
 
-影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证三个 supported driver。场景依次为 Claude 默认 advisor、Claude 显式 worker、Codex 默认 worker、Kimi；前三项同时校验 launch 返回和 check 保存的准确角色/模型/effort，使用各自独立的结果标记与证据目录。Codex 和 Kimi 使用稳定的 `tests/fixtures/closure` 工作区，Claude Code 使用仓库根目录；任务只允许访问指定任务文件和结果目录。
+影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证三个 supported driver。场景依次为 Claude 默认 advisor、Claude 显式 worker、Codex 默认 worker。Kimi 真机场景已搁置，只在设置 `AHELPA_GATE_KIMI=1` 时运行，Kimi driver 及其单元测试保持不变；前三项同时校验 launch 返回和 check 保存的准确角色/模型/effort，使用各自独立的结果标记与证据目录。Codex 和 Kimi 使用稳定的 `tests/fixtures/closure` 工作区，Claude Code 使用仓库根目录；任务只允许访问指定任务文件和结果目录。
 
 脚本为 gate 单独设置 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，因此它的 SQLite 状态、daemon、archive、FIFO 和任务文件不会干扰用户正在运行的 ahelpa session。helper CLI 仍使用正常的 OS home 和既有认证状态。
 

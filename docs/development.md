@@ -152,7 +152,7 @@ The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots 
 
 ## Closure Gate
 
-The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary across all three supported drivers. It exercises Claude's default advisor and explicit worker separately, followed by Codex's default worker and Kimi. The first three scenarios verify the exact role/model/effort returned by launch and persisted in check, using separate result markers and evidence directories. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
+The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary across all three supported drivers. It exercises Claude's default advisor and explicit worker separately, followed by Codex's default worker. The live Kimi scenario is shelved and runs only with `AHELPA_GATE_KIMI=1`; the Kimi driver and its unit tests are unchanged. The first three scenarios verify the exact role/model/effort returned by launch and persisted in check, using separate result markers and evidence directories. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
 
 The gate assigns private `AHELPA_HOME` and `AHELPA_TMP_DIR` roots, so its SQLite state, daemon, archives, FIFOs, and task files do not interfere with active ahelpa sessions. Helper CLIs retain their normal OS home and authentication.
 

@@ -10,7 +10,7 @@ afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-async function runFixture(scenario: string, agent = "codex", integration = false, role = "") {
+async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "") {
   const root = mkdtempSync(join(tmpdir(), "ahelpa-closure-test-"));
   fixtureRoots.push(root);
   const binDir = join(root, "bin");
@@ -141,6 +141,7 @@ exit 1
       AHELPA_HOME: "/unused-inherited-ahelpa-state",
       AHELPA_TMP_DIR: "/unused-inherited-ahelpa-runtime",
       TMPDIR: root,
+      AHELPA_GATE_KIMI: gateKimi,
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -257,8 +258,16 @@ describe("closure gate", () => {
     expect(result.calls.at(-1)?.args[0]).toBe("kimi-resumed-fixture");
   });
 
-  test("checks three role profiles and Kimi with private runtime roots and distinct evidence", async () => {
+  test("skips the live Kimi run unless AHELPA_GATE_KIMI=1", async () => {
     const result = await runFixture("success", "codex", true);
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.filter((call) => call.command === "launch").map((call) => call.args[0]))
+      .toEqual(["claude-code", "claude-code", "codex"]);
+    expect(result.stdout).toContain("skip > kimi");
+  });
+
+  test("checks three role profiles and Kimi with private runtime roots and distinct evidence", async () => {
+    const result = await runFixture("success", "codex", true, "", "1");
     expect(result.exitCode).toBe(0);
     expect(result.calls.filter((call) => call.command === "launch").map((call) => call.args[0]))
       .toEqual(["claude-code", "claude-code", "codex", "kimi"]);
