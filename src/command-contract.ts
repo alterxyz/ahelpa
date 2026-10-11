@@ -140,7 +140,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   },
   {
     name: "launch",
-    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--job <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--after <id>] [--worktree]",
+    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--job <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--after <id>] [--unblind] [--worktree]",
     description: "Launch a helper agent",
     minPositionals: 1,
     flags: {
@@ -155,6 +155,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       effort: { kind: "string" },
       check: { kind: "string" },
       after: { kind: "string" },
+      unblind: { kind: "boolean" },
       worktree: { kind: "boolean" },
       job: { kind: "string" },
     },
@@ -172,6 +173,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         effort: ctx.flags.strings.effort,
         check: ctx.flags.strings.check,
         after: ctx.flags.strings.after,
+        unblind: ctx.flags.booleans.unblind,
         worktree: ctx.flags.booleans.worktree,
         job: ctx.flags.strings.job,
         taskFromFile: Boolean(ctx.flags.strings.file),
