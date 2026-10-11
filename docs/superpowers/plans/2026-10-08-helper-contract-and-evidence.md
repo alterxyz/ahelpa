@@ -58,6 +58,9 @@ Observation period first; code changes only when the numbers say so.
 - [ ] Other already-open Claude sessions read the skill snapshot from their start; they will not see the reviewer role / `--check` until restarted. Nothing to do in the repo; just know why an old session launches without them.
 - [ ] `ahelpa clean` the idle review sessions from this campaign when their summaries are no longer needed: `codex-df6841fee226`, `codex-56e8ee78dc36`, `claude-3d10ad79a1c9`, `codex-def1b7a0e016`, `codex-22b6fc11382a` (their `summary.md` files live under this repo's `.ahelpa/`, gitignored).
 
+- [ ] Codex launch intermittently fails with "codex did not expose the submitted task as a new turn" (`src/commands/launch.ts`). Seen on 2026-10-11 in two consecutive closure-gate runs from fresh worktrees, then not reproduced in three gate runs and two manual launches (codex-cli 0.162.1). The pane showed the task submitted and `Working`, so the turn evidence was late, not missing. If it recurs, keep the pane on failure and check whether `deliverTurn` needs a longer window for Codex.
+- [x] Kimi's live closure-gate stage is shelved (2026-10-11): it runs only with `AHELPA_GATE_KIMI=1`. The Kimi provider was rejecting every request, and Kimi is being retired on the maintainer's machine. The driver and its unit tests are unchanged.
+
 ### Commands for the observation numbers
 
 ```bash
