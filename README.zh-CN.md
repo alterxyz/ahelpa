@@ -110,6 +110,7 @@ Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>] [--job <id>]` | 非阻塞状态查询，并做 inline refresh |
 | `models [agent]` | 列出启动时可选的模型 |
+| `doctor [agent] [--project <path>]` | 以 JSON 检查本地就绪状态，不调用模型、不写运行状态 |
 | `send <id> "msg" --token <tok>` | 给运行中的 helper 发送短消息 |
 | `capture <id> --token <tok>` | 截取终端输出，仅用于调试 |
 | `task <id> --file <path> --token <tok>` | 发送长任务文件 |

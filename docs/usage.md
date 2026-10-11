@@ -10,6 +10,25 @@ Write the brief like a peer's task: goal and why, narrow scope, acceptance check
 
 Launch, do independent host-side work that touches no helper's tree, then `wait`. Do not redo a delegated investigation while it runs, or edit its worktree. If `launch` fails or returns `warning`, report it; do not run the helper CLI inline as a substitute and present that result as delegated work.
 
+## Check Local Readiness
+
+```bash
+ahelpa doctor
+ahelpa doctor codex --project /path/to/project
+```
+
+`doctor [agent] [--project <path>]` checks all registered drivers, or one of `claude-code`, `codex`, and `kimi`. The project defaults to the current directory; relative paths resolve from the caller's directory and must name an existing directory.
+
+The JSON result has `project`, `tmux: {present, executable}`, and `agents` keyed by driver name. Each agent has `executable`, `version` (or `null` when unavailable), `locally_ready: true|false|"unknown"`, and `reasons: [...]`. Missing tmux or a missing agent binary makes that agent not ready. A definite blocker takes precedence over an unknown probe. A completed check exits 0 even if an agent is not ready; invalid arguments or a missing project directory exit 1. Consumers should inspect `locally_ready`.
+
+The driver probes inspect local state only. Agent executables are never run, even for `--version`: versions come from matching package metadata (Codex/Claude) or recognized embedded build metadata (Claude/Kimi). Other distributions report `version: null` and unknown readiness unless a definite blocker is found.
+
+- Claude checks workspace trust in `.claude.json`, using NFC-normalized trust keys and the canonical common repository root for worktrees, then trusted ancestors within the Git root. Legacy `.config.json`, `CLAUDE_CONFIG_DIR`, and the custom OAuth trust file are respected. Worktree/submodule ancestor trust is `unknown` when its canonical Git boundary cannot be established.
+- Codex uses the same executable resolver as launch, and checks supported API-key/token auth-file shapes under `CODEX_HOME` (default `~/.codex`). A selected configured provider with `requires_openai_auth = false` needs no OpenAI login; a configured `env_key` must be present. Profile selection, additional system/project config layers, unsupported provider options, keyring/auto/ephemeral storage, and unrecognized or unreadable auth state are `unknown` when their effective state cannot be confirmed read-only.
+- Kimi checks the default model/provider and local API-key or file OAuth presence under `KIMI_CODE_HOME` (default `~/.kimi-code`), including model environment overrides. Models require a model name and positive integer `max_context_size`; provider API keys and OAuth are mutually exclusive. Incomplete or conflicting config, keyring and service-identity state are `unknown`.
+
+`doctor` checks the shape of local credentials and configuration, not their full validity; for example, it does not detect duplicate JWT claim keys. `locally_ready: true` means nothing locally known to block a launch. It does not validate credentials against a server, refresh tokens, check quota, or guarantee a successful model call. No model is called, no interactive session or daemon starts, and no config, tmux session, database, task file, or FIFO is created. For source-mode checks, set `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` to also disable Bun's own transpilation cache.
+
 ## Launch a Helper
 
 ```bash

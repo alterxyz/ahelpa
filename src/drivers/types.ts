@@ -3,6 +3,20 @@ export interface ResumeOptions { cwd: string; resumeId: string; safe?: boolean; 
 export interface ModelSwitchOptions { model: string; effort?: string; persist?: boolean; }
 export type HelperRole = "worker" | "advisor" | "reviewer";
 
+export type LocalReadiness = boolean | "unknown";
+
+export interface ReadinessRuntime {
+  homeDir: string;
+  env: Record<string, string | undefined>;
+}
+
+export interface DriverReadiness {
+  executable: string | null;
+  version: string | null;
+  locally_ready: LocalReadiness;
+  reasons: string[];
+}
+
 // The helper accepted the new model, but restoring the CLI defaults failed.
 // Callers must retain the applied choice while still reporting the failure.
 export class ModelSwitchAppliedError extends Error {
@@ -53,6 +67,7 @@ export interface AgentDriver {
   };
   modelCatalog: AgentModelCatalog;
   resumeTokenAvailableAfterSubmit: boolean;
+  checkReadiness?(cwd: string, runtime?: ReadinessRuntime): DriverReadiness;
   buildLaunchCommand(opts: LaunchOptions): string;
   buildResumeCommand(opts: ResumeOptions): string;
   extractResumeToken(captureOutput: string): string | null;
