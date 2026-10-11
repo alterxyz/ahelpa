@@ -28,9 +28,9 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 | --- | --- |
 | `send`、`task`、`model`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean` |
 
-只读状态视图不会暴露 owner token。这意味着任何 agent 都可以观察 session 状态，但只有启动者能交互或终止该 session。
+只读状态视图不会暴露 owner token。这意味着任何 agent 都可以观察 session 状态，但交互需要该 session 自身的 token。终止操作有下述 lineage 例外。
 
-Ownership 不传递。如果 agent A 启动 helper B，helper B 又启动 helper C，那么 A 不能控制 C；只有 B 可以。
+Ownership 不传递。如果 agent A 启动 helper B，helper B 又启动 helper C，那么 A 不能控制 C；只有 B 可以。唯一例外是 **终止权沿 lineage 传递，控制权不传递**：`kill B --token <B-token> --tree` 可以停止 B 及其后代，包括 C。它在任何终止动作之前校验 B 的 token；错误 token 不会停止任何 session。A 仍不能用 B 的 token 对 C 执行 `send`、`task`、`model`、`logs`、`capture` 或 `resume`。普通 `kill` 仍只影响指定 session，`--tree` 不赋予对兄弟树的权限。
 
 ## Nesting limit
 

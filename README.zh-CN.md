@@ -115,7 +115,7 @@ Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `
 | `capture <id> --token <tok>` | 截取终端输出，仅用于调试 |
 | `task <id> --file <path> --token <tok>` | 发送长任务文件 |
 | `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | 切换运行中 helper 的模型 |
-| `kill <id> --token <tok>` | 终止 helper session |
+| `kill <id> --token <tok> [--tree]` | 终止 helper；`--tree` 同时停止后代并报告 `killed` / `missed` |
 | `logs <id> --token <tok>` | 读取 live 或 archived session output |
 | `resume <id> --token <tok> [--safe]` | 恢复已完成的 helper；已有 safe 姿态会自动继承 |
 | `status` | 显示所有 session 和 daemon 状态 |

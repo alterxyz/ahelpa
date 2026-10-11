@@ -279,6 +279,11 @@ export class StateDB {
       .run(status, now, id);
   }
 
+  markLaunchRolledBack(id: string): void {
+    this.db.prepare("UPDATE sessions SET status = ?, launch_pid = NULL, updated_at = ?, version = version + 1 WHERE id = ?")
+      .run(SESSION_STATUS.Dead, new Date().toISOString(), id);
+  }
+
   compareAndSetStatus(id: string, expected: SessionStatus, status: SessionStatus, expectedVersion?: number): boolean {
     // Increment under SQLite's write lock: processes must not read/increment/write in JS.
     return this.db.prepare(`UPDATE sessions SET status = ?, updated_at = ?, version = version + 1

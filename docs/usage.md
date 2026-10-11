@@ -285,7 +285,7 @@ ahelpa capture "$session_id" --token "$token" --lines 100  # last 100 lines
 
 ## View Session Logs
 
-Full session output, including archived output after the tmux session is gone:
+Read session output, including the archived pane snapshot after settlement or an explicit `kill` (with or without `--tree`). Kill preserves an existing settlement archive; only unsettled sessions receive a kill-time snapshot:
 
 ```bash
 ahelpa logs "$session_id" --token "$token"
@@ -315,6 +315,20 @@ Terminate a specific session:
 ```bash
 ahelpa kill "$session_id" --token "$token"
 ```
+
+`kill` preserves an existing settlement archive (including while the terminal drains). For an unsettled session, it captures the last 500 pane lines before killing tmux, then commits `dead` and the snapshot together only if the observed row version still matches. A settlement that wins during capture or termination keeps its status and archive; tree mode skips descendants that settle during capture. Capture or archive-write failures do not prevent termination; an unavailable pane leaves any earlier archive intact. If termination fails and the terminal still exists, the command reports the failure without changing the row or archive. A reserved launch whose terminal does not exist yet is still marked `dead`, cancelling its launch publication and allowing the launcher to roll back.
+
+To abort that helper and its descendants using the target's own token:
+
+```bash
+ahelpa kill "$session_id" --token "$token" --tree
+```
+
+`--tree` checks the exact target's token before stopping anything, walks SQLite `parent_id` lineage, and stops active descendants deepest first, then the target. It re-enumerates for late spawns, with at most four kill passes (`MAX_TREE_KILL_PASSES`), stopping when a scan finds no new active descendants. Passes run without an added pause: launches reserve their rows before creating tmux, so startup delays do not hide them from enumeration. Each descendant is attempted once. JSON output is `{ "killed": ["id", ...], "missed": ["id", ...] }`: `killed` lists successful stops, including the target if stopped; `missed` lists descendants still active at the final scan, including failed kills and late arrivals beyond the pass limit. Inspect `missed` before considering the tree stopped. A target kill failure still fails the command as plain `kill` does; earlier descendant stops remain applied.
+
+Descendants already settled (`idle`, `dead`, or `error`) are skipped and not reported as missed, using the existing active-session definition (`running`, `draining`, `needs_attention`). Their lineage records are still traversed, so live children beneath settled parents are swept. An already-dead target still authorizes sweeping live descendants and is not listed in `killed` again. The result is a bounded snapshot; launches registered after the final scan require another `kill --tree`.
+
+**Abort authority follows lineage; control does not.** This is the sole ownership carve-out: it grants no `send`, `task`, `model`, `logs`, `capture`, or `resume` access to descendants and does not affect sibling trees. Without `--tree`, `kill` still stops one session and prints `killed`. `kill --job` is not supported.
 
 Clean up settled records whose tmux sessions have exited, and orphan runtime files (pipes, task files):
 

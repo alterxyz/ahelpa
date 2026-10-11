@@ -111,6 +111,21 @@ export function listActiveSessionsInTree(db: StateDB, rootId: string): SessionRe
   });
 }
 
+// The target may itself be nested. Walk through settled ancestors too: killing
+// a parent leaves its lineage record available for the next late-spawn sweep.
+export function listActiveDescendants(db: StateDB, sessionId: string): SessionRecord[] {
+  return db.listActiveSessions().flatMap((session) => {
+    if (session.id === sessionId) return [];
+    try {
+      const lineage = buildSessionLineage(db, session.id);
+      return lineage.includes(sessionId) ? [{ session, depth: lineage.length }] : [];
+    } catch {
+      return [];
+    }
+  }).sort((a, b) => b.depth - a.depth || a.session.id.localeCompare(b.session.id))
+    .map(({ session }) => session);
+}
+
 export function getMaxActivePerTree(): number {
   return readPositiveInt(process.env.AHELPA_MAX_ACTIVE_PER_TREE, DEFAULT_MAX_ACTIVE_PER_TREE);
 }

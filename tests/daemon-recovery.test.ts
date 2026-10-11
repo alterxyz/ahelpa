@@ -73,7 +73,9 @@ describe("daemon recovery", () => {
 
     expect(db.getSession(id)?.status).toBe("dead");
     expect(db.listActiveSessions()).toHaveLength(0);
-    expect(new Archive(join(root, "archive")).get(id)?.status).toBe("idle");
+    expect(new Archive(join(root, "archive")).get(id)).toMatchObject({
+      status: "idle", lastOutput: "● [AHELPA:DONE]",
+    });
   });
 
   test("explicit kill wins while a completion capture is still pending", async () => {
@@ -81,7 +83,9 @@ describe("daemon recovery", () => {
     const capturing = deferred<void>();
     const releaseCapture = deferred<string>();
     spyOn(Tmux, "hasSession").mockResolvedValue(true);
-    spyOn(Tmux, "capture").mockImplementation(async () => {
+    // Only the daemon's first capture is in flight. Kill takes an independent
+    // snapshot before stopping tmux; the stale daemon result must not replace it.
+    spyOn(Tmux, "capture").mockResolvedValue("kill-time output").mockImplementationOnce(async () => {
       capturing.resolve();
       return releaseCapture.promise;
     });
@@ -96,7 +100,9 @@ describe("daemon recovery", () => {
 
     expect(db.getSession(id)?.status).toBe("dead");
     expect(exitSpy).not.toHaveBeenCalled();
-    expect(new Archive(join(root, "archive")).get(id)).toBeNull();
+    expect(new Archive(join(root, "archive")).get(id)).toMatchObject({
+      status: "dead", lastOutput: "kill-time output",
+    });
   });
 
   test("explicit kill wins while the daemon is reclaiming a draining terminal", async () => {
