@@ -12,6 +12,14 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 默认情况下，Kimi 以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` 启动。这个 canonical 更新开关用于避免 CLI 自更新中断持久 tmux session。首次在某个目录启动时，ahelpa 会自动选择 **Trust this folder**，让任务能够无人值守地继续投递。Kimi 会持久保存该目录信任；可信项目可以提供 Kimi 随后可能启动的 MCP server。默认模式和 `--safe` 模式都会自动信任目录。因此，`--safe` 只是通过省略 `--yolo` 恢复逐项原生审批，并不能让不可信项目变得安全。
 
+## 会话回合 Hooks
+
+Claude 通过 `--settings` 加载 `.ahelpa/<id>/claude-settings.json`，该会话设置文件还写入 `promptSuggestionEnabled: false`，关闭 helper 输入框内的建议文字。Codex 使用仅本次调用生效的 `notify` override。Launch 和 resume 都不编辑 `~/.claude/settings.json` 或 `~/.codex/config.toml`。Claude 现有 project/user hooks 仍会与会话 hooks 合并运行。Codex 的 notify override 会替换本次调用原有的 notify 命令；native hooks 及其信任设置不变。
+
+隐藏命令 `__turn-hook` 读取 stdin（Claude）或最后一个 JSON 参数（Codex），过滤支持的事件，仅把标识、时间、失败类型、输入 SHA-256 摘要和消息存在性／长度追加到会话的 `turns.log`。它不打开状态数据库，不执行 payload 中的指令，不输出 stdout。无效输入及不可用文件会被忽略，stdin 读取有时限。写入器要求 `.ahelpa` 下已有的会话目录，并拒绝 symlink 和 hardlink 目标；打开后检查 regular file 只有一个链接且 device／inode 与检查路径一致，通过该 descriptor 写入。保存的 runtime 不存在或不可用时，hook wrapper 静默退出 0。不保留 assistant 正文或 input-messages 内容。这是可信本地进程提供的时机提示，不是经过认证的成功信号或权限边界。
+
+Hook 对日志文件提供 symlink 和 hardlink 防护，但不能防止已拥有用户权限的进程并发替换会话目录本身。
+
 ## 实用防护
 
 - **用 `--project` 收窄范围。** 把 helper 指向最小可用工作目录。它设置 cwd 和任务意图边界，但不是 filesystem sandbox。做 review 时，应在 prompt 中明确禁止读取无关 home 目录、全局 `~/.ahelpa/archive` 和其他项目，除非任务确实需要。

@@ -38,7 +38,7 @@ export function planFileHandoff(
   layout: RuntimeLayout = defaultRuntimeLayout,
 ): FileHandoffPlan {
   const projectDeliveryDir = layout.projectDeliveryDir(projectPath);
-  const sessionDeliveryDir = join(projectDeliveryDir, sessionId);
+  const sessionDeliveryDir = layout.sessionDeliveryDir(projectPath, sessionId);
   const summaryPath = join(sessionDeliveryDir, "summary.md");
   const artifactsDir = join(sessionDeliveryDir, "artifacts");
   const taskCopyPath = join(sessionDeliveryDir, "task.md");

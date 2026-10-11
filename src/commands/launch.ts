@@ -13,6 +13,7 @@ import { isTaskInstructionEcho, ORIGINAL_ASK_UNAVAILABLE, planFileHandoff, prepa
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
+import { deliverTurn } from "../turn-delivery";
 import { resolveLaunchProfile } from "../launch-profiles";
 import { computeTargetFingerprint, LAUNCH_FINGERPRINT_TIMEOUT_MS } from "../evidence";
 
@@ -255,6 +256,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   const fileHandoff = planFileHandoff(input.projectPath, sessionId);
   const baseLaunchCmd = driver.buildLaunchCommand({
     cwd: input.projectPath,
+    sessionId,
     safe: input.safe,
     model: input.model,
     effort: input.effort,
@@ -393,6 +395,7 @@ function rollbackReservation(db: StateDB, sessionId: string): void {
 export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   let tmuxCreated = false;
   let handoffOwned = false;
+  let taskFileOwned = false;
   let dbCreated = false;
   let wakeupOwned = false;
   let worktreeCreated = false;
@@ -436,13 +439,21 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       ? await computeTargetFingerprint(plan.input.projectPath, targetResultDirs, { deadline: Date.now() + LAUNCH_FINGERPRINT_TIMEOUT_MS })
       : null;
     plan.handoffContext.targetFingerprint = targetFingerprint;
+    if (plan.driver.turnHooks) {
+      mkdirSync(plan.fileHandoff.projectDeliveryDir, { recursive: true });
+      mkdirSync(plan.fileHandoff.sessionDeliveryDir);
+      handoffOwned = true;
+      plan.driver.prepareLaunchFiles?.({ cwd: plan.input.projectPath, sessionId: plan.sessionId });
+    }
     await Tmux.create(plan.sessionId, plan.launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(plan.input.db, plan.sessionId);
-    // Re-check after tmux creation so a concurrent/stale handoff is never
-    // overwritten by this launch. We own the tmux, but not those files.
-    assertFileHandoffAvailable(plan.fileHandoff);
+    // Hook-enabled drivers reserved their delivery directory before startup.
+    // Re-check the separate tmp task path after tmux creation as well.
+    if (!handoffOwned) assertFileHandoffAvailable(plan.fileHandoff);
+    else if (existsSync(plan.fileHandoff.taskFilePath)) throw new Error("Refusing to overwrite existing task file");
     handoffOwned = true;
+    taskFileOwned = true;
     prepareFileHandoff(plan.fileHandoff, plan.input.task, plan.handoffContext);
     await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
     const submissionContext: TaskSubmissionContext = {};
@@ -451,12 +462,12 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     } catch {
       // The snapshot only helps history-aware drivers reject stale sentinels.
     }
-    await driverRuntime.sendKeys(plan.sessionId, plan.fileHandoff.taskInstruction);
-    const submitted = await plan.driver.afterTaskSubmitted(
-      plan.sessionId,
-      driverRuntime,
-      submissionContext,
-    );
+    assertLaunchReservation(plan.input.db, plan.sessionId);
+    const row = plan.input.db.getSession(plan.sessionId)!;
+    const submitted = await deliverTurn(plan.input.db, row, plan.fileHandoff.taskInstruction,
+      () => driverRuntime.sendKeys(plan.sessionId, plan.fileHandoff.taskInstruction), {
+        afterSend: () => plan.driver.afterTaskSubmitted(plan.sessionId, driverRuntime, submissionContext),
+      });
     if (!submitted) {
       // If the task instruction is visibly on the pane, the agent has it: do not
       // kill a healthy session just because turn evidence is late (Codex 0.145
@@ -503,8 +514,10 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     if (dbCreated) {
       try { rollbackReservation(plan.input.db, plan.sessionId); } catch {}
     }
-    if (handoffOwned) {
+    if (taskFileOwned) {
       try { unlinkSync(plan.fileHandoff.taskFilePath); } catch {}
+    }
+    if (handoffOwned) {
       try { rmSync(plan.fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
     }
     if (worktreeCreated && plan.worktreeSource) {
@@ -588,6 +601,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
 
   const resumeCmd = driver.buildResumeCommand({
     cwd: projectPath,
+    sessionId,
     resumeId: oldSession.agentResumeId,
     safe,
     model: oldSession.model ?? undefined,
@@ -629,10 +643,20 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+    if (driver.turnHooks) {
+      assertFileHandoffAvailable(fileHandoff);
+      mkdirSync(fileHandoff.projectDeliveryDir, { recursive: true });
+      mkdirSync(fileHandoff.sessionDeliveryDir);
+      handoffOwned = true;
+      driver.prepareLaunchFiles?.({ cwd: projectPath, sessionId });
+    }
     await Tmux.create(sessionId, launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(input.db, sessionId);
-    assertFileHandoffAvailable(fileHandoff);
+    // Hook startup already reserved this directory; the tmp task path remains
+    // separate and must still be checked before copying the original ask.
+    if (!handoffOwned) assertFileHandoffAvailable(fileHandoff);
+    else if (existsSync(fileHandoff.taskFilePath)) throw new Error("Refusing to overwrite existing task file");
     handoffOwned = true;
     mkdirSync(fileHandoff.artifactsDir, { recursive: true });
     writeFileSync(fileHandoff.askPath, existsSync(sourceHandoff.askPath)

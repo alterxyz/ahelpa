@@ -201,6 +201,8 @@ ahelpa wait "$session_id" --timeout 300    # 5 minutes
 
 ## Read Results
 
+Claude and Codex report turn-end timing to ahelpa. When a turn ends without a signal, `wait` may return `needs_attention` sooner if no summary was written. If a summary exists, ahelpa asks once for the completion signal when the input composer is ready. After an attributed Claude Stop, historical reply/tool bullets and completed spinner lines do not block this request. Any visible spinner or interrupt hint vetoes it, including timerless or iconless ellipses and activity above newer bullets. Claude helpers disable prompt suggestions through session settings so ghost text does not obstruct this check. Real drafts still block input. The last column-zero composer must be empty, and dialog prompts or confirmation/selection/cancellation footers below it block input. This does not verify task success; read the summary and evidence as usual. Interrupted turns and CLIs that emit no hook keep the inactivity fallback. The result directory may also contain `turns.log` (event identifiers, input digests, and length/presence metadata) and, for Claude, `claude-settings.json` (session hooks).
+
 After a helper completes, its output lives in the project directory:
 
 ```bash
@@ -256,6 +258,8 @@ ahelpa task "$session_id" --file ./next-task.md --token "$token"
 ```
 
 Prefer `task` over `send` for anything longer than a sentence — it avoids tmux's keystroke-based input limits.
+
+Overlapping `send`, `task`, and automatic completion nudges to one session are allowed. When deliveries overlap, ahelpa marks the current turn ambiguous and ignores its turn-end hooks, disabling the hook fast path and using the inactivity fallback. A later registration clears overlap ambiguity when no other delivery remains in flight (entries older than five minutes expire to recover from a crashed sender); hook attribution still requires an unambiguous input digest. Send follow-ups one at a time if you need the hook fast path.
 
 ## Monitor Sessions
 
