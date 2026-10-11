@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { computeTargetFingerprint } from "../src/evidence";
 
@@ -8,8 +9,7 @@ const originalPath = process.env.PATH;
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 
 beforeEach(() => {
-  mkdirSync(join(import.meta.dir, "../.ahelpa"), { recursive: true });
-  root = mkdtempSync(join(import.meta.dir, "../.ahelpa/fingerprint-lifecycle-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "fingerprint-lifecycle-"));
 });
 
 afterEach(() => {

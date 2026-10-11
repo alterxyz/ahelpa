@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB, type CreateSessionInput } from "../src/state";
 import { runCli, renderHelpText } from "../src/command-contract";
@@ -30,8 +31,7 @@ describe("bounded peer mail", () => {
     return { code, out, err };
   }
   beforeEach(() => {
-    mkdirSync(join(import.meta.dir, "../.ahelpa"), { recursive: true });
-    root = mkdtempSync(join(import.meta.dir, "../.ahelpa/mail-test-"));
+    root = mkdtempSync(join(realpathSync(tmpdir()), "mail-test-"));
     db = new StateDB(join(root, "state.db"));
     originalParent = process.env.AHELPA_PARENT_ID;
     originalBudget = process.env.AHELPA_MAIL_BUDGET;

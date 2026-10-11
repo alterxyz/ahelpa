@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
@@ -11,8 +12,7 @@ import { writeTurnHook } from "../src/turn-hooks";
 let root: string, dir: string, db: StateDB;
 const initial = "Please read and complete the task described in original-task";
 beforeEach(() => {
-  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
-  root = mkdtempSync(join(process.cwd(), ".ahelpa", "attribution-test-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "attribution-test-"));
   dir = join(root, ".ahelpa", "session-test");
   mkdirSync(dir, { recursive: true });
   db = new StateDB(join(root, "state.db"));

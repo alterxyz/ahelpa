@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { Archive } from "../src/archive";
 import { executeLaunch, planLaunch } from "../src/commands/launch";
@@ -17,7 +18,7 @@ let savedLayout: { ahelpaDir: string; tmpDir: string };
 let savedParent: string | undefined;
 
 beforeEach(() => {
-  const fixtures = join(import.meta.dir, "..", ".ahelpa");
+  const fixtures = realpathSync(tmpdir());
   mkdirSync(fixtures, { recursive: true });
   root = mkdtempSync(join(fixtures, "kill-tree-rework-"));
   project = join(root, "project");

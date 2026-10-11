@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import * as fs from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB, type CreateSessionInput } from "../src/state";
 import { inbox, mail, MAX_MAIL_FILE_BYTES, readMailFile } from "../src/commands/peer-mail";
@@ -37,7 +38,7 @@ describe("peer mail second rework", () => {
     spyOn(getDriver("codex"), "prepareForResume").mockResolvedValue();
   }
   beforeEach(() => {
-    root = fs.mkdtempSync(join(import.meta.dir, "../.ahelpa/mail-hardening-"));
+    root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), "mail-hardening-"));
     db = new StateDB(join(root, "state.db"));
     for (const key of ["AHELPA_PARENT_ID", "AHELPA_MAIL_BUDGET"]) {
       saved[key] = process.env[key]; delete process.env[key];

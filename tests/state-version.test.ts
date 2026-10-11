@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB } from "../src/state";
 
@@ -9,7 +10,7 @@ describe("cross-process row versions", () => {
   let db: StateDB;
 
   beforeEach(() => {
-    root = mkdtempSync(join(process.cwd(), ".ahelpa-version-test-"));
+    root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-version-test-"));
     dbPath = join(root, "state.db");
     db = new StateDB(dbPath);
     db.createSession({ id: "shared", parentId: "host", agentType: "codex", task: "fixture", ownerToken: "tok", projectPath: root });

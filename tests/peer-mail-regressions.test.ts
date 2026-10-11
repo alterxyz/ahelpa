@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB, type CreateSessionInput } from "../src/state";
 import { runCli } from "../src/command-contract";
@@ -42,7 +43,7 @@ describe("peer mail adversarial regressions", () => {
     spyOn(defaultRuntimeLayout, "taskFilePath").mockImplementation((id) => join(root, `${id}-task.md`));
   }
   beforeEach(() => {
-    const workspace = join(import.meta.dir, "../.ahelpa");
+    const workspace = realpathSync(tmpdir());
     mkdirSync(workspace, { recursive: true });
     root = mkdtempSync(join(workspace, "mail-regressions-"));
     db = new StateDB(join(root, "state.db"));

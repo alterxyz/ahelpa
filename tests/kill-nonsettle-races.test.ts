@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { Archive } from "../src/archive";
 import { executeLaunch, planLaunch } from "../src/commands/launch";
@@ -25,7 +26,7 @@ function gate<T>() {
 }
 
 beforeEach(() => {
-  const fixtures = join(import.meta.dir, "..", ".ahelpa");
+  const fixtures = realpathSync(tmpdir());
   mkdirSync(fixtures, { recursive: true });
   root = mkdtempSync(join(fixtures, "kill-nonsettle-"));
   savedParent = process.env.AHELPA_PARENT_ID;

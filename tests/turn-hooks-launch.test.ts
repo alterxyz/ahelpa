@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
@@ -12,8 +13,7 @@ import * as daemon from "../src/daemon";
 let root: string;
 let db: StateDB;
 beforeEach(() => {
-  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
-  root = mkdtempSync(join(process.cwd(), ".ahelpa", "hook-launch-test-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "hook-launch-test-"));
   db = new StateDB(join(root, "state.db"));
   spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
   spyOn(defaultWakeup, "prepare").mockResolvedValue();

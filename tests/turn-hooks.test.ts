@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { getSelfCommand } from "../src/self-command";
 import { parseTurnPayload, readTurnEvents, turnHookCommand, writeTurnHook } from "../src/turn-hooks";
@@ -12,8 +13,7 @@ const fixture = (name: string) => readFileSync(join(import.meta.dir, "fixtures/t
 let root: string;
 let dir: string;
 beforeEach(() => {
-  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
-  root = mkdtempSync(join(process.cwd(), ".ahelpa", "hooks-test-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "hooks-test-"));
   dir = join(root, ".ahelpa", "codex-fixture");
   mkdirSync(dir, { recursive: true });
 });

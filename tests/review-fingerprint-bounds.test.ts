@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { $ } from "bun";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { computeTargetFingerprint, collectEvidence } from "../src/evidence";
 import { executeLaunch, planLaunch } from "../src/commands/launch";
@@ -17,7 +18,7 @@ const originalCeiling = process.env.GIT_CEILING_DIRECTORIES;
 const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
 
 beforeEach(async () => {
-  root = mkdtempSync(join(import.meta.dir, "../.ahelpa/fingerprint-bounds-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "fingerprint-bounds-"));
   project = join(root, "repo");
   process.env.GIT_CEILING_DIRECTORIES = root;
   db = new StateDB(join(root, "state.db"));

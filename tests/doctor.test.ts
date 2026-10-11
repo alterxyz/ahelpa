@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 const cli = resolve(import.meta.dir, "../src/cli.ts");
@@ -73,7 +74,7 @@ function validCodexTokens(claims: unknown = {}) {
 }
 
 beforeEach(() => {
-  const fixtureRoot = resolve(import.meta.dir, "../.ahelpa");
+  const fixtureRoot = realpathSync(tmpdir());
   mkdirSync(fixtureRoot, { recursive: true });
   root = mkdtempSync(join(fixtureRoot, "doctor-test-"));
   bin = join(root, "bin"); home = join(root, "home"); project = join(root, "project");

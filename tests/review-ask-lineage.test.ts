@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB } from "../src/state";
 import { executeLaunch, planLaunch, resume } from "../src/commands/launch";
@@ -19,7 +20,7 @@ describe("blind review ask lineage", () => {
   let gitCeiling: string | undefined;
 
   beforeEach(() => {
-    root = mkdtempSync(join(import.meta.dir, "../.ahelpa/ask-lineage-test-"));
+    root = mkdtempSync(join(realpathSync(tmpdir()), "ask-lineage-test-"));
     project = join(root, "repo");
     mkdirSync(project);
     gitCeiling = process.env.GIT_CEILING_DIRECTORIES;

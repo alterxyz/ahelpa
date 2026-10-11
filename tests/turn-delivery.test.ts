@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { Database } from "bun:sqlite";
 import { deliverTurn } from "../src/turn-delivery";
@@ -17,8 +18,7 @@ let root: string, dir: string, db: StateDB;
 const initial = "Please read and complete the task described in fixture";
 const pane = readFileSync(join(import.meta.dir, "fixtures/turn-hooks/claude-completed.txt"), "utf8");
 beforeEach(() => {
-  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
-  root = mkdtempSync(join(process.cwd(), ".ahelpa", "delivery-test-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "delivery-test-"));
   dir = join(root, ".ahelpa", "session-test");
   mkdirSync(dir, { recursive: true });
   mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, setSystemTime, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { Archive } from "../src/archive";
 import { send } from "../src/commands/session-ops";
@@ -25,7 +26,7 @@ describe("settle observed row version", () => {
   const frozenNow = Date.parse("2026-01-01T00:00:00.999Z");
 
   beforeEach(() => {
-    root = mkdtempSync(join(process.cwd(), ".ahelpa-aba-test-"));
+    root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-aba-test-"));
     layout = new RuntimeLayout({ ahelpaDir: join(root, "state"), tmpDir: join(root, "runtime") });
     spyOn(defaultRuntimeLayout, "ahelpaHomeDir").mockReturnValue(layout.ahelpaHomeDir());
     spyOn(defaultRuntimeLayout, "archiveDir").mockReturnValue(layout.archiveDir());

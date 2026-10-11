@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { $ } from "bun";
 import { Database } from "bun:sqlite";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB } from "../src/state";
 import { executeLaunch, planLaunch, resume } from "../src/commands/launch";
@@ -23,7 +24,7 @@ describe("review target and blind handoff", () => {
   let gitCeiling: string | undefined;
 
   beforeEach(() => {
-    root = mkdtempSync(join(import.meta.dir, "../.ahelpa/review-target-test-"));
+    root = mkdtempSync(join(realpathSync(tmpdir()), "review-target-test-"));
     project = join(root, "repo");
     mkdirSync(project);
     // These fixtures live inside the source checkout. Stop discovery at their

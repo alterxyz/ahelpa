@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { getDriver } from "../src/drivers/registry";
 import { StateDB } from "../src/state";
@@ -75,8 +76,7 @@ let root: string;
 let db: StateDB;
 let count = 0;
 beforeEach(() => {
-  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
-  root = mkdtempSync(join(process.cwd(), ".ahelpa", "hook-ready-test-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "hook-ready-test-"));
   db = new StateDB(join(root, "state.db"));
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
   spyOn(Tmux, "capture").mockResolvedValue(pane);

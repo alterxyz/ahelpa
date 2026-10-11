@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { shellEscape } from "../src/shell";
 import { turnHookCommand, writeTurnHook } from "../src/turn-hooks";
 let root: string, dir: string;
 beforeEach(() => {
-  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
-  root = mkdtempSync(join(process.cwd(), ".ahelpa", "safety-test-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "safety-test-"));
   dir = join(root, ".ahelpa", "session-test");
   mkdirSync(dir, { recursive: true });
 });
@@ -22,7 +22,7 @@ test("hardlinked turns.log never modifies the outside-session victim", () => {
 });
 test("saved Claude and Codex hooks stay silent and successful after compiled runtime moves or becomes unusable", async () => {
   const binary = join(root, "runtime 'quote' $literal 中文");
-  const build = Bun.spawn([process.execPath, "build", join(process.cwd(), "src/cli.ts"), "--compile", `--outfile=${binary}`], { stdout: "pipe", stderr: "pipe" });
+  const build = Bun.spawn([process.execPath, "build", join(process.cwd(), "src/cli.ts"), "--compile", `--outfile=${binary}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
   const [exit, , stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
   expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
   const cli = join(process.cwd(), "src/cli.ts");

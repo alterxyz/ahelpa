@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB, type CreateSessionInput } from "../src/state";
 import { executeLaunch, findWriterConflicts, launch, planLaunch, resolveJobId, resume } from "../src/commands/launch";
@@ -24,10 +25,7 @@ let savedEnv: (string | undefined)[];
 let savedLayout: { ahelpaDir: string; tmpDir: string };
 
 beforeEach(() => {
-  // These probes never write state, task files, or archives outside this checkout.
-  const scratch = join(import.meta.dir, "../.ahelpa/codex-ff0259cdaf82/artifacts");
-  mkdirSync(scratch, { recursive: true });
-  root = mkdtempSync(join(scratch, "regression-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-pr6-"));
   project = join(root, "project");
   mkdirSync(project);
   savedEnv = envKeys.map((key) => process.env[key]);

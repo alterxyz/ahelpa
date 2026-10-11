@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB } from "../src/state";
 import { runCli } from "../src/command-contract";
@@ -14,8 +15,7 @@ let db: StateDB;
 let caller: string | undefined;
 
 beforeEach(() => {
-  mkdirSync(join(process.cwd(), ".ahelpa"), { recursive: true });
-  root = mkdtempSync(join(process.cwd(), ".ahelpa", "mail-stack-test-"));
+  root = mkdtempSync(join(realpathSync(tmpdir()), "mail-stack-test-"));
   db = new StateDB(join(root, "state.db"));
   caller = process.env.AHELPA_PARENT_ID;
   process.env.AHELPA_PARENT_ID = "mail-stack-sender";
