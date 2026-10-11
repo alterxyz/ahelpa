@@ -1,4 +1,4 @@
-import { StateDB } from "./state";
+import { SessionRecord, StateDB } from "./state";
 
 export interface NestingInfo {
   depth: number;
@@ -8,6 +8,9 @@ export interface NestingInfo {
 }
 
 const DEFAULT_MAX_NESTING_DEPTH = 4;
+// Depth bounds how far a chain can go; this bounds how wide a tree can get.
+// Without it a single helper can fan out without limit at a legal depth.
+const DEFAULT_MAX_ACTIVE_PER_TREE = 8;
 
 function buildSessionLineage(db: StateDB, sessionId: string): string[] {
   const lineage: string[] = [];
@@ -30,15 +33,51 @@ function buildSessionLineage(db: StateDB, sessionId: string): string[] {
   return lineage.reverse();
 }
 
+// A native resume belongs to the original tree even when it resumes a root.
+// clean retains both parent and resume ancestry while active descendants exist.
+export function getSessionTreeId(db: StateDB, sessionId: string): string {
+  const seen = new Set<string>();
+  let currentId = sessionId;
+  while (true) {
+    if (seen.has(currentId)) throw new Error(`Cyclic session lineage detected at ${currentId}`);
+    seen.add(currentId);
+    const session = db.getSession(currentId);
+    if (!session) return currentId;
+    const ancestor = session.resumedFrom && db.getSession(session.resumedFrom)
+      ? session.resumedFrom : session.parentId;
+    if (!db.getSession(ancestor)) return currentId;
+    currentId = ancestor;
+  }
+}
+
+// Retain the whole parent chain for future tree traversal, plus native resume
+// ancestry so a resumed root continues to share its original tree's quota.
+export function activeSessionAncestorIds(db: StateDB, retainedSessionIds: Iterable<string> = []): Set<string> {
+  const records = new Map(db.listSessions().map((session) => [session.id, session]));
+  const retained = new Set<string>();
+  const pending = [...db.listActiveSessions().map((session) => session.id), ...retainedSessionIds];
+  while (pending.length) {
+    const id = pending.pop()!;
+    if (retained.has(id)) continue;
+    retained.add(id);
+    const session = records.get(id);
+    if (!session) continue;
+    for (const ancestor of [session.parentId, session.resumedFrom]) {
+      if (ancestor && records.has(ancestor)) pending.push(ancestor);
+    }
+  }
+  return retained;
+}
+
 export function getSessionNestingInfo(db: StateDB, sessionId: string): NestingInfo {
   const session = db.getSession(sessionId);
   if (!session) throw new Error(`Session not found: ${sessionId}`);
 
   const lineage = buildSessionLineage(db, sessionId);
   return {
-    depth: lineage.length,
+    depth: Math.max(session.depth, lineage.length),
     parentSessionId: lineage.length > 1 ? lineage[lineage.length - 2] : null,
-    rootSessionId: lineage[0] || null,
+    rootSessionId: getSessionTreeId(db, sessionId),
     lineage,
   };
 }
@@ -54,19 +93,35 @@ export function getPendingLaunchNestingInfo(db: StateDB, parentId: string): Nest
     };
   }
 
+  const lineage = buildSessionLineage(db, parentId);
   return {
     depth: parentSession.depth + 1,
     parentSessionId: parentId,
-    rootSessionId: null,
-    lineage: [],
+    rootSessionId: getSessionTreeId(db, parentId),
+    lineage,
   };
 }
 
-export function getMaxNestingDepth(): number {
-  const raw = process.env.AHELPA_MAX_NESTING_DEPTH;
-  if (!raw) return DEFAULT_MAX_NESTING_DEPTH;
+// Count the root and all active descendants, including resumed hands. Each
+// direct host launch starts its own tree rather than sharing a host-wide quota.
+export function listActiveSessionsInTree(db: StateDB, rootId: string): SessionRecord[] {
+  const treeId = getSessionTreeId(db, rootId);
+  return db.listActiveSessions().filter((session) => {
+    try { return getSessionTreeId(db, session.id) === treeId; } catch { return false; }
+  });
+}
 
+export function getMaxActivePerTree(): number {
+  return readPositiveInt(process.env.AHELPA_MAX_ACTIVE_PER_TREE, DEFAULT_MAX_ACTIVE_PER_TREE);
+}
+
+export function getMaxNestingDepth(): number {
+  return readPositiveInt(process.env.AHELPA_MAX_NESTING_DEPTH, DEFAULT_MAX_NESTING_DEPTH);
+}
+
+function readPositiveInt(raw: string | undefined, fallback: number): number {
+  if (!raw) return fallback;
   const parsed = parseInt(raw, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) return DEFAULT_MAX_NESTING_DEPTH;
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
   return parsed;
 }

@@ -8,7 +8,7 @@ import { Archive } from "../archive";
 import { defaultWakeup, Wakeup } from "../wakeup";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { requireAuthorizedSession } from "../session-access";
-import { getSessionNestingInfo } from "../nesting";
+import { activeSessionAncestorIds, getSessionNestingInfo } from "../nesting";
 import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
 import { planFileHandoff, prepareFileHandoff } from "../file-handoff";
 import { getDriver } from "../drivers/registry";
@@ -144,15 +144,17 @@ export const logs = withAuth(async ({ session }) => {
   return "(no logs available)";
 });
 
-export function check(db: StateDB, parentId?: string) {
-  const sessions = db.listSessions(parentId);
+export function check(db: StateDB, parentId?: string, jobId?: string) {
+  const sessions = jobId !== undefined
+    ? db.listJobSessions(jobId).filter((s) => parentId === undefined || s.parentId === parentId)
+    : db.listSessions(parentId);
   return sessions.map(s => ({
     ...getSessionNestingInfo(db, s.id),
     id: s.id, agentType: s.agentType, status: s.status,
     role: s.role ?? null, model: s.model ?? null, effort: s.effort ?? null,
     task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
     agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
-    afterId: s.afterId ?? null, checkCmd: s.checkCmd ?? null, projectPath: s.projectPath,
+    afterId: s.afterId ?? null, jobId: s.jobId ?? null, checkCmd: s.checkCmd ?? null, projectPath: s.projectPath,
   }));
 }
 
@@ -161,12 +163,12 @@ export function status(db: StateDB, daemonRunning: boolean): string {
   let output = `ahelpa daemon: ${daemonRunning ? "running" : "stopped"}\n`;
   output += `sessions: ${sessions.length}\n\n`;
   if (sessions.length === 0) { output += "(no sessions)\n"; return output; }
-  output += "ID                    TYPE          ROLE      STATUS    DEPTH PARENT                 LABEL         AGE\n";
-  output += "─".repeat(114) + "\n";
+  output += "ID                    TYPE          ROLE      STATUS    DEPTH PARENT                 JOB          LABEL         AGE\n";
+  output += "─".repeat(127) + "\n";
   for (const s of sessions) {
     const age = timeSince(s.createdAt);
     const nesting = getSessionNestingInfo(db, s.id);
-    output += `${s.id.padEnd(22)} ${s.agentType.padEnd(14)} ${(s.role ?? "-").padEnd(10)} ${s.status.padEnd(10)} ${String(nesting.depth).padEnd(5)} ${(nesting.parentSessionId || "-").padEnd(22)} ${(s.label || "").padEnd(14)} ${age}\n`;
+    output += `${s.id.padEnd(22)} ${s.agentType.padEnd(14)} ${(s.role ?? "-").padEnd(10)} ${s.status.padEnd(10)} ${String(nesting.depth).padEnd(5)} ${(nesting.parentSessionId || "-").padEnd(22)} ${(s.jobId || "-").padEnd(12)} ${(s.label || "").padEnd(14)} ${age}\n`;
   }
   return output;
 }
@@ -182,14 +184,30 @@ export async function clean(db: StateDB, layout: RuntimeLayout = defaultRuntimeL
       || session.status === SESSION_STATUS.Idle
       || session.status === SESSION_STATUS.Error,
   );
-  let removed = 0;
+  // Decide terminal liveness before deleting any ancestor: settled children
+  // may still own a terminal, including the idle -> draining settle window.
+  const absent = new Set<string>();
   for (const session of cleanable) {
-    if (await Tmux.hasSession(session.id)) continue;
-    wakeup.cleanup(session.id);
-    try { unlinkSync(layout.taskFilePath(session.id)); } catch {}
-    db.deleteSession(session.id);
-    removed++;
+    if (!await Tmux.hasSession(session.id)) absent.add(session.id);
   }
+  let removed = 0;
+  db.immediateTransaction(() => {
+    // Launch/settle may have changed records while liveness checks awaited.
+    const current = db.listSessions();
+    const deletable = new Set(current.filter((session) => absent.has(session.id)
+      && (session.status === SESSION_STATUS.Dead
+        || session.status === SESSION_STATUS.Idle || session.status === SESSION_STATUS.Error))
+      .map((session) => session.id));
+    const retained = activeSessionAncestorIds(db,
+      current.filter((session) => !deletable.has(session.id)).map((session) => session.id));
+    for (const id of deletable) {
+      if (retained.has(id)) continue;
+      wakeup.cleanup(id);
+      try { unlinkSync(layout.taskFilePath(id)); } catch {}
+      db.deleteSession(id);
+      removed++;
+    }
+  });
   return { removed, orphanFiles: await sweepOrphanFiles(db, layout) };
 }
 
@@ -210,9 +228,8 @@ async function sweepOrphanFiles(db: StateDB, layout: RuntimeLayout): Promise<num
         ? entry.slice("ahelpa-task-".length, -".md".length)
         : null;
     if (!sessionId || db.getSession(sessionId)) continue;
-    // Launch creates its terminal and handoff files before registering the
-    // session, after startup and task delivery succeed. Those files are still
-    // owned while the terminal exists, even without a DB row yet.
+    // A live terminal still owns its files even if a legacy launch or an
+    // interrupted operation left them without a registered database row.
     if (await Tmux.hasSession(sessionId)) continue;
     if (db.getSession(sessionId)) continue;
     try {

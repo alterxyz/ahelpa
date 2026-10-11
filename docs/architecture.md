@@ -33,7 +33,7 @@ SQLite schema creation and migrations run in one immediate transaction. Concurre
 
 A session starts as `running` and can settle as `idle`, `error`, `needs_attention`, or `dead`. Successful sessions pass through `draining` while their terminal is being reclaimed.
 
-1. **Launch.** `launch` generates a session ID (`{driver-prefix}-{uuid12}`) and an owner token, claims a new tmux session, prepares the file handoff, and submits and confirms the first turn through the selected driver. It then records the session in SQLite, prepares its FIFO pipe, and starts the daemon if needed. If delivery is visible but a new turn cannot yet be confirmed, launch returns a warning and retains the helper as `needs_attention` instead of terminating it.
+1. **Launch.** `launch` generates a session ID (`{driver-prefix}-{uuid12}`) and an owner token. In a SQLite immediate transaction, it checks the caller and nesting limits and reserves the session with its parent, job, resume linkage when applicable, and launch-process marker. Only then does it create a worktree, tmux session, or handoff files and submit the first turn through the selected driver. The helper can therefore find its own row before reading its task. After task setup and FIFO preparation, launch clears the marker only if the row is still `running` and owned by the same launch PID, then starts the daemon if needed. It also checks that reservation immediately after tmux creation. A killed or removed reservation cancels startup, returns a cancellation error, and rolls back the resources this launch created. If delivery is visible but a new turn cannot yet be confirmed, launch returns a warning and retains the helper as `needs_attention`. A failed launch rolls back its reservation, tmux session, FIFO, handoff, and any worktree it created. Resume uses the same check-and-reserve path before external side effects, re-reading the source and its current parent/resume ancestry inside the transaction; a removed source is refused.
 
 2. **Task delivery.** The driver's `prepareForTask` handles agent-specific startup (readiness checks, trust prompts). Then the task instruction is sent via `tmux send-keys` — it tells the helper to read the task file and where to write results.
 
@@ -61,6 +61,8 @@ idle/dead + native resume token ── resume ─► needs_attention ── send
 ```
 
 Sending input to a `needs_attention` session resumes monitoring as `running` after the driver confirms a new user turn. The transition is conditional: a concurrent `kill` remains authoritative even if input submission was already in progress. If its terminal disappears instead, it becomes `dead`.
+
+A reservation starts as `running` and carries a launch-process marker while launch or resume is setting it up. Daemon and inline refresh skip it while that process is alive and the reservation is younger than the three-minute startup lease (`LAUNCH_STARTUP_LEASE_MS`, measured from `created_at`), so an absent tmux session or an old sentinel cannot settle it during setup. The lease exceeds the slowest driver budget: Codex allows 82 seconds for readiness and 5 seconds for submission. A missing launcher or expired lease clears the marker conditionally and resumes reconciliation, even if the PID has been reused. An unpublished resume becomes `needs_attention`, waiting for a new task, so old native DONE output cannot settle it. `wait` treats setup as pending and retains its deadline even before the FIFO exists.
 
 `still_running` is a wait-specific return value, not a session state — it means the timeout expired before settlement.
 
@@ -102,9 +104,9 @@ The daemon is an optional background process that watches running sessions. It s
 5. A capture or kill failure is logged for that session. If its terminal disappeared, reconcile the final state; otherwise retry on a later poll. Other sessions continue refreshing.
 6. When no running, draining, or attention sessions remain, the daemon exits.
 
-**Inline refresh.** When the daemon is not running, `wait`, `check`, and `status` perform the same refresh logic inline before reporting state. Short-lived tasks work fine without a persistent daemon. A tmux permission or connection error is not proof of session death: the monitor retains state and retries. `clean` also checks for a live terminal before removing files belonging to a launch that has not registered its database row yet.
+**Inline refresh.** When the daemon is not running, `wait`, `check`, and `status` perform the same refresh logic inline before reporting state. Short-lived tasks work fine without a persistent daemon. A tmux permission or connection error is not proof of session death: the monitor retains state and retries. `clean` preserves reserved launches and checks for live terminals before removing orphan runtime files.
 
-**Process management:** PID file at `~/.ahelpa/daemon.pid`, log at `~/.ahelpa/daemon.log`. Crash recovery is automatic — the next `launch` restarts it.
+**Process management:** PID file at `~/.ahelpa/daemon.pid`, log at `~/.ahelpa/daemon.log`. There is no supervisor that restarts a crashed daemon immediately. The next launch or resume starts it when the PID liveness check reports it stopped; meanwhile `wait`, `check`, and `status` use inline refresh when no daemon is detected.
 
 ## Drivers
 
@@ -143,7 +145,19 @@ After Kimi prints `[AHELPA:DONE]`, `resume` is rejected while the old helper is 
 
 ## Nesting
 
-Helpers can launch their own helpers, creating a session lineage. Launch validates a maximum depth (default 4, configurable via `AHELPA_MAX_NESTING_DEPTH`). Each child session records its parent ID, but ownership is not transitive — a host controls only the sessions it directly launched.
+Helpers can launch their own helpers, creating a session lineage. Each child session records its parent ID, but ownership is not transitive — a host controls only the sessions it directly launched.
+
+Launch and resume check the actual caller and recursion bounds, then reserve the new session in the same SQLite immediate transaction before external side effects. Concurrent callers cannot claim the same last slot. The bounds are:
+
+| Bound | Default | Override | What it stops |
+| --- | --- | --- | --- |
+| Depth of a chain | 4 | `AHELPA_MAX_NESTING_DEPTH` | A helper that keeps delegating downward |
+| Active sessions in one tree (the root helper and all its descendants, counting `running`, `draining`, and `needs_attention`) | 8 | `AHELPA_MAX_ACTIVE_PER_TREE` | A helper that fans out sideways at a legal depth |
+| Launch or resume from a `reviewer` caller | refused | none | A read-only review hand delegating edits, or letting the author's reasoning reach the review |
+
+Each direct host launch starts a separate helper tree; there is no aggregate quota across the host's independent roots. `clean` retains every parent and resume ancestor needed by sessions it will keep in this pass, including startup reservations, running/draining/attention sessions, and settled idle/error sessions with live terminals. This covers the idle-to-draining settlement window, so cleanup cannot split their tree quota. Those records become removable after their descendants settle and their terminals exit. Resume retains the original parent and never lowers recorded depth; a deeper actual caller can raise that depth. A resumed root remains in its original tree through the existing `resumed_from` link. Both limit values are exported into every helper's environment.
+
+The actual caller is the existing SQLite session named by `AHELPA_PARENT_ID`, independently of an explicit `--parent`. A reviewer caller is always refused; a helper's `--parent` must stay inside its own tree, and checks cover the actual caller's depth as well as the requested parent. Host callers can still use arbitrary parent trace IDs. Jobs are independent of trees: explicit `--job` takes precedence over the `--after` session's stored job and then the actual caller's stored job; host-shell `AHELPA_JOB_ID` does not provide inheritance.
 
 ## Archives
 
