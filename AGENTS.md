@@ -87,4 +87,5 @@ Fully shipped records are removed from the tree so searches stay lean. Read them
 - Keep `wait` bounded — long tasks use re-wait or polling.
 - Keep agent-specific behavior inside drivers.
 - Do not commit runtime output, dependency folders, build artifacts, archives, credentials, or local paths.
+- Tests put scratch under `realpathSync(tmpdir())` and remove it, never under the checkout or its `.ahelpa/`. A helper's result directory is not a test fixture root; test code written by a helper must not keep that path.
 - Helpers run with full local permissions. Be deliberate about `--project` and worktree isolation.
