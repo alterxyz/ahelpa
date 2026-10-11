@@ -17,7 +17,7 @@ async function withEvidence(db: StateDB, results: WaitResult[], deadline: number
   await Promise.all(results.map(async (result) => {
     if (result.status === WAIT_STATUS.StillRunning || !stopsWaiting(result.status)) return;
     const session = db.getSession(result.sessionId);
-    if (session) result.evidence = await collectEvidence(session, { checkTimeoutMs, runCheck, deadline });
+    if (session) result.evidence = await collectEvidence(session, { checkTimeoutMs, runCheck, deadline, peerMail: db.peerMailCounts(session.id) });
   }));
   return results;
 }

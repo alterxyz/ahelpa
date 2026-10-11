@@ -108,17 +108,19 @@ Use advisors for analysis, plans, and review; use workers for execution against 
 | --- | --- |
 | `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`); `--after` chains hands, and explicit `--role reviewer` adds blind review and target evidence |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | Block until helpers settle or timeout |
-| `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh |
+| `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh and caller relationship |
 | `models [agent]` | List launch-time model options |
 | `doctor [agent] [--project <path>]` | Check local readiness as JSON without a model call or runtime writes |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
+| `mail (<to-id> \| --peers) (--file <path> \| --text "...")` | Deliver bounded peer mail within the calling helper's job |
+| `inbox [--read <seq>]` | List the calling helper's messages with read state, or read and mark one |
 | `capture <id> --token <tok>` | Snapshot terminal output (debugging only) |
 | `task <id> --file <path> --token <tok>` | Deliver a task file for long instructions |
 | `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | Switch a running helper's model |
 | `kill <id> --token <tok> [--tree]` | Terminate a helper; `--tree` also stops descendants and reports `killed` / `missed` |
 | `logs <id> --token <tok>` | Read live or archived session output |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper; an existing safe posture is inherited |
-| `status` | Show all sessions and daemon state |
+| `status` | Show all sessions, caller relationship, and daemon state |
 | `clean` | Remove settled records whose terminals have exited, and orphan runtime files |
 | `daemon start\|stop` | Manage the background session monitor |
 | `install-skill [--source <repo-or-path>]` | Hard-copy the global skill for Codex, Claude Code, and Kimi Code CLI targets |
@@ -140,6 +142,8 @@ Completed sessions keep their status, logs, and resume metadata after the helper
 | `/tmp/ahelpa/ahelpa-task-<id>.md` | Task files |
 | `<project>/.ahelpa/<id>/summary.md` | Helper-written summary |
 | `<project>/.ahelpa/<id>/artifacts/` | Helper-written supporting files |
+| `<recipient-project>/.ahelpa/<id>/inbox/` | Peer message files |
+| `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` | Peer delivery ledger |
 
 For isolated tests or automation, set `AHELPA_HOME` to override the state/archive directory and `AHELPA_TMP_DIR` to override FIFO/task-file storage. These overrides are passed into helper tmux sessions so nested ahelpa calls stay isolated; they do not change the helper CLI's OS home or credential directories.
 

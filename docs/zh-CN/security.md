@@ -30,15 +30,27 @@ Hook 对日志文件提供 symlink 和 hardlink 防护，但不能防止已拥�
 
 ## Owner token 边界
 
-`launch` 返回的 owner token gate 所有写操作：
+`launch` 返回的 owner token gate session 控制和终端访问：
 
 | 需要 token | 不需要 token |
 | --- | --- |
-| `send`、`task`、`model`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean` |
+| `send`、`task`、`model`、`capture`、`logs`、`kill`、`resume` | `status`、`check`、`clean`、`mail`、`inbox` |
 
-只读状态视图不会暴露 owner token。这意味着任何 agent 都可以观察 session 状态，但交互需要该 session 自身的 token。终止操作有下述 lineage 例外。
+只读状态视图不会暴露 owner token。任何 agent 都可以观察 session 状态及其 `child`/`job peer`/`other` 关系；session 控制仍需要 owner token。Peer mail 是独立的有界文件通道，不授予终端访问或控制权。终止操作有下述 lineage 例外。
 
 Ownership 不传递。如果 agent A 启动 helper B，helper B 又启动 helper C，那么 A 不能控制 C；只有 B 可以。唯一例外是 **终止权沿 lineage 传递，控制权不传递**：`kill B --token <B-token> --tree` 可以停止 B 及其后代，包括 C。它在任何终止动作之前校验 B 的 token；错误 token 不会停止任何 session。A 仍不能用 B 的 token 对 C 执行 `send`、`task`、`model`、`logs`、`capture` 或 `resume`。普通 `kill` 仍只影响指定 session，`--tree` 不赋予对兄弟树的权限。
+
+## Peer mail 边界
+
+Peer mail 有四个边界：同一非空已保存 job、请求而非指令、reviewer 不能作为收发双方、每 session 的投递预算。`mail` 和 `inbox` 只认 `AHELPA_PARENT_ID` 对应的现存 SQLite session；host shell 的 mail 会被拒绝，`AHELPA_JOB_ID` 不能改变该 session 的 job。Job ID 在 runtime 数据库中跨项目共享全局命名空间；应选择唯一 ID，例如 `ahelpa-issue-14-parser-fix`。Resume 链及其分支中的 session 视为同一血缘节点。直接 parent/child 不能交换 peer mail：host 使用带 token 的 `send`/`task`，child 使用 summary 和暗号协议。收发双方都必须处于 `running` 且已完成启动；`--peers` 跳过仍在启动的 session，显式指定这类收件人也会被拒绝。发送方发信号后或收件方结算后拒绝 mail；daemon 未运行时通过 inline refresh 检查当前状态。
+
+Peer 可以询问、告知或提示，不能重新分配任务、修改验收命令或要求收件方停止。权限仍来自 host 的任务文件。只在该任务范围内行动，否则将消息记在 `summary.md` 的 "Peer messages" 下。Reviewer 不能发送或接收，任务合同也不含 peer-mail 段落，使其不接触作者的推理。
+
+两种 mail 输入方式都会拒绝正文中能被暗号扫描器识别的行。`inbox --read` 先把正文中每一处 `[AHELPA:` 替换为 `[AHELPA_:`，再给每行加上 `> ` 前缀。旧消息和行内提及也会转义，因此终端折行或去除控制字符后，显示的正文仍不会暴露有效暗号。末尾换行不会额外生成空引用行；保存的消息字节保持不变。`--file` 只接受最多 1 MiB 的有效 UTF-8。投递检查项目 `.ahelpa` 到 inbox 和 jobs ledger 目录的每一级，拒绝符号链接和非目录；ledger 必须是普通文件。读信时也检查 inbox 路径，并在标记已读前拒绝符号链接形式的消息文件。孤儿序号文件会保留并跳过，跳过信息写入 ledger notes。
+
+启动或恢复 helper 的调用方设置 `AHELPA_MAIL_BUDGET`；解析后的上限和每 session 计数保存在 SQLite 中。调用方自身为 helper 时，launch 和 resume 使用环境预算和调用方已保存上限（旧版记录按 8）的较小值。`mail` 只使用保存的上限（旧版记录默认为 8），此设置不会导出到 helper 环境中。无效值回退到 8；`readPositiveInt` 接受至少为 1 的有限十进制整数前缀，包括将 `2.9` 或 `2extra` 解析为 2。每个收件人的投递占一个名额，广播和回复也计数，因此切换项目不会重置。Resume 使用全新的 inbox 和尚未消耗的预算，预算按恢复调用方环境重新解析。消息原子落入收件方项目的 inbox，元数据 `{ts, from, to, seq, bytes}` 记在 `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl`。`wait` 展示 `evidence.peerMail` 计数；`inbox --read <seq>` 标记已读，不改变计数。没有终端注入或 inbox nudge；helper 按合同在验证前、发信号前检查。
+
+这些边界适用于通过 ahelpa 协作的 agent。与 nesting limit 一样，它们不约束本地用户的完整文件系统权限。Inbox 正文和 ledger 都是 `.ahelpa/` 下的本地产物；消息中不放 secret，不发布这些文件。
 
 ## Nesting limit
 
