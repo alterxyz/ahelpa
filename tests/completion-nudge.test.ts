@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "fs";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
 import { COMPLETION_NUDGE, refreshSessionStatuses } from "../src/daemon";
+import { getDriver } from "../src/drivers/registry";
 import { scanSentinels } from "../src/drivers/sentinels";
 
 const TEST_DB = "/tmp/ahelpa-nudge-test.db";
@@ -101,6 +102,33 @@ describe("completion nudge", () => {
 
     expect(sendKeys).not.toHaveBeenCalled();
     expect(db.getSession("claude-perm")?.status).toBe("needs_attention");
+  });
+
+  // The focused review's six synthetic completion oracles. No tool header or
+  // submitted user turn remains in view; reply text must not suppress nudging.
+  const completedClaudePanes = [
+    ...["  Working...", "  Testing…", "  Loading...", "* Fixed the bug…", "· Removed the stale branch…"].map((line) => ({
+      name: `reply:${line}`,
+      screen: `The command printed:\n\n\`\`\`text\n${line}\n\`\`\`\n\n────────────────\n❯ \n────────────────\n  0% ctx`,
+    })),
+    { name: "tool-output-continuation", screen: "     Loading...\n     build complete\n\n────────────────\n❯ \n────────────────\n  0% ctx" },
+  ];
+  test.each(completedClaudePanes)("Claude $name allows completion nudge after a finished reply", async ({ screen }) => {
+    db = new StateDB(TEST_DB);
+    const id = "claude-completed";
+    db.createSession({ id, parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: PROJECT });
+    mkdirSync(`${PROJECT}/.ahelpa/${id}`, { recursive: true });
+    writeFileSync(`${PROJECT}/.ahelpa/${id}/summary.md`, "# complete\n");
+    const driver = getDriver("claude-code");
+    expect(driver.detectActivity(screen)).toBe("idle");
+    expect(driver.acceptsInput?.(screen)).toBe(true);
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue(screen);
+    const sendKeys = spyOn(Tmux, "sendKeys").mockResolvedValue();
+    for (let i = 0; i < 4; i++) await refreshSessionStatuses(db, [id]);
+    expect(sendKeys).toHaveBeenCalledTimes(1);
+    expect(sendKeys).toHaveBeenCalledWith(id, COMPLETION_NUDGE);
+    expect(db.getSession(id)?.nudgedAt).toBeTruthy();
   });
 
   test("does not nudge from a stale capture after the row changed underneath", async () => {

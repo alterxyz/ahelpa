@@ -4,7 +4,7 @@ import { SENTINEL } from "./drivers/sentinels";
 import type { HelperRole } from "./drivers/types";
 import { defaultRuntimeLayout, RuntimeLayout } from "./runtime-layout";
 
-const TASK_INSTRUCTION_PREFIX = "Please read and complete the task described in";
+export const TASK_INSTRUCTION_PREFIX = "Please read and complete the task described in";
 
 export interface FileHandoffPlan {
   taskFilePath: string;
