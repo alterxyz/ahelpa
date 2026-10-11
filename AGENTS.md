@@ -75,6 +75,11 @@ Campaign records with unchecked boxes live in `docs/superpowers/plans/`. At the 
 
 - `2026-10-08-helper-contract-and-evidence.md` — observation period for the v0.9.0 contract / evidence / `--check` / nudge mechanisms; the "Open work" section has the commands to run and the decisions to make.
 
+Fully shipped records are removed from the tree so searches stay lean. Read them from git history with `git show b87fe45:<path>`:
+
+- `docs/proposals/2026-10-08-orchestration-lessons-clawwork-confer.md` — why ahelpa declines an MCP server, a workflow engine, always-full permission, process-per-delivery, a shared transcript and an ACP transport (§6). Read §6 before proposing any of them again.
+- `docs/superpowers/plans/2026-06-26-launch-model-options.md` — the finished launch model/effort campaign.
+
 ## Guardrails
 
 - Preserve the skill distribution model: public repo skill source, generated runtime bundle for local packages, and GitHub Release assets for public installs.
