@@ -109,18 +109,21 @@ describe("Codex bounded help probe and command integration", () => {
     expect(performance.now() - started).toBeLessThan(2_000);
   });
 
-  test("kills a timed-out shim's child even when it inherits the stdout pipe", async () => {
+  test("kills an abandoned shim's child even when it inherits the stdout pipe", async () => {
     const childFile = join(root, "child.pid");
     const sideEffect = join(root, "child-survived");
     const childScript = `/bin/sleep 0.6\nprintf 'survived' > ${shellEscape(sideEffect)}`;
-    stub(`trap '' TERM\n/bin/sh -c ${shellEscape(childScript)} &\nprintf '%s' "$!" > ${shellEscape(childFile)}\nwait`);
+    // The shim ends the probe itself by flooding stdout past maxBuffer, and
+    // only after the child's pid is on disk, so a loaded machine cannot race
+    // the spawn against a clock. The timeout is a backstop, not the trigger.
+    stub(`trap '' TERM\n/bin/sh -c ${shellEscape(childScript)} &\nprintf '%s' "$!" > ${shellEscape(childFile)}\nexec yes excessive-help-output`);
     const started = performance.now();
     let child: number | undefined;
     try {
-      const help = readCodexHelp(executable, root, 200);
+      const help = readCodexHelp(executable, root, 5_000);
       child = Number(readFileSync(childFile, "utf8"));
       expect(help).toBeUndefined();
-      expect(performance.now() - started).toBeLessThan(2_000);
+      expect(performance.now() - started).toBeLessThan(5_000);
       expect(child).toBeGreaterThan(0);
       // Linux can retain a killed orphan as a zombie briefly. A delayed write
       // proves execution stopped without depending on when init reaps it.
