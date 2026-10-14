@@ -168,13 +168,13 @@ Choose the role first. Claude defaults to `advisor` for analysis, planning, and 
 
 | Launch | Effective defaults |
 | --- | --- |
-| `launch codex` | `worker`, `gpt-6.1-sol`, `high` |
+| `launch codex` | `worker`, `gpt-6-astra`, `high` |
 | `launch claude-code` | `advisor`, `claude-opus-5-5`, `xhigh` |
 | `launch claude-code --role worker` | `worker`, `claude-sonnet-5-5`, `high` |
 | `launch claude-code --role reviewer` | `reviewer`, `claude-opus-5-5`, `xhigh` |
-| `launch codex --role reviewer` | `reviewer`, `gpt-6.1-sol`, `xhigh` |
+| `launch codex --role reviewer` | `reviewer`, `gpt-6-astra`, `xhigh` |
 
-`xhigh` is the CLI spelling for the intended extra-high effort; `extra` is not an accepted Claude effort value. The full Claude model IDs pin 5.5 instead of relying on provider-specific `opus` and `sonnet` aliases. Both models support `high` and `xhigh`. See [Claude model configuration](https://code.claude.com/docs/en/model-config) and [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol).
+`xhigh` is the CLI spelling for the intended extra-high effort; `extra` is not an accepted Claude effort value. The full Claude model IDs pin 5.5 instead of relying on provider-specific `opus` and `sonnet` aliases. Both models support `high` and `xhigh`. See [Claude model configuration](https://code.claude.com/docs/en/model-config).
 
 Explicit `--model` and `--effort` override defaults independently. Roles do not impose different permissions. Only `reviewer` changes the task file: its contract is the review-only version (see [Read Results](#read-results)). `launch` reports the effective selection, `check` includes `role`, `model`, and `effort`, and `status` shows the role column. Old sessions keep unknown values as `null`; resume uses the stored selection without applying new launch presets. Kimi does not accept `--role` and retains its existing native defaults.
 

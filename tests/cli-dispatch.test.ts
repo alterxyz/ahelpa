@@ -330,7 +330,7 @@ describe("cli dispatch", () => {
     expect(code).toBe(0);
     const result = JSON.parse(captured.out[0]);
     expect(db.getSession(result.sessionId)?.parentId).toBe("headless-codex-1");
-    expect(result).toMatchObject({ role: "worker", model: "gpt-6.1-sol", effort: "high" });
+    expect(result).toMatchObject({ role: "worker", model: "gpt-6-astra", effort: "high" });
   });
 
   test("launch --role worker selects and reports the Claude worker defaults", async () => {

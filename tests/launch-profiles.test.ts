@@ -16,9 +16,9 @@ describe("helper role parsing", () => {
 });
 
 describe("launch profiles", () => {
-  test("Codex defaults to a GPT-6.1 Sol worker at high effort", () => {
+  test("Codex defaults to a GPT-6 Astra worker at high effort", () => {
     expect(resolveLaunchProfile(getDriver("codex"), {})).toEqual({
-      role: "worker", model: "gpt-6.1-sol", effort: "high",
+      role: "worker", model: "gpt-6-astra", effort: "high",
     });
   });
 
@@ -62,7 +62,7 @@ describe("launch profiles", () => {
       role: "reviewer", model: "claude-opus-5-5", effort: "xhigh",
     });
     expect(resolveLaunchProfile(getDriver("codex"), { role: "reviewer" })).toEqual({
-      role: "reviewer", model: "gpt-6.1-sol", effort: "xhigh",
+      role: "reviewer", model: "gpt-6-astra", effort: "xhigh",
     });
   });
 

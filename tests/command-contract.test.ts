@@ -84,7 +84,7 @@ describe("command contract", () => {
 
   test("shows role launch defaults separately from native model defaults", () => {
     const codex = renderModelsText("codex");
-    expect(codex).toContain("worker (default): gpt-6.1-sol; effort: high");
+    expect(codex).toContain("worker (default): gpt-6-astra; effort: high");
     expect(codex).not.toContain("advisor");
     const claude = renderModelsText("claude-code");
     expect(claude).toContain("advisor (default): claude-opus-5-5; effort: xhigh");

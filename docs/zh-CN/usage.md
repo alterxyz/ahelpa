@@ -167,13 +167,13 @@ Kimi 默认以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` 启动。这个 canonica
 
 | 启动方式 | 实际默认值 |
 | --- | --- |
-| `launch codex` | `worker`、`gpt-6.1-sol`、`high` |
+| `launch codex` | `worker`、`gpt-6-astra`、`high` |
 | `launch claude-code` | `advisor`、`claude-opus-5-5`、`xhigh` |
 | `launch claude-code --role worker` | `worker`、`claude-sonnet-5-5`、`high` |
 | `launch claude-code --role reviewer` | `reviewer`、`claude-opus-5-5`、`xhigh` |
-| `launch codex --role reviewer` | `reviewer`、`gpt-6.1-sol`、`xhigh` |
+| `launch codex --role reviewer` | `reviewer`、`gpt-6-astra`、`xhigh` |
 
-口语中的 extra-high 在 CLI 中写作 `xhigh`；`extra` 不是 Claude 接受的 effort 值。完整模型 ID 固定选择 5.5，避免不同提供方的 `opus`、`sonnet` 别名指向不同版本。两款模型均支持 `high`、`xhigh`。依据见 [Claude 模型配置](https://code.claude.com/docs/en/model-config)与 [GPT-6.1 Sol](https://developers.openai.com/api/docs/models/gpt-6.1-sol)。
+口语中的 extra-high 在 CLI 中写作 `xhigh`；`extra` 不是 Claude 接受的 effort 值。完整模型 ID 固定选择 5.5，避免不同提供方的 `opus`、`sonnet` 别名指向不同版本。两款模型均支持 `high`、`xhigh`。依据见 [Claude 模型配置](https://code.claude.com/docs/en/model-config)。
 
 显式 `--model`、`--effort` 分别覆盖对应默认值。角色不改变权限；只有 `reviewer` 会改变任务文件，它使用只审不改的合同（见[读取结果](#读取结果)）。`launch` 返回最终选择，`check` 包含 `role`、`model`、`effort`，`status` 显示角色列。旧会话未知的字段保持 `null`；resume 沿用记录，不重新套用新启动预设。Kimi 不接受 `--role`，保持原有 CLI 默认设置。
 

@@ -93,7 +93,7 @@ run_gate() (
       ;;
     codex: | codex:worker)
       expected_role="worker"
-      expected_model="gpt-6.1-sol"
+      expected_model="gpt-6-astra"
       expected_effort="high"
       ;;
     kimi:) ;;

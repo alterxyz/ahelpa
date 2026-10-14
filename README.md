@@ -94,8 +94,8 @@ Verify prerequisites with `command -v claude`, `command -v codex`, or `command -
 
 | Helper | Role | Default model | Effort |
 | --- | --- | --- | --- |
-| `codex` | `worker` (default) | `gpt-6.1-sol` | `high` |
-| `codex` | `reviewer` | `gpt-6.1-sol` | `xhigh` |
+| `codex` | `worker` (default) | `gpt-6-astra` | `high` |
+| `codex` | `reviewer` | `gpt-6-astra` | `xhigh` |
 | `claude-code` | `advisor` (default) | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |

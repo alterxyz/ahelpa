@@ -94,8 +94,8 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 | Helper | 角色 | 默认模型 | Effort |
 | --- | --- | --- | --- |
-| `codex` | `worker`（默认） | `gpt-6.1-sol` | `high` |
-| `codex` | `reviewer` | `gpt-6.1-sol` | `xhigh` |
+| `codex` | `worker`（默认） | `gpt-6-astra` | `high` |
+| `codex` | `reviewer` | `gpt-6-astra` | `xhigh` |
 | `claude-code` | `advisor`（默认） | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |
