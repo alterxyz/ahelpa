@@ -1,0 +1,15 @@
+› Please read and complete the task described in /tmp/example-task.md.
+
+• Explored
+  └ Read example.ts
+
+• Ran bun test example.test.ts
+  └ 3 pass, 0 fail
+
+• Working (12s • esc to interrupt)
+
+⚠ Selected model is at capacity. Please try a different model.
+
+› Ask Codex to do anything
+
+  gpt-example · 75% context left · ? for shortcuts

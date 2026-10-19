@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync, readFileSync, existsSync, statSync } from "fs";
 import type { SessionStatus } from "./session-lifecycle";
+import type { SessionRecord } from "./state";
 
 // What the daemon keeps per settled session, and what `logs` reads back
 // after the tmux session is gone.
@@ -29,6 +30,20 @@ export class Archive {
     const path = `${this.basePath}/${sessionId}/message.json`;
     if (!existsSync(path)) return null;
     return JSON.parse(readFileSync(path, "utf-8"));
+  }
+
+  // A host can rearm the same session while its previous archive remains.
+  // Only expose reasons belonging to the currently settled turn and status.
+  reasonFor(session: SessionRecord): { reason?: string } {
+    if (session.status === "running") return {};
+    try {
+      const archived = this.get(session.id);
+      if (archived?.reason && archived.status === session.status
+        && Date.parse(archived.archivedAt ?? "") >= Date.parse(session.turnStartedAt ?? session.createdAt)) {
+        return { reason: archived.reason };
+      }
+    } catch { /* Missing or damaged archives must not break status queries. */ }
+    return {};
   }
 
   // archivedAt has millisecond precision; even an identical settlement in

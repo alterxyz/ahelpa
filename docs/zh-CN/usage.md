@@ -297,6 +297,8 @@ ahelpa task "$session_id" --file ./next-task.md --token "$token"
 
 ## 观察 session
 
+`needs_attention` 也涵盖 Codex 容量不足（`reason: "model_capacity"`）或明确的用量限制（`reason: "usage_limit"`）。检测要求错误行从第零列开始（`■`，或 Codex 0.154 容量提示使用的 `⚠`），随后出现空闲输入框，且没有后续工作证据。daemon 需在同一 session version 的连续两次轮询中确认相同原因，给草稿／新任务过渡帧留出消失的时间；当前回合的暗号仍优先。`check` 和 `wait` 会在可用时附带归档中的 `reason`，`status` 也会显示原因。仅当返回条目为 `needs_attention` 且原因为 `model_capacity` 或 `usage_limit` 时，`wait` 才以退出码 1 结束；其他原因、没有原因的 attention 结果及其他状态仍返回 0。不自动重试。容量或额度恢复后，可以重新启动，或通过 `ahelpa send <id> --token <token> "continue"` 发送后续指令（token 为占位符）。
+
 非阻塞状态查询：
 
 ```bash

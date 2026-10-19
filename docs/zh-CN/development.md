@@ -192,6 +192,8 @@ Driver 位于 `src/drivers/`。新 driver 需要实现 `src/drivers/types.ts` �
 
 最后在 `src/drivers/registry.ts` 中注册。
 
+Codex 终止回合的模型错误由 `detectOutcome` 检测，可返回 `needs_attention` 和可选的 `reason`（`model_capacity` 或 `usage_limit`）。只有错误后的工作证据才抑制该结果，并且错误后必须出现空闲输入框。准确短语必须紧随第零列的 `■`（仅 Codex 0.154 容量短语也支持 `⚠`）；`Tmux.capture` 保留行首空白。监控器需在同一 session version 下连续两次确认 driver 的相同 attention 原因，其他结果或 version 变化会重新计数。保留暗号优先级与不支持模型的原有错误行为。结算时将原因保存到已有归档，`check`、`status` 和 `wait` 仅展示当前已结算回合的原因。仅 `needs_attention` 且原因为 `model_capacity` 或 `usage_limit` 时，`wait` 才返回退出码 1；旧 attention 原因及没有原因的结果仍返回 0。合成终端及结果传递回归测试位于 `tests/codex-capacity.test.ts`。
+
 ## 不要提交什么
 
 - 本地 runtime 输出（`~/.ahelpa/`）

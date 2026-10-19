@@ -48,11 +48,12 @@ export interface TaskSubmissionContext {
   beforeOutput?: string;
 }
 
-export type DetectedStatus = "idle" | "error" | "running";
+export type DetectedStatus = "idle" | "error" | "running" | "needs_attention";
 
 export interface DetectedOutcome {
   status: DetectedStatus;
   needHelpTags: string[] | null;
+  reason?: string;
 }
 
 // ponytail: normal is finite, abnormal is infinite — detect the known-good, flag the rest

@@ -39,6 +39,9 @@ const drainingAt = new Map<string, number>();
 // prepareForTask, so the daemon only polls once the agent should be working.
 const idleCount = new Map<string, number>();
 const IDLE_DEBOUNCE = 4;
+// A draft/new user row can briefly look like the old error's idle composer.
+// Require the driver attention outcome on two polls of the same row version.
+const pendingAttention = new Map<string, { version: number; reason?: string }>();
 // One completion nudge per session (persisted on the row). Deliberately names
 // no sentinel token so the echoed prompt can never be mistaken for the signal.
 export const COMPLETION_NUDGE = "If your task is finished, print the done signal from the task file alone on a line; if not, continue working.";
@@ -87,6 +90,7 @@ async function finishMissingSession(db: StateDB, archive: Archive, session: Sess
   }
   drainingAt.delete(session.id);
   idleCount.delete(session.id);
+  pendingAttention.delete(session.id);
   cleanupSessionFiles(session.id);
 }
 
@@ -100,9 +104,14 @@ export async function refreshSessionStatuses(
   const sessions = db.listSessions()
     .filter((session) => session.status !== SESSION_STATUS.Dead)
     .filter((session) => !targetIds || targetIds.has(session.id));
+  const runningIds = new Set(sessions.filter(session => session.status === SESSION_STATUS.Running).map(session => session.id));
+  for (const id of pendingAttention.keys()) {
+    if ((!targetIds || targetIds.has(id)) && !runningIds.has(id)) pendingAttention.delete(id);
+  }
 
   for (let session of sessions) {
     try {
+      if (session.status !== SESSION_STATUS.Running || session.launchPid) pendingAttention.delete(session.id);
       if (session.launchPid) {
         let launcherAlive = true;
         try { process.kill(session.launchPid, 0); } catch (error) {
@@ -160,6 +169,13 @@ export async function refreshSessionStatuses(
       const driver = getDriver(session.agentType);
       const outcome = outcomeFromCapture(output, driver);
       const newStatus = outcome.status;
+      if (newStatus === SESSION_STATUS.NeedsAttention) {
+        const previous = pendingAttention.get(session.id);
+        pendingAttention.set(session.id, { version: session.version, reason: outcome.reason });
+        idleCount.delete(session.id);
+        if (previous?.version !== session.version || previous.reason !== outcome.reason) continue;
+      }
+      pendingAttention.delete(session.id);
       const turn = driver.turnHooks
         ? readTurnEvents(defaultRuntimeLayout.turnsLogPath(session.projectPath, session.id), session.turnHookOffset ?? 0,
           session.turnStartedAt ?? session.createdAt, session.agentType, session.turnInputAmbiguous ? null : session.turnInputDigest ?? null)
@@ -179,6 +195,7 @@ export async function refreshSessionStatuses(
         const settled = await settle(db, archive, defaultWakeup, session.id, newStatus, {
           status: newStatus,
           lastOutput: output.slice(-500),
+          reason: outcome.reason,
         }, SESSION_STATUS.Running, session.version);
         if (!settled) continue;
         if (newStatus === SESSION_STATUS.Error && outcome.needHelpTags !== null) {
@@ -265,6 +282,7 @@ export async function refreshSessionStatuses(
         }
       }
     } catch (error) {
+      pendingAttention.delete(session.id);
       log(`${session.id}: refresh failed: ${error instanceof Error ? error.message : String(error)}`);
       // tmux can disappear between has-session and capture/kill. Reconcile
       // that race immediately; other failures stay eligible for the next poll.

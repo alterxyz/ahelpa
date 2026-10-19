@@ -21,6 +21,14 @@ describe("Tmux", () => {
     expect(output).toContain("AHELPA_TEST_OUTPUT");
   });
 
+  test("capture preserves first-line indentation used to distinguish quoted model errors", async () => {
+    await Tmux.create(TEST_SESSION,
+      "printf '\\033[2J\\033[H  ■ Selected model is at capacity. Please try a different model.\\n\\n› Ask Codex to do anything\\n'; sleep 10");
+    await Bun.sleep(500);
+    const output = await Tmux.capture(TEST_SESSION, 0);
+    expect(output).toStartWith("  ■ Selected model is at capacity.");
+  });
+
   test("sends keys", async () => {
     await Tmux.create(TEST_SESSION, "bash");
     await Bun.sleep(300);

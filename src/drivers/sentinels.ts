@@ -50,7 +50,7 @@ export function hasNeedHelpSentinel(captureOutput: string): boolean {
   return scanSentinels(captureOutput).some((sentinel) => sentinel.status === "error");
 }
 
-export function detectSentinelOutcome(captureOutput: string): DetectedOutcome {
+export function detectSentinelOutcome(captureOutput: string): DetectedOutcome & { status: "idle" | "error" | "running" } {
   const sentinels = scanSentinels(captureOutput);
   const winner = sentinels.filter((sentinel) => sentinel.status === "error").at(-1)
     ?? sentinels.at(-1);

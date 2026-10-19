@@ -298,6 +298,8 @@ Overlapping `send`, `task`, and automatic completion nudges to one session are a
 
 ## Monitor Sessions
 
+`needs_attention` also covers a Codex capacity stop (`reason: "model_capacity"`) or an explicit usage-limit stop (`reason: "usage_limit"`). Detection requires a column-zero error cell (`■`, or `⚠` for the capacity phrase on Codex 0.154), the idle composer after it, and no later work evidence. The daemon confirms the same reason on two consecutive polls of the same session version to allow transient draft/new-task frames to clear; a current-turn sentinel still wins. `check` and `wait` include the archived `reason` when available, and `status` displays it. `wait` exits 1 only when a returned entry is `needs_attention` with `reason: "model_capacity"` or `reason: "usage_limit"`; other reasons, attention results without a reason, and other statuses retain exit 0. There is no automatic retry. Once capacity or quota is available, relaunch or send a follow-up with `ahelpa send <id> --token <token> "continue"` (the token is a placeholder).
+
 Non-blocking status check:
 
 ```bash

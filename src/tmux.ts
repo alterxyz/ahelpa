@@ -38,7 +38,8 @@ export class Tmux {
 
   static async capture(name: string, lines: number = 50): Promise<string> {
     const result = await $`tmux capture-pane -t ${name} -p -S ${-lines}`.text();
-    return result.trim();
+    // Column-zero UI markers must stay distinguishable from indented quotes.
+    return result.trimEnd();
   }
 
   static async sendKeys(name: string, text: string): Promise<void> {

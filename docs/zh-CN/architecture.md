@@ -33,6 +33,8 @@ SQLite 建表和 schema 迁移在同一个 immediate transaction 内执行。CLI
 
 一个 session 从 `running` 开始，可以结算为 `idle`、`error`、`needs_attention` 或 `dead`。成功完成后，在回收终端期间会经过 `draining` 状态。
 
+`needs_attention` 也涵盖 Codex 容量不足（`reason: "model_capacity"`）或明确的用量限制（`reason: "usage_limit"`）。检测要求错误行从第零列开始（`■`，或 Codex 0.154 容量提示使用的 `⚠`），随后出现空闲输入框，且没有后续工作证据。daemon 需在同一 session version 的连续两次轮询中确认相同原因，给草稿／新任务过渡帧留出消失的时间；当前回合的暗号仍优先。`check` 和 `wait` 会在可用时附带归档中的 `reason`，`status` 也会显示原因。仅当返回条目为 `needs_attention` 且原因为 `model_capacity` 或 `usage_limit` 时，`wait` 才以退出码 1 结束；其他原因、没有原因的 attention 结果及其他状态仍返回 0。不自动重试。容量或额度恢复后，可以重新启动，或通过 `ahelpa send <id> --token <token> "continue"` 发送后续指令（token 为占位符）。
+
 1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid12}`）和 owner token。在 SQLite immediate transaction 中检查调用方和嵌套限制，并预留 session，记录 parent、job、适用时的 resume 关联，以及启动进程标记。之后才创建 worktree、tmux session 或交接文件，通过所选 driver 提交第一轮任务。因此 helper 读取任务前已能找到自身记录。任务准备和 FIFO 创建完成后，仅当记录仍为 `running` 且启动 PID 仍属于本进程时，launch 才清除标记，并在需要时启动 daemon。tmux 创建完成后也会立即检查预留记录。预留记录被 kill 或删除时，启动取消，返回取消错误，并回收本次启动创建的资源。投递已可见、但尚未确认新回合时，会返回 warning，并把 helper 保留为 `needs_attention`。启动失败会回滚预留记录、tmux session、FIFO、交接文件及本次创建的 worktree。Resume 同样在外部副作用前执行这条检查并预留的路径，在事务内重新读取来源记录及当前 parent/resume 祖先关系；来源记录已被删除时拒绝恢复。
 2. **任务投递**：driver 的 `prepareForTask` 处理 agent-specific 启动流程，例如 ready 检查和 trust prompt。随后通过 `tmux send-keys` 发送任务指令，告诉 helper 读取哪个任务文件、把结果写到哪里。
 3. **提交后准备**：driver 的 `afterTaskSubmitted` hook 处理第一条消息后的 agent-specific 确认。Kimi 只有在收到该消息后才会创建原生 `session_*` ID，因此 launch 流程会在这里捕获 resume token。

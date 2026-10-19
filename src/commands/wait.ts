@@ -5,8 +5,10 @@ import { Wakeup, defaultWakeup } from "../wakeup";
 import { copyFileSync, mkdirSync } from "fs";
 import { dirname } from "path";
 import { collectEvidence, runCheck, type CheckResult, type CheckRunner, type Evidence } from "../evidence";
+import { Archive } from "../archive";
+import { defaultRuntimeLayout } from "../runtime-layout";
 
-interface WaitResult { sessionId: string; status: WaitStatus; evidence?: Evidence; }
+interface WaitResult { sessionId: string; status: WaitStatus; reason?: string; evidence?: Evidence; }
 
 // Evidence shares wait's deadline: checks run in parallel and each gets only
 // the time left, so wait stays under the platform's hard timeout. A check that
@@ -64,6 +66,7 @@ export async function wait(
   wakeup: Wakeup = defaultWakeup,
 ): Promise<WaitResult | WaitResult[]> {
   const deadline = Date.now() + timeoutMs;
+  const archive = new Archive(defaultRuntimeLayout.archiveDir());
 
   while (true) {
     const daemonRunning = isDaemonRunning();
@@ -76,7 +79,7 @@ export async function wait(
       // ponytail: reaped sessions have no DB row — treat as done, not stuck
       if (!session) return { sessionId: id, status: SESSION_STATUS.Dead };
       const status = session.status === SESSION_STATUS.Draining ? SESSION_STATUS.Idle : session.status;
-      return { sessionId: id, status };
+      return { sessionId: id, status, ...archive.reasonFor(session) };
     });
 
     if (all && results.every((result) => stopsWaiting(result.status))) {

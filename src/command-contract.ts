@@ -64,7 +64,7 @@ export interface CommandContract {
   // commands explicitly opt in with Infinity; optional arguments set a bound.
   maxPositionals?: number;
   flags?: Record<string, FlagSpec>;
-  run(ctx: CommandContext): Promise<void>;
+  run(ctx: CommandContext): Promise<void | number>;
 }
 
 export function resolveWaitTimeoutMs(timeoutSeconds?: number): number {
@@ -216,6 +216,8 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         resolveWaitTimeoutMs(ctx.flags.numbers.timeout),
       );
       ctx.print(JSON.stringify(result, null, 2));
+      return (Array.isArray(result) ? result : [result]).some(entry => entry.status === "needs_attention"
+        && (entry.reason === "model_capacity" || entry.reason === "usage_limit")) ? 1 : 0;
     },
   },
   {
@@ -480,8 +482,7 @@ export async function runCli(db: StateDB | undefined, argv: string[], io: CliIO)
     if (!db && !contract.stateless) throw new Error("This command requires the state database");
     // Stateless handlers never access db; retaining the context type keeps
     // stateful handlers' existing DB contract unchanged.
-    await contract.run({ db: db!, positionals, flags, print: io.print });
-    return 0;
+    return await contract.run({ db: db!, positionals, flags, print: io.print }) ?? 0;
   } catch (error) {
     if (error instanceof UsageError) {
       io.printError(error.message);

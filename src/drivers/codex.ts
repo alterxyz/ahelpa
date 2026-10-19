@@ -63,15 +63,34 @@ function userTurnMatches(captureOutput: string) {
   return [...captureOutput.matchAll(/^›\s+\S.*$/gmu)];
 }
 
+function codexModelStopReason(segment: string): string | undefined {
+  // Inspect the latest error only. Earlier tool bullets/spinners belong to the
+  // failed attempt; evidence after the error means it recovered or is retrying.
+  const error = [...segment.matchAll(/^[■⚠][^\n]*$/gm)].at(-1);
+  if (error?.index === undefined) return;
+  // Codex 0.154 uses a warning cell for capacity; other warnings can be retries.
+  const reason = /^[■⚠][^\S\r\n]+Selected model is at capacity\.(?:\s|$)/i.test(error[0]) ? "model_capacity"
+    : /^■[^\S\r\n]+(?:Usage limit reached|You've hit your usage limit)\b/i.test(error[0]) ? "usage_limit"
+    : undefined;
+  if (!reason) return;
+  const after = segment.slice(error.index + error[0].length);
+  if (codexHasStartedTask(after) || /esc to interrupt/i.test(after)) return;
+  // Require the idle composer after the error, never a numbered menu row.
+  // Do not call codexHasInputPrompt here: it depends on turn outcome detection.
+  const composer = [...after.matchAll(/^›[^\S\n]*[^\n]*$/gm)].at(-1);
+  if (!composer || /^›[\t ]*\d+\.\s/.test(composer[0])) return;
+  return reason;
+}
+
 function codexTurnOutcome(segment: string): DetectedOutcome {
   const outcome = detectSentinelOutcome(segment);
   if (outcome.status !== "running") return outcome;
-  return codexHasUnsupportedModelError(segment)
-    ? { status: "error", needHelpTags: null }
-    : outcome;
+  if (codexHasUnsupportedModelError(segment)) return { status: "error", needHelpTags: null };
+  const reason = codexModelStopReason(segment);
+  return reason ? { status: "needs_attention", needHelpTags: null, reason } : outcome;
 }
 
-function codexTurnEvidence(segment: string): "working" | "idle" | "error" | null {
+function codexTurnEvidence(segment: string): "working" | Exclude<DetectedStatus, "running"> | null {
   const outcome = codexTurnOutcome(segment);
   if (outcome.status !== "running") return outcome.status;
   return codexHasStartedTask(segment) ? "working" : null;

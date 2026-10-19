@@ -171,6 +171,8 @@ The daemon (or inline refresh) detects these and transitions session state: `DON
 
 Claude Stop/StopFailure and Codex notify provide session-scoped turn-end timing. Without a sentinel or summary, a completed turn can reach `needs_attention` sooner; with a summary, ahelpa asks once for the signal only when the composer is ready. Hooks do not prove success. Session directories may contain metadata-only `turns.log` and Claude's `claude-settings.json`; user configuration files are not edited. Missing notifications retain the inactivity fallback.
 
+`needs_attention` also covers a Codex capacity stop (`reason: "model_capacity"`) or an explicit usage-limit stop (`reason: "usage_limit"`). Detection requires a column-zero error cell (`■`, or `⚠` for the capacity phrase on Codex 0.154), the idle composer after it, and no later work evidence. The daemon confirms the same reason on two consecutive polls of the same session version to allow transient draft/new-task frames to clear; a current-turn sentinel still wins. `check` and `wait` include the archived `reason` when available, and `status` displays it. `wait` exits 1 only when a returned entry is `needs_attention` with `reason: "model_capacity"` or `reason: "usage_limit"`; other reasons, attention results without a reason, and other statuses retain exit 0. There is no automatic retry. Once capacity or quota is available, relaunch or send a follow-up with `ahelpa send <id> --token <token> "continue"` (the token is a placeholder).
+
 Only NEED_HELP writes a line to the global ledger `${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl`; tags are helper self-reports, not verified causes. Count tags with:
 
 ```bash

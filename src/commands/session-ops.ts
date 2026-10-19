@@ -273,6 +273,7 @@ export function sessionRelationship(session: SessionRecord, callerId: string, ca
 }
 
 export function check(db: StateDB, parentId?: string, jobId?: string, callerId = resolveParentId()) {
+  const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const caller = process.env.AHELPA_PARENT_ID === callerId ? db.getSession(callerId) : null;
   const sessions = jobId !== undefined
     ? db.listJobSessions(jobId).filter((s) => parentId === undefined || s.parentId === parentId)
@@ -280,6 +281,7 @@ export function check(db: StateDB, parentId?: string, jobId?: string, callerId =
   return sessions.map(s => ({
     ...getSessionNestingInfo(db, s.id),
     id: s.id, agentType: s.agentType, status: s.status,
+    ...archive.reasonFor(s),
     relationship: sessionRelationship(s, callerId, caller),
     role: s.role ?? null, model: s.model ?? null, effort: s.effort ?? null,
     task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
@@ -289,6 +291,7 @@ export function check(db: StateDB, parentId?: string, jobId?: string, callerId =
 }
 
 export function status(db: StateDB, daemonRunning: boolean, callerId = resolveParentId()): string {
+  const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const caller = process.env.AHELPA_PARENT_ID === callerId ? db.getSession(callerId) : null;
   const sessions = db.listSessions();
   let output = `ahelpa daemon: ${daemonRunning ? "running" : "stopped"}\n`;
@@ -300,6 +303,8 @@ export function status(db: StateDB, daemonRunning: boolean, callerId = resolvePa
     const age = timeSince(s.createdAt);
     const nesting = getSessionNestingInfo(db, s.id);
     output += `${s.id.padEnd(22)} ${s.agentType.padEnd(14)} ${(s.role ?? "-").padEnd(10)} ${s.status.padEnd(10)} ${String(nesting.depth).padEnd(5)} ${(nesting.parentSessionId || "-").padEnd(22)} ${(s.jobId || "-").padEnd(12)} ${(s.label || "").padEnd(14)} ${sessionRelationship(s, callerId, caller).padEnd(12)} ${age}\n`;
+    const { reason } = archive.reasonFor(s);
+    if (reason) output += `  reason: ${reason}\n`;
   }
   return output;
 }

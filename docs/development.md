@@ -191,6 +191,8 @@ Drivers live in `src/drivers/`. A new driver implements the `AgentDriver` interf
 
 Register the new driver in `src/drivers/registry.ts`.
 
+Codex terminal model stops belong in `detectOutcome`, which can return `needs_attention` with an optional `reason` (`model_capacity` or `usage_limit`). Only work after the error suppresses this outcome, and the idle composer must follow it. Require the exact phrase immediately after a column-zero `■` (`⚠` is supported only for the Codex 0.154 capacity phrase); `Tmux.capture` preserves leading whitespace. The monitor confirms a driver attention outcome twice at the same session version and reason, resetting on other outcomes or version changes. Preserve sentinel precedence and unsupported-model errors. Settlement stores the reason in the existing archive; `check`, `status`, and `wait` expose it for the current settled turn. `wait` exits 1 only for `needs_attention` with `model_capacity` or `usage_limit`; legacy attention reasons and missing reasons keep exit 0. Synthetic pane and reporting regressions live in `tests/codex-capacity.test.ts`.
+
 ## What Not to Commit
 
 - Local runtime output (`~/.ahelpa/`)
