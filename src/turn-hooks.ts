@@ -1,6 +1,7 @@
 import { appendFileSync, closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from "fs";
 import { createHash } from "crypto";
 import { basename, dirname, join, resolve } from "path";
+import { isKnownCodexSubagent } from "./drivers/codex-rollout";
 import { TASK_INSTRUCTION_PREFIX } from "./file-handoff";
 import { getSelfCommand } from "./self-command";
 import { shellEscape } from "./shell";
@@ -161,6 +162,7 @@ export function writeTurnHook(sessionDir: string, agent: string, raw: string, re
     const boundThread = resumeThread ?? previous.find(e => e.agent === "codex")?.threadId;
     const event = parseTurnPayload(agent, raw, boundThread);
     if (!event || previous.some(e => eventKey(e) === eventKey(event))) return;
+    if (agent === "codex" && !boundThread && isKnownCodexSubagent(event.threadId!)) return;
     appendFileSync(fd, JSON.stringify(event) + "\n");
   } catch {} finally { if (fd !== undefined) try { closeSync(fd); } catch {} }
 }
