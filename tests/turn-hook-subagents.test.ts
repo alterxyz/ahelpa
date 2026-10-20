@@ -116,6 +116,29 @@ test("bounded lookup includes a rollout created four seconds after the UUID", ()
   expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
 });
 
+// The daemon relaxes Codex readiness only for verified events; see turn-hook-daemon.test.ts.
+const verifiedFlags = () => log().trim().split("\n").map(line => JSON.parse(line).threadVerified);
+
+test("a thread whose rollout names it main is verified, and so are its later events", () => {
+  rollout(main, "cli");
+  writeTurnHook(dir, "codex", payload(main));
+  writeTurnHook(dir, "codex", payload(main, "two", ["follow-up"]));
+  expect(verifiedFlags()).toEqual([true, true]);
+});
+
+test.each(["missing", "missing-source"])("a fail-open binding (%s metadata) stays unverified, and so do its later events", kind => {
+  if (kind === "missing-source") rollout(main, undefined);
+  writeTurnHook(dir, "codex", payload(main));
+  rollout(main, "cli"); // appearing later cannot upgrade the binding
+  writeTurnHook(dir, "codex", payload(main, "two", ["follow-up"]));
+  expect(verifiedFlags()).toEqual([false, false]);
+});
+
+test("a thread bound explicitly on resume is verified without rollout metadata", () => {
+  writeTurnHook(dir, "codex", payload(main), main);
+  expect(verifiedFlags()).toEqual([true]);
+});
+
 test("native resume rejects an earlier child and binds the explicit thread without rollout metadata", async () => {
   writeTurnHook(dir, "codex", payload(child), main);
   expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();

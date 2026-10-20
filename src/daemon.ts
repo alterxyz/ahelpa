@@ -234,14 +234,21 @@ export async function refreshSessionStatuses(
         // Stop can precede engine shutdown. Keep it pending until the composer
         // is ready, rather than consume it and lose the early-nudge opportunity.
         if (!failure && summary && session.nudgedAt == null) {
-          if (shouldNudgeForCompletion(db, session, driver, output, true)) {
+          // The after-turn checks ignore history rows, so they need an event from
+          // a verified thread: a fail-open one may be a sub-agent's while the main
+          // thread streams on with its spinner hidden. Claude events have no thread.
+          const ended = turn.event.threadId === undefined || turn.event.threadVerified === true;
+          if (shouldNudgeForCompletion(db, session, driver, output, ended)) {
             idleCount.delete(session.id);
             await deliverTurn(db, session, COMPLETION_NUDGE, () => Tmux.sendKeys(session.id, COMPLETION_NUDGE),
               { nudge: true, hookOffset: turn.offset });
             log(`${session.id}: summary present without signal, nudged for completion (turn hook)`);
             continue;
           }
-          if (driver.detectActivity(output) !== "idle") {
+          const working = ended && driver.workingAfterTurn
+            ? driver.workingAfterTurn(output)
+            : driver.detectActivity(output) !== "idle";
+          if (working) {
             idleCount.delete(session.id);
             continue;
           }

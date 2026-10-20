@@ -4,7 +4,13 @@ import { join } from "path";
 
 // Positive identification only: unavailable metadata preserves notify attribution.
 export function isKnownCodexSubagent(threadId: string): boolean {
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-7[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(threadId)) return false;
+  return codexThreadSource(threadId) === "subagent";
+}
+
+// "main" needs a recorded source without a subagent spawn. Unavailable metadata,
+// or an older rollout with no source at all, says nothing and gives null.
+export function codexThreadSource(threadId: string): "subagent" | "main" | null {
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-7[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(threadId)) return null;
   // notify has no session source. UUIDv7 gives the creation time: probe
   // exact local-time rollout names; parse only the bounded metadata line.
   // A delayed/relocated rollout or older format keeps the legacy fallback.
@@ -31,9 +37,9 @@ export function isKnownCodexSubagent(threadId: string): boolean {
       const meta = JSON.parse(bytes.subarray(0, end).toString("utf8"));
       if (meta?.type !== "session_meta" || meta.payload?.id !== threadId) continue;
       const source = meta.payload.source;
-      if (source && typeof source === "object" && source.subagent != null) return true;
-      break;
+      if (source == null) return null;
+      return typeof source === "object" && source.subagent != null ? "subagent" : "main";
     } catch {} finally { if (metaFd !== undefined) try { closeSync(metaFd); } catch {} }
   }
-  return false;
+  return null;
 }

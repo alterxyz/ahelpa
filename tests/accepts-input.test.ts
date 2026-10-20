@@ -91,6 +91,31 @@ describe("acceptsInput", () => {
     expect(getDriver("claude-code").detectActivity(pane)).toBe("working");
   });
 
+  test("codex: finished work rows block acceptsInput but not acceptsInputAfterTurn; a spinner or menu blocks both", () => {
+    const codex = getDriver("codex");
+    const finished = "  └ earlier output\n\n• Ran bun test\n  └ 12 pass\n\n• Done.\n\n  Worked for 3m 02s • 05:33\n\n› Ask Codex to do anything\n\n  ? for shortcuts";
+    expect(codex.acceptsInput!(finished)).toBe(false);
+    expect(codex.acceptsInputAfterTurn!(finished)).toBe(true);
+    expect(codex.workingAfterTurn!(finished)).toBe(false);
+    for (const spinner of ["• Working (12s • esc to interrupt)", "• Working (12s)"]) {
+      const live = finished.replace("  Worked for 3m 02s • 05:33", spinner);
+      expect(codex.acceptsInputAfterTurn!(live)).toBe(false);
+      expect(codex.workingAfterTurn!(live)).toBe(true);
+    }
+    for (const pane of Object.values(MUST_REFUSE.codex)) expect(codex.acceptsInputAfterTurn!(pane)).toBe(false);
+    // Upstream request_user_input freeform snapshot (codex-rs v0.154.0): typing there answers the question.
+    const question = "Question 1/1 (1 unanswered)\nShare details.\n› Type your answer (optional)\nenter to submit answer | esc to interrupt";
+    expect(codex.acceptsInput!(question)).toBe(false);
+    expect(codex.acceptsInputAfterTurn!(`${finished.split("› Ask")[0]}${question}`)).toBe(false);
+    // A finished reply that only quotes those words leaves the composer ready.
+    for (const quoted of ["esc to interrupt", "enter to submit answer", "Question 1/1"]) {
+      const pane = finished.replace("• Done.", `• Review complete. The UI text discussed above is:\n  ${quoted}\n\n• Finished review.`);
+      expect(codex.acceptsInputAfterTurn!(pane)).toBe(true);
+    }
+    // Older Codex draws "Worked for" before streaming the answer: not a turn end.
+    expect(codex.detectActivity(finished.replace("  Worked for 3m 02s • 05:33", "─ Worked for 3m 02s ─────────"))).toBe("working");
+  });
+
   for (const [agent, panes] of Object.entries(MUST_REFUSE)) {
     for (const [name, pane] of Object.entries(panes)) {
       test(`${agent} refuses: ${name}`, () => {

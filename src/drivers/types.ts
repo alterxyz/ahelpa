@@ -90,5 +90,8 @@ export interface AgentDriver {
   acceptsInput?(captureOutput: string): boolean;
   // Only the monitor may use this with a validated current-turn end event.
   acceptsInputAfterTurn?(captureOutput: string): boolean;
+  // Same condition: is the turn still visibly running? Defaults to detectActivity,
+  // which may count history rows as work and then hold the event forever.
+  workingAfterTurn?(captureOutput: string): boolean;
   gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void>;
 }

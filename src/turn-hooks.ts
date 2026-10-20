@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from "fs";
 import { createHash } from "crypto";
 import { basename, dirname, join, resolve } from "path";
-import { isKnownCodexSubagent } from "./drivers/codex-rollout";
+import { codexThreadSource } from "./drivers/codex-rollout";
 import { TASK_INSTRUCTION_PREFIX } from "./file-handoff";
 import { getSelfCommand } from "./self-command";
 import { shellEscape } from "./shell";
@@ -16,6 +16,8 @@ export interface TurnEvent {
   sessionId?: string;
   promptId?: string;
   threadId?: string;
+  // Codex only: the thread is positively its main thread (see writeTurnHook).
+  threadVerified?: boolean;
   turnId?: string;
   error?: string;
   stopHookActive?: boolean;
@@ -162,7 +164,19 @@ export function writeTurnHook(sessionDir: string, agent: string, raw: string, re
     const boundThread = resumeThread ?? previous.find(e => e.agent === "codex")?.threadId;
     const event = parseTurnPayload(agent, raw, boundThread);
     if (!event || previous.some(e => eventKey(e) === eventKey(event))) return;
-    if (agent === "codex" && !boundThread && isKnownCodexSubagent(event.threadId!)) return;
+    if (agent === "codex") {
+      const source = boundThread ? null : codexThreadSource(event.threadId!);
+      if (source === "subagent") return;
+      // Verified: ahelpa bound the thread on resume, the rollout names it the
+      // main thread, or the bound thread's first event was verified. A
+      // fail-open binding stays unverified. Accepted limit: a sub-agent that
+      // resume_agent revived from a thread the CLI first created keeps
+      // source "cli"; if its event comes first and carries the task input, it
+      // reads as verified and can earn one nudge into a main thread that is
+      // still streaming (the old checks would hold that session forever).
+      const first = previous.find(e => e.agent === "codex");
+      event.threadVerified = resumeThread !== undefined || (first ? first.threadVerified === true : source === "main");
+    }
     appendFileSync(fd, JSON.stringify(event) + "\n");
   } catch {} finally { if (fd !== undefined) try { closeSync(fd); } catch {} }
 }

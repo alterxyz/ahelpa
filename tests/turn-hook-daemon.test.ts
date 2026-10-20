@@ -13,6 +13,15 @@ import * as daemon from "../src/daemon";
 
 const READY = "Response complete\n\n› \n\n  GPT-6.1-Sol · ~/proj\n  ? for shortcuts";
 const MENU = "Select Model and Effort\n\n› 1. gpt-6.1-sol\n  Press enter to confirm";
+// Shape of a real archived end-of-turn Codex pane (sentinel row removed).
+const CODEX_FINISHED = [
+  "• Ran python3 .ahelpa/codex-x/artifacts/validate.py", "  └ PASS; 19 checks", "    + 1 line (⌃t to expand)", "",
+  "• Explored", "  └ Read summary.md", "",
+  "• Done. Summary in .ahelpa/codex-x/summary.md.", "", "",
+  "  Worked for 18m 59s • 05:33", "", "",
+  "› Ask Codex to do anything", "",
+  "  GPT-6.1-Sol high · ~/proj · Complete the ahelpa task", "  ? for shortcuts",
+].join("\n");
 let root: string;
 let db: StateDB;
 let serial = 0;
@@ -33,11 +42,14 @@ function seed(summary = false, agent = "codex") {
   if (summary) writeFileSync(join(dir, "summary.md"), "written result");
   return { id, dir };
 }
-function event(dir: string, agent = "codex", failure = false) {
+// verified: bind the Codex thread as resume does, so the event is threadVerified.
+// Otherwise "main" is not a UUIDv7, its rollout cannot be read, and the event is fail-open.
+function event(dir: string, agent = "codex", failure = false, verified = false) {
   if (agent === "claude-code") writeTurnHook(dir, agent, JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "native", prompt_id: "prompt", prompt: "Please read and complete the task described in fixture" }));
   writeTurnHook(dir, agent, JSON.stringify(agent === "codex"
     ? { type: "agent-turn-complete", "thread-id": "main", "turn-id": "one", "input-messages": ["Please read and complete the task described in fixture"] }
-    : { hook_event_name: failure ? "StopFailure" : "Stop", session_id: "native", prompt_id: "prompt", error: "authentication_failed" }));
+    : { hook_event_name: failure ? "StopFailure" : "Stop", session_id: "native", prompt_id: "prompt", error: "authentication_failed" }),
+    verified ? "main" : undefined);
 }
 
 describe("daemon official turn-end timing", () => {
@@ -86,6 +98,72 @@ describe("daemon official turn-end timing", () => {
     const { id, dir } = seed(true);
     event(dir);
     spyOn(Tmux, "capture").mockResolvedValue(MENU);
+    for (let i = 0; i < 4; i++) await refreshSessionStatuses(db, [id]);
+    expect(Tmux.sendKeys).not.toHaveBeenCalled();
+    expect(db.getSession(id)?.status).toBe("needs_attention");
+  });
+
+  // Codex keeps a finished turn's work rows on screen. Reading them as live work
+  // left a helper with a summary and a turn-end event `running` forever.
+  test("codex: a verified turn end ignores finished work rows and nudges", async () => {
+    const { id, dir } = seed(true);
+    event(dir, "codex", false, true);
+    spyOn(Tmux, "capture").mockResolvedValue(CODEX_FINISHED);
+    await refreshSessionStatuses(db, [id]);
+    expect(Tmux.sendKeys).toHaveBeenCalledWith(id, COMPLETION_NUDGE);
+  });
+
+  test("codex: a finished reply quoting the question view's words still gets the nudge", async () => {
+    const { id, dir } = seed(true);
+    event(dir, "codex", false, true);
+    spyOn(Tmux, "capture").mockResolvedValue(CODEX_FINISHED.replace("• Done.", "• The view shows:\n  Question 1/1\n  enter to submit answer | esc to interrupt\n\n• Done."));
+    await refreshSessionStatuses(db, [id]);
+    expect(Tmux.sendKeys).toHaveBeenCalledWith(id, COMPLETION_NUDGE);
+  });
+
+  // A fail-open event may be a sub-agent's while the main thread streams with
+  // its spinner hidden, which looks exactly like CODEX_FINISHED.
+  test("codex: an unverified turn end keeps reading work rows as work", async () => {
+    const { id, dir } = seed(true);
+    event(dir);
+    spyOn(Tmux, "capture").mockResolvedValue(CODEX_FINISHED);
+    for (let i = 0; i < 5; i++) await refreshSessionStatuses(db, [id]);
+    expect(Tmux.sendKeys).not.toHaveBeenCalled();
+    expect(db.getSession(id)).toMatchObject({ status: "running", turnHookOffset: null });
+  });
+
+  // Older Codex draws this divider before it streams the answer, with the spinner hidden.
+  test("codex: without a turn-end event a reply streaming below a Worked-for divider stays running", async () => {
+    const { id } = seed(true);
+    let chunks = 0;
+    spyOn(Tmux, "capture").mockImplementation(async () => [
+      "› Please read and complete the task described in fixture", "",
+      "• Ran bun test", "  └ 12 pass", "", "─ Worked for 1m 05s ─────────", "",
+      `• Still streaming the review;${" more".repeat(++chunks)}`, "",
+      "› Ask Codex to do anything",
+    ].join("\n"));
+    for (let i = 0; i < 6; i++) await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe("running");
+  });
+
+  // Codex can hide the interrupt hint and keep the spinner (set_interrupt_hint_visible).
+  test.each(["• Working (12s • esc to interrupt)", "• Working (12s)"])("codex: a live spinner (%s) after a verified event keeps it pending", async spinner => {
+    const { id, dir } = seed(true);
+    event(dir, "codex", false, true);
+    spyOn(Tmux, "capture").mockResolvedValue(`• Ran bun test\n  └ 12 pass\n\n${spinner}\n\n› Ask Codex to do anything\n\n  ? for shortcuts`);
+    for (let i = 0; i < 5; i++) await refreshSessionStatuses(db, [id]);
+    expect(Tmux.sendKeys).not.toHaveBeenCalled();
+    expect(db.getSession(id)).toMatchObject({ status: "running", turnHookOffset: null });
+  });
+
+  test.each([
+    ["a menu", MENU],
+    // Upstream request_user_input freeform snapshot (codex-rs v0.154.0): "›" here takes the answer.
+    ["the free-form question view", "Question 1/1 (1 unanswered)\nShare details.\n› Type your answer (optional)\nenter to submit answer | esc to interrupt"],
+  ])("codex: %s below finished work rows never gets the nudge and escalates after a verified event", async (_name, view) => {
+    const { id, dir } = seed(true);
+    event(dir, "codex", false, true);
+    spyOn(Tmux, "capture").mockResolvedValue(`  └ earlier output\n\n• Ran bun test\n  └ 12 pass\n\n${view}`);
     for (let i = 0; i < 4; i++) await refreshSessionStatuses(db, [id]);
     expect(Tmux.sendKeys).not.toHaveBeenCalled();
     expect(db.getSession(id)?.status).toBe("needs_attention");

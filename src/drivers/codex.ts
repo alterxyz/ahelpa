@@ -44,11 +44,34 @@ function codexIsStarting(captureOutput: string): boolean {
   return captureOutput.includes("Starting MCP servers");
 }
 
-function codexHasStartedTask(captureOutput: string): boolean {
+// The live in-turn spinner. Work rows ("• Ran …") stay on screen after the turn.
+function codexSpinnerVisible(captureOutput: string): boolean {
   return captureOutput.includes("Working (")
     // Codex >=0.145 in-turn spinner, e.g. "Starting MCP servers (2/3): codex_apps (5s • esc to interrupt)".
-    || /\(\d+[hms](?:\s+\d+[ms])?\s*•\s*esc to interrupt\)/i.test(captureOutput)
+    || /\(\d+[hms](?:\s+\d+[ms])?\s*•\s*esc to interrupt\)/i.test(captureOutput);
+}
+
+function codexHasStartedTask(captureOutput: string): boolean {
+  return codexSpinnerVisible(captureOutput)
     || /\n\s*• (Reading|Explored|Using|Ran|Updated|Edited|Searching|Checked|Inspecting|Analyzing|Planning|Summarizing|Opened)\b/.test(captureOutput);
+}
+
+// The free-form question view also draws a "›" row ("› Type your answer") with
+// "enter to submit answer | esc to interrupt" below it; text sent there becomes
+// the answer. Only the rows below the last "›" count: a finished reply above
+// may quote the same words.
+function codexInputHasOtherFocus(captureOutput: string): boolean {
+  const latest = [...captureOutput.matchAll(/^\s*›(?:\s+.*)?$/gmu)].at(-1);
+  if (latest?.index === undefined) return false;
+  return /esc to interrupt|enter to submit answer/i.test(captureOutput.slice(latest.index + latest[0].length));
+}
+
+function codexComposerReady(captureOutput: string): boolean {
+  return codexHasInputPrompt(captureOutput)
+    && !codexNeedsPromptNudge(captureOutput)
+    && !codexNeedsHooksTrustEscape(captureOutput)
+    && !codexNeedsUpdateSkip(captureOutput)
+    && !codexInputHasOtherFocus(captureOutput);
 }
 
 function codexHasUnsupportedModelError(captureOutput: string): boolean {
@@ -444,12 +467,18 @@ export const codexDriver: AgentDriver = {
   },
 
   acceptsInput(captureOutput: string): boolean {
-    return codexHasInputPrompt(captureOutput)
-      && !codexNeedsPromptNudge(captureOutput)
-      && !codexNeedsHooksTrustEscape(captureOutput)
-      && !codexNeedsUpdateSkip(captureOutput)
-      && !codexHasStartedTask(captureOutput);
+    return codexComposerReady(captureOutput) && !codexHasStartedTask(captureOutput);
   },
+
+  // After a turn end from a verified main thread the work rows above the
+  // composer are history: of 399 archived end-of-turn panes, 204 still showed
+  // one. Only the live spinner means the turn is still going. (While a reply
+  // streams Codex hides the spinner, so this is not safe without that event.)
+  acceptsInputAfterTurn(captureOutput: string): boolean {
+    return codexComposerReady(captureOutput) && !codexSpinnerVisible(captureOutput);
+  },
+
+  workingAfterTurn: codexSpinnerVisible,
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
     // Exiting prints the resume command; Escape only dismisses UI elements.
