@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { getDaemonLaunchCommand, DAEMON_SUBCOMMAND, spawnDetached } from "../src/daemon";
+import { daemonSpawnOptions, getDaemonLaunchCommand, DAEMON_SUBCOMMAND, spawnDetached } from "../src/daemon";
+import { RuntimeLayout } from "../src/runtime-layout";
 
 describe("daemon launch command", () => {
   test("uses bun plus cli.ts when source files are present", () => {
@@ -50,6 +51,25 @@ describe("daemon launch command", () => {
     expect(command).toEqual([binary, DAEMON_SUBCOMMAND]);
 
     rmSync(root, { recursive: true, force: true });
+  });
+
+  test("a started daemon runs in its home with its starter's roots, even ones set after Bun started", async () => {
+    // tests/setup.ts sets AHELPA_HOME after startup, like this test does.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "ahelpa-daemon-env-")));
+    try {
+      process.env.AHELPA_DAEMON_ENV_PROBE = "late";
+      const layout = new RuntimeLayout({ ahelpaDir: join(root, "home"), tmpDir: join(root, "tmp") });
+      mkdirSync(layout.ahelpaHomeDir());
+      const out = join(root, "out");
+      spawnDetached(["/bin/sh", "-c", `printf '%s|%s|%s|%s' "$PWD" "$AHELPA_HOME" "$AHELPA_TMP_DIR" "$AHELPA_DAEMON_ENV_PROBE" > '${out}'`],
+        undefined, daemonSpawnOptions(layout));
+      for (let i = 0; i < 100 && !existsSync(out); i++) await Bun.sleep(50);
+      await Bun.sleep(50);
+      expect(readFileSync(out, "utf8")).toBe(`${layout.ahelpaHomeDir()}|${layout.ahelpaHomeDir()}|${layout.tmpDir}|late`);
+    } finally {
+      delete process.env.AHELPA_DAEMON_ENV_PROBE;
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   test("spawnDetached leaves the child process running", async () => {

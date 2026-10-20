@@ -328,7 +328,24 @@ export function getDaemonLaunchCommand(
   return [...getSelfCommand(execPath, moduleDir), DAEMON_SUBCOMMAND];
 }
 
-export function spawnDetached(command: string[], logPath?: string): number {
+export interface DetachedSpawnOptions {
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+}
+
+// A daemon watches the roots of the process that started it, not whatever Bun
+// snapshotted at startup: Bun.spawn without `env` ignores later process.env
+// changes, so a test's isolated AHELPA_HOME used to be dropped and its daemon
+// ran against the real ~/.ahelpa. Its cwd is its home, so deleting the
+// directory it was started from cannot break every spawn it makes.
+export function daemonSpawnOptions(layout = defaultRuntimeLayout): DetachedSpawnOptions {
+  return {
+    cwd: layout.ahelpaHomeDir(),
+    env: { ...process.env, AHELPA_HOME: layout.ahelpaHomeDir(), AHELPA_TMP_DIR: layout.tmpDir },
+  };
+}
+
+export function spawnDetached(command: string[], logPath?: string, options: DetachedSpawnOptions = {}): number {
   // Route the detached process's own stdout/stderr to a log instead of
   // /dev/null, so a daemon that crashes on startup leaves a trace to debug
   // (previously the crash was silently swallowed and the daemon just appeared
@@ -338,6 +355,8 @@ export function spawnDetached(command: string[], logPath?: string): number {
     : ">/dev/null 2>&1";
   const shellCommand = `nohup ${command.map(shellEscape).join(" ")} ${redirect} & echo $!`;
   const proc = Bun.spawnSync(["/bin/sh", "-c", shellCommand], {
+    cwd: options.cwd,
+    env: options.env ?? process.env,
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -359,7 +378,7 @@ export function startDaemon(): void {
   mkdirSync(AHELPA_DIR, { recursive: true });
 
   try {
-    const pid = spawnDetached(getDaemonLaunchCommand(), LOG_FILE);
+    const pid = spawnDetached(getDaemonLaunchCommand(), LOG_FILE, daemonSpawnOptions());
     writeFileSync(PID_FILE, String(pid));
   } catch {
     // ignore startup errors; caller will observe daemon as stopped

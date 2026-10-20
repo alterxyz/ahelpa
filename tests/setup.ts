@@ -1,5 +1,5 @@
 import { afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
@@ -11,5 +11,8 @@ process.env.AHELPA_HOME = join(testRoot, "state");
 process.env.AHELPA_TMP_DIR = join(testRoot, "runtime");
 
 afterAll(() => {
+  // A test that reaches the real startDaemon leaves a detached daemon polling
+  // this root forever. Stop it before the root disappears under it.
+  try { process.kill(Number(readFileSync(join(testRoot, "state", "daemon.pid"), "utf8")), "SIGTERM"); } catch {}
   rmSync(testRoot, { recursive: true, force: true });
 });
