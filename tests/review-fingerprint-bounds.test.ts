@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
 import { $ } from "bun";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { computeTargetFingerprint, collectEvidence } from "../src/evidence";
@@ -108,6 +108,45 @@ test("wait bounds slow fingerprint git and kills the git process", async () => {
   const pid = Number(readFileSync(pidFile, "utf8").trim());
   await Bun.sleep(30);
   expect(() => process.kill(pid, 0)).toThrow();
+});
+
+// Git killed while holding .git/index.lock strands it, and the user's next
+// commit fails. Status locks before reading excludes, so a writerless FIFO
+// parks it holding the lock. Diff refreshes after printing, outside
+// GIT_OPTIONAL_LOCKS; this clean filter waits while any lock exists, so a
+// locking diff parks too.
+test("fingerprint git killed at the deadline leaves no index lock", async () => {
+  const gitDir = join(project, ".git");
+  const lock = join(gitDir, "index.lock");
+  const calls = join(root, "filter-calls");
+  const filter = join(root, "clean.sh");
+  writeFileSync(filter, `#!/bin/sh\necho >> ${quote(calls)}\ni=0\nwhile [ -e ${quote(lock)} ] && [ $i -lt 60 ]; do sleep 0.05; i=$((i+1)); done\nexec cat\n`);
+  chmodSync(filter, 0o755);
+  await git(project, "config", "filter.wait.clean", quote(filter));
+  mkdirSync(join(gitDir, "info"), { recursive: true });
+  writeFileSync(join(gitDir, "info", "attributes"), "code.ts filter=wait\n");
+  const exclude = join(gitDir, "info", "exclude");
+  rmSync(exclude, { force: true });
+  await $`mkfifo ${exclude}`;
+  // Same content, new mtime: refreshing the index has work to do.
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(join(project, "code.ts"), later, later);
+  const fingerprint = await computeTargetFingerprint(project, [], { deadline: Date.now() + 1000 });
+  expect(fingerprint?.incomplete).toContain("deadline");
+  expect(existsSync(calls)).toBe(true);
+  expect(existsSync(lock)).toBe(false);
+});
+
+test("evidence reads the tree without rewriting the index", async () => {
+  const base = await git(project, "rev-parse", "HEAD");
+  const later = new Date(Date.now() + 60_000);
+  utimesSync(join(project, "code.ts"), later, later);
+  const index = join(project, ".git", "index");
+  const before = readFileSync(index);
+  const baseline = await computeTargetFingerprint(project);
+  const evidence = await collectEvidence({ id: "review", projectPath: project, role: "reviewer", baseCommit: base, targetFingerprint: baseline });
+  expect(evidence).toMatchObject({ changedFiles: [], baseCommit: base, targetChanged: false });
+  expect(readFileSync(index).equals(before)).toBe(true);
 });
 
 test("fingerprint after acceptance uses only the remaining wait deadline", async () => {

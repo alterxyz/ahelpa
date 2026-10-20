@@ -77,12 +77,19 @@ interface FingerprintOptions {
   maxRepositories?: number;
 }
 
+// Evidence only reads the tree, yet Git refreshes the index as a side effect:
+// status behind an optional lock, diff through diff.autoRefreshIndex, which
+// GIT_OPTIONAL_LOCKS does not cover. Git killed while holding the lock leaves
+// .git/index.lock behind, and the user's next commit fails on it.
+const READ_ONLY_GIT = ["-c", "diff.autoRefreshIndex=false"];
+const readOnlyGitEnv = () => ({ ...process.env, GIT_OPTIONAL_LOCKS: "0" });
+
 // Keep Git in the launcher's group so group signals also terminate it. At the
 // deadline kill Git directly and cancel its output reader. A rare grandchild
 // can outlive the deadline until Git's pipes close; do not wait for its EOF.
 async function fingerprintGit(cwd: string, args: string[], deadline: number): Promise<{ stdout: Buffer; exitCode: number; timedOut: boolean }> {
   if (Date.now() >= deadline) return { stdout: Buffer.alloc(0), exitCode: -1, timedOut: true };
-  const proc = Bun.spawn(["git", "-C", cwd, ...args], { env: process.env, stdout: "pipe", stderr: "ignore", stdin: "ignore" });
+  const proc = Bun.spawn(["git", "-C", cwd, ...READ_ONLY_GIT, ...args], { env: readOnlyGitEnv(), stdout: "pipe", stderr: "ignore", stdin: "ignore" });
   const reader = proc.stdout.getReader();
   const chunks: Uint8Array[] = [];
   let timedOut = false;
@@ -186,14 +193,16 @@ export async function collectEvidence(subject: EvidenceSubject, options: Evidenc
     evidence.peerMail = options.peerMail;
   }
 
-  const status = await $`git -C ${subject.projectPath} status --porcelain -z --untracked-files=all`.quiet().nothrow();
+  const status = await $`git -C ${subject.projectPath} ${READ_ONLY_GIT} status --porcelain -z --untracked-files=all`.env(readOnlyGitEnv()).quiet().nothrow();
   if (status.exitCode === 0) {
     const files = new Set(parsePorcelainZ(status.text()));
     // Helpers rarely commit, but when one does, the launch baseline keeps the
     // committed part of its work visible instead of vanishing from status.
+    // Diff commit to commit: status already covers the work tree, and a work
+    // tree diff would list stat-only changes once it may not refresh the index.
     if (subject.baseCommit) {
       evidence.baseCommit = subject.baseCommit;
-      const committed = await $`git -C ${subject.projectPath} diff --name-only -z ${subject.baseCommit}`.quiet().nothrow();
+      const committed = await $`git -C ${subject.projectPath} ${READ_ONLY_GIT} diff --name-only -z ${subject.baseCommit} HEAD`.env(readOnlyGitEnv()).quiet().nothrow();
       if (committed.exitCode === 0) {
         for (const file of committed.text().split("\0")) if (file) files.add(file);
       } else {
