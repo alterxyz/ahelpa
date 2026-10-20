@@ -438,6 +438,7 @@ Common situations:
 - **`wait` returned but no summary.md.** The helper may have completed without writing results. Check `capture` or `logs` to see what happened.
 - **Session shows `error`.** Check `capture` or `logs` first: NEED_HELP or a Codex model/account error can cause it. For `[AHELPA:NEED_HELP]` or `[AHELPA:NEED_HELP:<payload>]`, read `summary.md`, then intervene with `send` without bypassing refusals. Comma-separated tags: `review` for a blocking refusal; `input` for missing, truncated, or contradictory task input; `review,input` for both.
 - **Session shows `dead`.** The tmux session disappeared unexpectedly. Check `logs` for archived output.
+- **`launch` or `resume` failed after the tmux session started** (for example "did not reach its input prompt"). The session is rolled back, but its last screen is kept at `${AHELPA_HOME:-$HOME/.ahelpa}/launch-failures/<id>.txt` and the error names that path. Read it before retrying.
 
 Only NEED_HELP writes a line to the global ledger `${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl`. Tags are helper self-reports, not verified causes. Find the transcript by grepping the agent's transcripts for the session ID from the ledger; count tags with:
 

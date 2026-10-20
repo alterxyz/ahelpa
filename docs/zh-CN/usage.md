@@ -437,6 +437,7 @@ tmux capture-pane -t "$session_id" -p  # 不 attach，直接 dump pane 内容
 - **`wait` 返回但没有 summary.md。** Helper 可能完成了但没写结果。用 `capture` 或 `logs` 看发生了什么。
 - **Session 显示 `error`。** 先检查 `capture` 或 `logs`：NEED_HELP 或 Codex 模型/账号错误都可能导致此状态。若输出了 `[AHELPA:NEED_HELP]` 或 `[AHELPA:NEED_HELP:<payload>]`，读取 `summary.md`，再用 `send` 介入，不绕过拒绝。逗号分隔标签：`review` 表示拒绝导致阻塞；`input` 表示任务输入缺失、截断或矛盾；两者合用 `review,input`。
 - **Session 显示 `dead`。** tmux session 意外消失。用 `logs` 查看 archived output。
+- **tmux session 已创建后 `launch` 或 `resume` 失败**（例如 "did not reach its input prompt"）。该 session 会被回滚，但最后一屏保存在 `${AHELPA_HOME:-$HOME/.ahelpa}/launch-failures/<id>.txt`，报错里会给出这个路径。重试前先读它。
 
 只有 NEED_HELP 会向全局台账 `${AHELPA_HOME:-$HOME/.ahelpa}/need-help.jsonl` 写入一行。标签是 helper 自报的原因，并非经过验证的结论。在 agent 的 transcript 文件中 grep 台账里的 session ID，即可找到对应记录；统计标签：
 

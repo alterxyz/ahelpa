@@ -46,6 +46,10 @@ export class RuntimeLayout {
     return join(this.ahelpaHomeDir(), "archive");
   }
 
+  launchFailurePath(sessionId: string): string {
+    return join(this.ahelpaHomeDir(), "launch-failures", `${sessionId}.txt`);
+  }
+
   projectDeliveryDir(projectPath: string): string {
     return join(projectPath, ".ahelpa");
   }

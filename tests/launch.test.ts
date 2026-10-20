@@ -571,16 +571,25 @@ describe("launch", () => {
     const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
     spyOn(Bun, "sleep").mockResolvedValue();
 
-    await expect(launch({
+    const plan = planLaunch({
       db,
       agentType: "kimi",
       task: "echo hello",
       projectPath: TEST_PROJECT,
       parentId: "test-parent",
-    })).rejects.toThrow("did not reach its input prompt");
+    });
+    const failure: Error = await executeLaunch(plan).then(() => { throw new Error("launch succeeded"); }, (error) => error);
+    expect(failure.message).toContain("did not reach its input prompt");
+
+    // The last screen survives the rollback, and the error says where.
+    const screenPath = defaultRuntimeLayout.launchFailurePath(plan.sessionId);
+    expect(failure.message).toContain(screenPath);
+    expect(readFileSync(screenPath, "utf8")).toContain("Trust this folder?");
 
     expect(killSpy).toHaveBeenCalledTimes(1);
     expect(db.listSessions()).toHaveLength(0);
+    expect(existsSync(plan.fileHandoff.taskFilePath)).toBe(false);
+    rmSync(screenPath, { force: true });
   });
 
   test("does not reclaim unowned resources when tmux creation fails", async () => {

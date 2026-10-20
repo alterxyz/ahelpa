@@ -383,6 +383,21 @@ const driverRuntime: DriverRuntime = {
   sendKey: (sessionId, key) => Tmux.sendKey(sessionId, key),
 };
 
+// The rollback kills tmux, which would take the only evidence of why startup
+// failed with it. Save the last screen first and name it in the error.
+// ponytail: one file per failed launch, never pruned; failures are rare.
+async function keepFailedLaunchScreen(sessionId: string, error: unknown): Promise<void> {
+  try {
+    const path = defaultRuntimeLayout.launchFailurePath(sessionId);
+    const screen = await Tmux.capture(sessionId, 200);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, screen);
+    if (error instanceof Error) error.message += ` (last screen: ${path})`;
+  } catch {
+    // Best effort: a missing pane must not mask the launch error.
+  }
+}
+
 function rollbackReservation(db: StateDB, sessionId: string): void {
   db.immediateTransaction(() => {
     // Remove the reservation from the active set before checking ancestry.
@@ -512,6 +527,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }
   } catch (error) {
     if (tmuxCreated) {
+      await keepFailedLaunchScreen(plan.sessionId, error);
       try { await Tmux.kill(plan.sessionId); } catch {}
     }
     if (wakeupOwned) defaultWakeup.cleanup(plan.sessionId);
@@ -684,6 +700,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     }
   } catch (error) {
     if (tmuxCreated) {
+      await keepFailedLaunchScreen(sessionId, error);
       try { await Tmux.kill(sessionId); } catch {}
     }
     if (wakeupOwned) defaultWakeup.cleanup(sessionId);
