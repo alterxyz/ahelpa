@@ -16,6 +16,12 @@ bun run package:skill
 
 echo "== install runtime -> $BIN_DST =="
 mkdir -p "$BIN_DST"
+if [ -x "$BIN_DST/ahelpa" ]; then
+  # Keep the binary being replaced as ahelpa.pre-<incoming commit>, and only the
+  # two newest of those; older runtimes are on GitHub Releases.
+  cp -p "$BIN_DST/ahelpa" "$BIN_DST/ahelpa.pre-$(git -C "$PROJECT_ROOT" rev-parse --short HEAD 2>/dev/null || date +%Y%m%d%H%M%S)"
+  ls -t "$BIN_DST"/ahelpa.pre-* | tail -n +3 | xargs rm -f --
+fi
 install -m 755 dist/ahelpa "$BIN_DST/ahelpa"
 if [ -d "$HOME/.local/bin" ]; then
   ln -sf "$BIN_DST/ahelpa" "$HOME/.local/bin/ahelpa"
