@@ -74,7 +74,7 @@ The gate runs tests, typechecks, builds, and launches Claude Code and Codex; Kim
 Campaign records with unchecked boxes live in `docs/superpowers/plans/`. At the start of a session, check the newest one for open items before proposing new work:
 
 - `2026-10-08-helper-contract-and-evidence.md` — observation period for the v0.9.0 contract / evidence / `--check` / nudge mechanisms; the "Open work" section has the commands to run and the decisions to make.
-- `2026-10-18-runtime-files-and-launch-diagnostics.md` — keeping a failed launch's screen is committed locally (not installed); four items await the author: keep worktree evidence in the source repo (the 2026-10-20 count says host-made worktrees lose more than `--worktree` does), bound `daemon.log`, move helper scratch out of the project, and prune deploy backups.
+- `2026-10-18-runtime-files-and-launch-diagnostics.md` — keeping a failed launch's screen is committed locally (not installed); four items await the author: keep worktree evidence in the source repo (the 2026-10-20 count says host-made worktrees lose more than `--worktree` does), half-done on local branch `wip/linked-worktree-results`, bound `daemon.log`, move helper scratch out of the project, and prune deploy backups.
 - `2026-10-18-codex-helper-status-detection.md` — two fixes committed and installed locally (Codex model-capacity stop → `needs_attention`; sub-agent `turn_complete` no longer ends the main turn), awaiting push; three other follow-ups are still open.
 
 Fully shipped records are removed from the tree so searches stay lean. Read them from git history with `git show b87fe45:<path>`:
