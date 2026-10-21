@@ -19,12 +19,12 @@ ahelpa doctor codex --project /path/to/project
 
 `doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude-code`、`codex` 或 `kimi`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
 
-JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver 名称组织的 `agents`。每个 agent 返回 `executable`、`version`（无法获取时为 `null`）、`locally_ready: true|false|"unknown"` 和 `reasons: [...]`。缺少 tmux 或 agent 二进制时，该 agent 未就绪；明确阻塞优先于未知状态。检查完成时退出码为 0，即使 agent 未就绪；参数无效或项目目录不存在时退出码为 1。调用方应读取 `locally_ready`。
+JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver 名称组织的 `agents`。每个 agent 返回 `executable`、`version`（无法获取时为 `null`）、`locally_ready: true|false|"unknown"` 和 `reasons: [...]`。缺少 tmux 或 agent 二进制时，该 agent 未就绪；明确阻塞优先于未知状态。检查完成时退出码为 0，即使 agent 未就绪；参数无效或项目目录不存在时退出码为 1。调用方应读取 `locally_ready`；已就绪的 agent 仍可能带有仅供参考的 `reasons`。
 
 各 driver 只探测本地状态。不会执行 agent 二进制，包括 `--version`：版本只来自与可执行文件匹配的包元数据（Codex／Claude）或可识别的内嵌构建元数据（Claude／Kimi）。其他分发格式返回 `version: null`，且就绪状态为未知，除非发现明确阻塞。
 
 - Claude 检查 `.claude.json` 中的工作区信任，查找键按 NFC 规范化；对 worktree 检查公共仓库的规范根目录，再检查 Git 根目录范围内已信任的祖先目录。支持旧式 `.config.json`、`CLAUDE_CONFIG_DIR` 和自定义 OAuth 的独立信任文件。worktree／子模块的祖先信任无法确认规范 Git 边界时，返回 `unknown`。
-- Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下受支持的 API key／token 认证文件结构。选中的自定义 provider 若配置 `requires_openai_auth = false`，无需 OpenAI 登录；配置了 `env_key` 时，相应环境变量必须存在。profile 选择、额外系统／项目配置层、不支持的 provider 选项、keyring／auto／ephemeral 存储，以及无法识别或读取的认证状态，在只读检查无法确认有效状态时返回 `unknown`。
+- Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下受支持的 API key／token 认证文件结构。选中的自定义 provider 若配置 `requires_openai_auth = false`，无需 OpenAI 登录；配置了 `env_key` 时，相应环境变量必须存在。profile 选择、额外系统／项目配置层、不支持的 provider 选项、keyring／auto／ephemeral 存储，以及无法识别或读取的认证状态，在只读检查无法确认有效状态时返回 `unknown`。它还会从同一份配置读取 `[projects."<root>"].trust_level`；仓库根目录尚未被信任时，在不改变 `locally_ready` 的前提下追加 `repository root not trusted by Codex: <root> (launch accepts the prompt)`。根目录是最近的包含 `.git` 条目的祖先目录（linked worktree 对应主 checkout）；键只按真实路径精确匹配，不尝试 NFC 或符号链接写法，取第一个带 `trust_level` 的条目：先项目目录自身，再最近的 `.git` 目录（linked worktree 自己的目录），最后是根目录。根目录或项目目录被标为 `untrusted` 时，Codex 会显示 launch 不会应答的受限目录界面，此时 `locally_ready` 为 `false`。任何项目条目的 `trust_level` 若不是 `trusted` 或 `untrusted`，Codex 会拒绝加载该配置，因此报告 `unknown`（`config field types unrecognized`）。不在 git 仓库内时不报告任何内容。
 - Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。模型必须包含模型名称及正整数 `max_context_size`；provider 的 API key 与 OAuth 互斥。缺失或冲突的配置、keyring 和服务身份状态返回 `unknown`。
 
 `doctor` 检查本地凭据和配置的结构，不验证其完整有效性；例如，不检测 JWT claim 键的重复。`locally_ready: true` 表示未发现已知的本地启动阻塞。不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
@@ -41,6 +41,7 @@ token=$(echo "$result" | jq -r .ownerToken)
 - `jobId`（可选）：该 helper 所属的 job（见[把多个 hand 归入一个 job](#把多个-hand-归入一个-job)）。
 - `writerConflict`（可选）：同一棵目录树中（物理 project 路径相同，或一个包含另一个）仍在活跃的其他 session，且双方至少有一个不是 `reviewer`。比较前会解析符号链接和文件系统别名，包括 macOS 的 `/tmp` 与 `/private/tmp`；`/` 与所有项目重叠。路径保留文件系统自身的大小写规则，不会统一转成小写。已保存的目录不存在时，会解析最近的现存祖先，并保留缺失部分。每项包含 `sessionId`、`role`、`status` 和 `projectPath`。launch 仍会进行，但 evidence 将无法分辨改动属于谁。除非重叠是有意的，请 kill 其中一个，或改用 `--worktree` 重新 launch。同一棵树中的两个 reviewer 不会被报告，发起本次 launch 的 helper 本身也不会（它负责委派并等待）；`--worktree` 启动的 session 不会产生冲突。
 - `taskWarning`（可选）：`--task` 文本较短且含 `/tmp/`、`/private/tmp/` 或 `scratchpad/` 路径，通常意味着任务引用了可能消失的临时文件。请把内容放进持久文件，改用 `--file`。
+- `codexTrust`（可选）：Codex 显示了 "Folder access" 界面，ahelpa 在 **Trust and continue** 上按了 Enter。值是 Codex 在该界面上显示的仓库根目录，现已写入 `CODEX_HOME/config.toml` 的信任记录（见 [Parent 追踪与 safe mode](#parent-追踪与-safe-mode)）。未出现该界面时不返回此字段。`resume` 以相同方式报告。
 
 多行任务可以从 UTF-8 文件直接启动，替代 `--task`：
 
@@ -160,6 +161,8 @@ ahelpa launch codex --safe --project /path/to/project --task "Review this change
 Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。ahelpa 会记录该姿态并在 `resume` 时继承；`resume --safe` 可以升级默认姿态记录，但省略该参数不会把已 safe 的 session 降级。各 driver 的具体行为见 [安全说明](security.md)。
 
 Kimi 默认以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` 启动。这个 canonical 更新开关用于避免 CLI 自更新中断持久 tmux session。首次在某个目录启动时，ahelpa 会自动选择 **Trust this folder**。Kimi 会持久保存该信任，随后可能启动该目录中的项目 MCP server。即使使用 `--safe`，自动信任步骤也会执行：Kimi safe mode 只会省略 `--yolo` 并恢复原生审批，它不是 sandbox。
+
+Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未被信任时，会在输入提示符之前询问一次（"Folder access"）。ahelpa 只在高亮的第一项是 **Trust and continue** 时按一次 Enter；其他任何状态（高亮了别的选项，或根目录被标为 `untrusted` 时出现的受限目录界面）都不会应答，launch 以 "did not reach its input prompt" 失败。随后 Codex 自己把 `[projects."<root>"]` 及 `trust_level = "trusted"` 写入 `CODEX_HOME/config.toml`（ahelpa 从不编辑该文件）。这里的根目录是仓库根目录：linked worktree 对应主 checkout；当 `--project` 是子目录时，信任范围比它更大。因此一次信任会覆盖之后同一 checkout 的所有 `--worktree` launch，也会让你自己在那里运行的 `codex` 不再询问。该步骤在 `--safe` 下同样执行（此时 Codex 以 `-s workspace-write -a never` 启动，并没有逐项审批可恢复），而受信任的目录允许 Codex 加载项目配置、hooks 和 exec 策略，其中可以声明 MCP server 与模型 provider，所以不要对你不信任的仓库启动 helper。按下 Enter 之后 launch 若失败，Codex 保存的信任依然有效，错误信息会说明这一点（"Folder access was accepted for <root>"）。想自己先回答：在项目中运行一次 `codex` 并选择，或手动添加该表。`ahelpa doctor codex` 会显示该根目录是否已被信任。
 
 ## 启动时选择模型
 
@@ -348,7 +351,7 @@ ahelpa resume "$session_id" --token "$token"
 
 新 session 保留 job，但使用全新的 inbox 和尚未消耗的发送预算；预算按执行 `resume` 的调用方环境重新解析。旧 session 的消息和已消耗预算不会转移。
 
-`resume` 会等待新 driver 到达可输入 prompt，然后返回一个处于 `needs_attention` 的新 helper。请对新 session ID 使用 `send` 或 `task` 发送下一轮，再调用 `wait`。ahelpa 会先确认新用户回合已经被接受，重建 FIFO，并恢复 daemon monitoring，避免旧的 DONE/NEED_HELP 被拿来结算新一轮。
+`resume` 会等待新 driver 到达可输入 prompt，然后返回一个处于 `needs_attention` 的新 helper。请对新 session ID 使用 `send` 或 `task` 发送下一轮，再调用 `wait`。ahelpa 会先确认新用户回合已经被接受，重建 FIFO，并恢复 daemon monitoring，避免旧的 DONE/NEED_HELP 被拿来结算新一轮。与 `launch` 一样，driver 应答了 Codex 的 "Folder access" 界面时，`resume` 会报告 `codexTrust`。
 
 ## 回收 session
 
@@ -431,6 +434,7 @@ tmux capture-pane -t "$session_id" -p  # 不 attach，直接 dump pane 内容
 
 - **Claude Code 尚未信任项目目录。** 在项目目录手动运行一次 `claude`，选择 **Yes, I trust this folder** 后重新 launch；ahelpa 不会自动接受 Claude 的工作目录信任对话框。
 - **Claude pane 裁剪了信任对话框标签。** 不支持窄到将标签裁剪而非换行的 pane；启动或恢复前请加宽 pane。
+- **Codex launch 卡在 "Folder access" 界面后失败。** ahelpa 只应答高亮项为 **Trust and continue** 的首次运行提示。受限目录变体（根目录或项目目录的 `trust_level = "untrusted"` 时出现的 "Open restricted"）和其他任何界面都不会被应答。如果错误信息写着 "Folder access was accepted for <root>"，说明 Codex 已保存该信任，失败发生在那之后。先读保存下来的最后一屏，再修改 `CODEX_HOME/config.toml` 中对应条目，或自己在该目录运行一次 `codex`，然后重新 launch。
 - **Kimi 显示月相或 `Retrying`。** 循环月相和 provider backoff 倒计时都表示仍在工作，即使 boxed input 仍然可见。继续 `wait`；120 秒 provider 重试不是本地 CLI 或 tmux 故障。
 - **Helper 看起来卡住。** Attach 到 tmux session 看完整屏幕。可能出现了 driver 没自动处理的 prompt 或确认框。手动处理后，暗号协议仍然有效。
 - **Session 显示 `needs_attention` 但 `summary.md` 已存在。** Helper 往往已完成却没输出暗号。会话空闲、没有暗号、但 `summary.md` 已存在时，daemon 会先催一次（"If your task is finished, print the done signal from the task file alone on a line; if not, continue working."），再次空闲才标为 `needs_attention`。催促只会发给 driver 判定为就绪的聊天输入框（绝不发进菜单、审批或信任对话框），会记录在会话行上以免 daemon 重启后重复，且在截屏之后会话行有变化时跳过。先读 `summary.md`，不要直接当作失败。

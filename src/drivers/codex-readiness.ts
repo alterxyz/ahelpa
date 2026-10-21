@@ -1,8 +1,8 @@
 import { realpathSync, statSync } from "fs";
-import { dirname, join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
 import { resolveCodexExecutable } from "./codex-capabilities";
 import { addReadiness, configObject, executableReadiness, findReadinessExecutable, isVersion, presentString, readLocalConfig, readPackageVersion, readinessRuntime } from "./readiness";
-import type { LocalReadiness, ReadinessRuntime } from "./types";
+import type { DriverReadiness, LocalReadiness, ReadinessRuntime } from "./types";
 
 function readCodexVersion(executable: string): string | null {
   const npm = readPackageVersion(executable, "@openai/codex");
@@ -23,6 +23,9 @@ function readCodexVersion(executable: string): string | null {
 // deserializes the entire provider map; this is deliberately not a full schema.
 function validConfigFieldTypes(config: Record<string, unknown>): boolean {
   if (["model", "model_provider"].some((key) => config[key] !== undefined && typeof config[key] !== "string")) return false;
+  // Codex refuses to load a config whose trust_level is anything but these two, whichever project holds it.
+  const trustLevels = Object.values(configObject(config.projects) ?? {}).map((entry) => configObject(entry)?.trust_level);
+  if (trustLevels.some((level) => level !== undefined && level !== "trusted" && level !== "untrusted")) return false;
   if (config.model_providers === undefined) return true;
   const providers = configObject(config.model_providers);
   if (!providers) return false;
@@ -80,6 +83,37 @@ function hasAdditionalConfig(cwd: string, home: string): boolean {
   }
 }
 
+// The directories whose trust entry Codex consults for a directory, after the directory itself and nearest first:
+// the nearest ancestor holding a .git entry, then for a linked worktree the main checkout (its .git file points at
+// <main>/.git/worktrees/<name>, whose commondir leads back to <main>/.git). The last one is the root Codex trusts.
+// A bare repository's worktree, a submodule and a --separate-git-dir checkout stay their own root. File reads only.
+// ponytail: outside any git repository this reports none and so nothing, even for an entry marked untrusted;
+// Codex may still ask there.
+function codexTrustRoots(directory: string): string[] {
+  for (let current = directory;;) {
+    try {
+      const marker = statSync(join(current, ".git"));
+      if (marker.isDirectory()) return [current];
+      if (marker.isFile()) return [current, linkedWorktreeRoot(current)].filter((root) => root !== undefined);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return [];
+    }
+    const parent = dirname(current);
+    if (parent === current) return [];
+    current = parent;
+  }
+}
+
+function linkedWorktreeRoot(directory: string): string | undefined {
+  try {
+    const gitdir = readLocalConfig(join(directory, ".git"))?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+    const commondir = gitdir && readLocalConfig(join(resolve(directory, gitdir), "commondir"))?.trim();
+    if (!gitdir || !commondir) return undefined;
+    const common = realpathSync(resolve(directory, gitdir, commondir));
+    return basename(common) === ".git" ? realpathSync(dirname(common)) : undefined;
+  } catch { return undefined; }
+}
+
 function optionalString(value: unknown): boolean {
   return value == null || typeof value === "string";
 }
@@ -133,6 +167,27 @@ function authReadiness(auth: Record<string, unknown>): LocalReadiness {
   return presentString(auth.OPENAI_API_KEY) || auth.auth_mode != null ? "unknown" : false;
 }
 
+// Codex asks once per git repository root ("Folder access"); launch answers it, so an untrusted root only informs.
+// An entry marked "untrusted" opens a different, restricted screen that launch cannot answer. Codex takes the first
+// entry that has a trust_level: the working directory's, then the nearest .git directory's (a linked worktree's own),
+// then the root's. A trust_level it would reject is left to validConfigFieldTypes.
+// ponytail: only the physical path is looked up (an NFC-spelled key for an NFD directory still prompts on 0.163);
+// a key spelled through a symlink is not tried, so doctor may call a root untrusted that Codex accepts. Informational.
+function reportCodexTrust(result: DriverReadiness, cwd: string, config: Record<string, unknown>): void {
+  let directory: string;
+  try { directory = realpathSync(cwd); } catch { return; }
+  const roots = codexTrustRoots(directory);
+  const root = roots.at(-1);
+  if (!root) return;
+  const projects = configObject(config.projects);
+  const level = (key: string) => configObject(projects?.[key])?.trust_level;
+  const own = [directory, ...roots].find((key) => level(key) !== undefined) ?? root;
+  const trust = level(own);
+  if (trust === "trusted") return;
+  if (trust === "untrusted") addReadiness(result, false, `Codex config marks ${own} untrusted (launch cannot answer its restricted-folder prompt; edit the config)`);
+  else if (trust === undefined) addReadiness(result, true, `repository root not trusted by Codex: ${root} (launch accepts the prompt)`);
+}
+
 export function checkCodexReadiness(cwd: string, runtime: ReadinessRuntime = readinessRuntime()) {
   // Reuse launch resolution without running its help/capability probe.
   const executable = resolveCodexExecutable(cwd, (directory) => findReadinessExecutable("codex", directory, runtime));
@@ -151,6 +206,7 @@ export function checkCodexReadiness(cwd: string, runtime: ReadinessRuntime = rea
     addReadiness(result, "unknown", "auth storage config unreadable or unrecognized");
     return result;
   }
+  reportCodexTrust(result, cwd, config);
   if (!validConfigFieldTypes(config)) {
     addReadiness(result, "unknown", "config field types unrecognized");
     return result;

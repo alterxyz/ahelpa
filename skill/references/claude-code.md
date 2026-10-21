@@ -86,7 +86,7 @@ This gives passive status notifications without manual polling.
 
 ## Codex Helper Note
 
-In some directories, `codex` shows a one-time trust prompt. The launch flow handles this automatically by sending Enter. If `codex` still looks idle, run `ahelpa check` to re-read session state.
+In some directories, `codex` shows a one-time trust prompt (directory trust, or "Folder access" on Codex 0.163+). The launch flow handles this automatically by sending Enter; see `codex.md` for what the Folder access answer trusts. If `codex` still looks idle, run `ahelpa check` to re-read session state.
 
 ## Usage Discipline
 

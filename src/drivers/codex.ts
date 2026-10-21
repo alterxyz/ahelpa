@@ -1,7 +1,7 @@
 import { defaultRuntimeLayout } from "../runtime-layout";
 import { turnHookCommand } from "../turn-hooks";
-import type { AgentDriver, DetectedOutcome, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
-import { ModelSwitchAppliedError } from "./types";
+import type { AgentDriver, DetectedOutcome, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, StartupNotes, TaskSubmissionContext } from "./types";
+import { codexTrustNote, ModelSwitchAppliedError } from "./types";
 import { isTaskInstructionEcho } from "../file-handoff";
 import { checkCodexReadiness } from "./codex-readiness";
 import { shellEscape } from "../shell";
@@ -38,6 +38,42 @@ function codexNeedsUpdateSkip(captureOutput: string): boolean {
   const menu = captureOutput.slice(header.index);
   return /^[^\S\n]*(?:›[^\S\n]*)?2\.\s*Skip\b/im.test(menu)
     && [...menu.matchAll(/^[^\S\n]*›.*$/gm)].every((row) => /^[^\S\n]*›[^\S\n]*\d+\.\s*(?:Update now|Skip)\b/.test(row[0]));
+}
+
+// Codex >=0.163 "Folder access": an untrusted git repository asks once before the prompt. Live only while every "›" row
+// after the latest header is one of its own numbered options: a later composer, or the update/hooks menus that
+// can follow it, mean these rows are scrollback.
+function codexFolderScreen(captureOutput: string): string | undefined {
+  const header = [...captureOutput.matchAll(/^[^\S\n]*Folder access[^\S\n]*$/gm)].at(-1);
+  if (header?.index === undefined) return undefined;
+  const screen = captureOutput.slice(header.index);
+  const rows = [...screen.matchAll(/^[^\S\n]*›.*$/gm)];
+  return rows.length > 0 && rows.every((row) => /^[^\S\n]*›[^\S\n]*\d+\.\s/.test(row[0]))
+    && !/Update available|Press t to trust all|Press space or enter to toggle/i.test(screen)
+    ? screen : undefined;
+}
+
+// Enter is safe only on "1. Trust and continue". Never match row 2 ("Quit", or "Back to Agent Command Center" on a
+// shared daemon) or the footer, and never the "Open restricted" screen shown for a root marked untrusted.
+function codexFolderTrust(screen: string): boolean {
+  const rows = [...screen.matchAll(/^[^\S\n]*›.*$/gm)];
+  return /Trust\s+this\s+folder\?/.test(screen)
+    && rows.length === 1 && /^›[^\S\n]+1\.[^\S\n]+Trust and continue[^\S\n]*$/.test(rows[0][0]);
+}
+
+// The root Codex says it trusts: the line after "…repository root:" (shown only inside a subdirectory or linked
+// worktree), else the directory under the header. A long path hard-wraps with an indent, so rows are joined with "".
+// The path ends at a blank line or at the question: a screen taller than the pane loses its blank lines.
+// ponytail: a path wrapped at a space loses that space; the note is for the reader, nothing parses it.
+function codexFolderRoot(screen: string): string {
+  const lines = screen.split("\n");
+  const note = lines.findIndex((line) => /\broot:\s*$/.test(line));
+  const root: string[] = [];
+  for (const line of lines.slice(note < 0 ? 1 : note + 1)) {
+    if (!line.trim() || /^\s*Trust\s+this\s+folder\?/.test(line)) break;
+    root.push(line.trim());
+  }
+  return root.join("") || "unknown";
 }
 
 function codexIsStarting(captureOutput: string): boolean {
@@ -178,9 +214,10 @@ function codexHasInputPrompt(captureOutput: string): boolean {
   return !codexTurnEvidence(captureOutput.slice(latest.index));
 }
 
-async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Promise<void> {
+async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Promise<StartupNotes | undefined> {
   let nudged = false;
   let updateSkipped = false;
+  let trustedRoot: string | undefined;
   let startingPolls = 0;
 
   await runtime.sleep(2000);
@@ -191,6 +228,19 @@ async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Pro
       // MCP startup must not consume the "no response" budget: refund the
       // poll while the startup banner is visible, up to CODEX_STARTING_POLLS.
       if (++startingPolls <= CODEX_STARTING_POLLS) attempt--;
+      continue;
+    }
+    // Before the hooks check, whose pattern matches anywhere in the capture: an answered hooks screen in scrollback
+    // above a live Folder access screen must not turn into Escape, which quits or goes back there instead of Enter.
+    // Hooks text below the header makes the Folder screen not live (codexFolderScreen), so the hooks check still runs then.
+    const folder = codexFolderScreen(recentOutput);
+    if (folder) {
+      // Never fall through while the screen is live, whatever is highlighted: a later Enter nudge could pick row 2.
+      // Accepted in every mode: helpers run with the host's permissions by design (see docs/security.md).
+      if (!trustedRoot && codexFolderTrust(folder)) {
+        await runtime.sendKey(sessionId, "Enter");
+        trustedRoot = codexFolderRoot(folder);
+      }
       continue;
     }
     // Not gated on `nudged`: the trust flow can need one Escape per screen.
@@ -209,10 +259,12 @@ async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Pro
       nudged = true;
       continue;
     }
-    if (codexHasInputPrompt(recentOutput)) return;
+    if (codexHasInputPrompt(recentOutput)) return trustedRoot ? { codexTrust: trustedRoot } : undefined;
   }
   const startupNote = startingPolls > 0 ? ` (waited ${startingPolls}s in MCP startup)` : "";
-  throw new Error(`Codex session ${sessionId} did not reach its input prompt${startupNote}`);
+  // Codex saved the trust when Enter was pressed, whatever happens next: say so, the rollback discards the note.
+  const trustNote = trustedRoot ? `; ${codexTrustNote(trustedRoot)}` : "";
+  throw new Error(`Codex session ${sessionId} did not reach its input prompt${startupNote}${trustNote}`);
 }
 
 const CODEX_EFFORTS = ["low", "medium", "high", "xhigh"] as const;
@@ -364,12 +416,12 @@ export const codexDriver: AgentDriver = {
     return match?.[1] ?? null;
   },
 
-  async prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void> {
-    await waitForCodexInput(sessionId, runtime);
+  prepareForTask(sessionId: string, runtime: DriverRuntime) {
+    return waitForCodexInput(sessionId, runtime);
   },
 
-  async prepareForResume(sessionId: string, runtime: DriverRuntime): Promise<void> {
-    await waitForCodexInput(sessionId, runtime);
+  prepareForResume(sessionId: string, runtime: DriverRuntime) {
+    return waitForCodexInput(sessionId, runtime);
   },
 
   async afterTaskSubmitted(

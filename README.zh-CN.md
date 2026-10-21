@@ -151,7 +151,7 @@ Helper 终端回收后，已完成会话仍保留状态、日志和恢复信息�
 
 ## 安全姿态
 
-Helper 默认以 host process 相同的本地用户权限运行。请用 `--project` 收窄工作目录，用 `--safe` 省略或收窄默认 danger flags；风险任务优先放到 git worktree；不要把 secret 放进任务 prompt 或结果 artifact。Kimi 首次在某个目录启动时，ahelpa 会自动选择 **Trust this folder**；该信任会持久保存在 Kimi 中，并允许项目 MCP server。无论是否使用 `--safe` 都会执行这一步。对于 Kimi，`--safe` 只会省略 `--yolo` 并恢复原生审批，它不是 sandbox。更多细节见 [安全说明](docs/zh-CN/security.md)。
+Helper 默认以 host process 相同的本地用户权限运行。请用 `--project` 收窄工作目录，用 `--safe` 省略或收窄默认 danger flags；风险任务优先放到 git worktree；不要把 secret 放进任务 prompt 或结果 artifact。Kimi 首次在某个目录启动时，ahelpa 会自动选择 **Trust this folder**；该信任会持久保存在 Kimi 中，并允许项目 MCP server。无论是否使用 `--safe` 都会执行这一步。对于 Kimi，`--safe` 只会省略 `--yolo` 并恢复原生审批，它不是 sandbox。在 Codex 0.163+ 上，ahelpa 同样会应答一次性的 "Folder access" 提示（信任 git 仓库根目录），无论是否使用 `--safe`，Codex 会保留该信任。更多细节见 [安全说明](docs/zh-CN/security.md)。
 
 ## 开发
 

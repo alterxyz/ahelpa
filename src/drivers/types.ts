@@ -61,6 +61,15 @@ export interface DetectedOutcome {
 // ponytail: normal is finite, abnormal is infinite — detect the known-good, flag the rest
 export type ActivitySignal = "working" | "booting" | "idle";
 
+// What a driver did on its own while starting the helper, so the caller can say so.
+export interface StartupNotes {
+  // The repository root whose Codex "Folder access" prompt the driver accepted.
+  codexTrust?: string;
+}
+
+// Codex saves the trust when Enter is pressed, whatever fails next: every error after the answer carries this.
+export const codexTrustNote = (root: string): string => `Folder access was accepted for ${root}, which Codex keeps trusted`;
+
 export interface AgentDriver {
   name: string;
   sessionPrefix: string;
@@ -76,8 +85,8 @@ export interface AgentDriver {
   buildLaunchCommand(opts: LaunchOptions): string;
   buildResumeCommand(opts: ResumeOptions): string;
   extractResumeToken(captureOutput: string): string | null;
-  prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void>;
-  prepareForResume(sessionId: string, runtime: DriverRuntime): Promise<void>;
+  prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void | StartupNotes>;
+  prepareForResume(sessionId: string, runtime: DriverRuntime): Promise<void | StartupNotes>;
   afterTaskSubmitted(
     sessionId: string,
     runtime: DriverRuntime,

@@ -518,3 +518,217 @@ describe("doctor", () => {
     expect(output.agents.codex.locally_ready).toBe(true);
   });
 });
+
+// Codex asks once per git repository root ("Folder access"); launch answers it, so doctor only informs.
+describe("doctor: Codex repository trust", () => {
+  const table = (path: string, level = "trusted") => `[projects.${JSON.stringify(path)}]\ntrust_level = ${JSON.stringify(level)}\n`;
+  const notTrusted = (path: string) => `repository root not trusted by Codex: ${path} (launch accepts the prompt)`;
+  const codex = (cwd = project, env: Record<string, string> = {}) => report(["codex", "--project", cwd], env).agents.codex;
+  const config = (text: string) => fixture(join(home, ".codex/config.toml"), text);
+
+  // Otherwise ready, so locally_ready stays true next to any reason.
+  beforeEach(() => {
+    stub("codex");
+    fixture(join(home, ".codex/auth.json"), '{"OPENAI_API_KEY":"fixture-secret"}');
+  });
+
+  // A hand-written linked worktree: its .git file points into <main>/.git/worktrees/<name>, whose commondir leads back.
+  function linkedWorktree(common: string, name: string, gitdir: (admin: string) => string = (admin) => admin, worktree = join(root, name)) {
+    const admin = join(common, "worktrees", name);
+    fixture(join(admin, "commondir"), "../..\n");
+    fixture(join(worktree, ".git"), `gitdir: ${gitdir(admin)}\n`);
+    return worktree;
+  }
+
+  test("a trusted repository root reports nothing, and doctor writes nothing", () => {
+    mkdirSync(join(project, ".git"));
+    config(table(project));
+    const before = snapshot(root);
+    expect(codex()).toMatchObject({ locally_ready: true, reasons: [] });
+    expect(snapshot(root)).toEqual(before);
+  });
+
+  test.each([
+    ["no config file", undefined],
+    ["only another path trusted", (path: string) => table(`${path}-other`)],
+    ["a table without trust_level", (path: string) => `[projects.${JSON.stringify(path)}]\nsandbox = "read-only"\n`],
+    ["a projects value that is not a table", () => "projects = 1\n"],
+  ] as const)("an untrusted repository root is reported but does not block launch: %s", (_name, text) => {
+    mkdirSync(join(project, ".git"));
+    if (text) config(text(project));
+    expect(codex()).toMatchObject({ locally_ready: true, reasons: [notTrusted(project)] });
+  });
+
+  test.each([
+    ["an unrecognized trust_level", (path: string) => table(path, "maybe")],
+    ["a trust_level that is not a string", (path: string) => `[projects.${JSON.stringify(path)}]\ntrust_level = 1\n`],
+  ])("a trust_level Codex rejects is unknown, not a prompt launch would answer: %s", (_name, text) => {
+    mkdirSync(join(project, ".git"));
+    // Codex refuses the whole config, so the entry of an unrelated project counts as well as the root's.
+    for (const written of [text(project), table(project) + text(`${project}-other`)]) {
+      config(written);
+      expect(codex()).toMatchObject({ locally_ready: "unknown", reasons: ["config field types unrecognized"] });
+    }
+  });
+
+  test("a root marked untrusted blocks launch, which cannot answer its restricted-folder prompt", () => {
+    mkdirSync(join(project, ".git"));
+    config(table(project, "untrusted"));
+    const result = codex();
+    expect(result.locally_ready).toBe(false);
+    expect(result.reasons).toEqual([`Codex config marks ${project} untrusted (launch cannot answer its restricted-folder prompt; edit the config)`]);
+  });
+
+  test("a subdirectory is covered by its repository root and reports the root", () => {
+    mkdirSync(join(project, ".git"));
+    const nested = join(project, "a/b"); mkdirSync(nested, { recursive: true });
+    config(table(project));
+    expect(codex(nested).reasons).toEqual([]);
+    config("");
+    expect(codex(nested).reasons).toEqual([notTrusted(project)]);
+    // A directory above the repository does not trust it.
+    config(table(root));
+    expect(codex(nested).reasons).toEqual([notTrusted(project)]);
+  });
+
+  test("the working directory's own entry wins over the root's", () => {
+    mkdirSync(join(project, ".git"));
+    const nested = join(project, "a"); mkdirSync(nested);
+    config(table(nested));
+    expect(codex(nested).reasons).toEqual([]);
+    config(table(project) + table(nested, "untrusted"));
+    expect(codex(nested)).toMatchObject({ locally_ready: false, reasons: [expect.stringContaining(`marks ${nested} untrusted`)] });
+    config(table(project, "untrusted") + table(nested));
+    expect(codex(nested)).toMatchObject({ locally_ready: true, reasons: [] });
+    // Without a trust_level the working directory's entry says nothing.
+    config(table(project) + `[projects.${JSON.stringify(nested)}]\nsandbox = "read-only"\n`);
+    expect(codex(nested).reasons).toEqual([]);
+  });
+
+  test("the nearest repository wins", () => {
+    mkdirSync(join(project, ".git"));
+    const inner = join(project, "inner"); mkdirSync(join(inner, ".git"), { recursive: true });
+    config(table(project));
+    expect(codex(inner).reasons).toEqual([notTrusted(inner)]);
+  });
+
+  test("keys are matched by physical path: no NFC form, and a symlinked directory is resolved first", () => {
+    const decomposed = join(project, "cafe\u0301"); mkdirSync(join(decomposed, ".git"), { recursive: true });
+    const physical = realpathSync(decomposed);
+    expect(physical).not.toBe(physical.normalize("NFC"));
+    config(table(physical));
+    expect(codex(decomposed).reasons).toEqual([]);
+    config(table(physical.normalize("NFC")));
+    expect(codex(decomposed).reasons).toEqual([notTrusted(physical)]);
+    mkdirSync(join(project, ".git"));
+    const link = join(root, "link"); symlinkSync(project, link);
+    config("");
+    expect(codex(link).reasons).toEqual([notTrusted(realpathSync(project))]);
+    config(table(realpathSync(project)));
+    expect(codex(link).reasons).toEqual([]);
+  });
+
+  test.each([
+    ["absolute", (admin: string) => admin, "wt"],
+    // Two levels deep, unlike the process cwd (<root>/project): "../../main" only resolves from the worktree.
+    ["relative", (admin: string) => join("../../main", admin.slice(join(root, "main").length)), "deep/wt"],
+  ])("a linked worktree is covered by its main checkout (%s gitdir)", (_name, gitdir, at) => {
+    const main = join(root, "main"); mkdirSync(join(main, ".git"), { recursive: true });
+    const worktree = linkedWorktree(join(main, ".git"), "wt", gitdir, join(root, at));
+    const nested = join(worktree, "nested"); mkdirSync(nested);
+    for (const cwd of [worktree, nested]) {
+      config(table(main));
+      expect(codex(cwd).reasons).toEqual([]);
+      config("");
+      expect(codex(cwd).reasons).toEqual([notTrusted(main)]);
+    }
+    config(table(worktree));
+    expect(codex(worktree).reasons).toEqual([]);
+  });
+
+  test("a linked worktree's own entry is consulted between the directory and the main checkout", () => {
+    const main = join(root, "main"); mkdirSync(join(main, ".git"), { recursive: true });
+    const worktree = linkedWorktree(join(main, ".git"), "wt");
+    const nested = join(worktree, "nested"); mkdirSync(nested);
+    for (const cwd of [worktree, nested]) {
+      config(table(worktree));
+      expect(codex(cwd).reasons).toEqual([]);
+      config(table(main, "untrusted") + table(worktree));
+      expect(codex(cwd)).toMatchObject({ locally_ready: true, reasons: [] });
+      config(table(main) + table(worktree, "untrusted"));
+      expect(codex(cwd)).toMatchObject({ locally_ready: false, reasons: [expect.stringContaining(`marks ${worktree} untrusted`)] });
+    }
+    // The directory's own entry still wins over both.
+    config(table(main, "untrusted") + table(worktree, "untrusted") + table(nested));
+    expect(codex(nested)).toMatchObject({ locally_ready: true, reasons: [] });
+  });
+
+  test("a real git worktree is covered by its main checkout", () => {
+    const git = Bun.which("git")!;
+    const run = (args: string[]) => {
+      const result = Bun.spawnSync([git, ...args], { cwd: project, env: { ...process.env, HOME: home, GIT_CONFIG_NOSYSTEM: "1" }, stdout: "pipe", stderr: "pipe" });
+      expect(result.exitCode).toBe(0);
+    };
+    run(["init"]);
+    run(["-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "fixture"]);
+    const worktree = join(root, "worktree");
+    run(["worktree", "add", "-b", "fixture-worktree", worktree]);
+    expect(codex(worktree).reasons).toEqual([notTrusted(realpathSync(project))]);
+    config(table(realpathSync(project)));
+    expect(codex(worktree).reasons).toEqual([]);
+  });
+
+  test("a worktree of a bare repository, a separate git dir and a submodule are their own root", () => {
+    const bare = join(root, "bare.git"); mkdirSync(bare);
+    const bareWorktree = linkedWorktree(bare, "bare-wt");
+    const separate = join(root, "separate"); fixture(join(separate, ".git"), `gitdir: ${join(root, "elsewhere/.git")}\n`);
+    const submodule = join(project, "sub"); fixture(join(submodule, ".git"), "gitdir: ../.git/modules/sub\n");
+    mkdirSync(join(project, ".git/modules/sub"), { recursive: true });
+    for (const directory of [bareWorktree, separate, submodule]) {
+      expect(codex(directory).reasons).toEqual([notTrusted(directory)]);
+    }
+    config(table(bareWorktree));
+    expect(codex(bareWorktree).reasons).toEqual([]);
+  });
+
+  test("outside a git repository nothing is reported", () => {
+    config(table(`${project}-other`, "untrusted"));
+    expect(codex()).toMatchObject({ locally_ready: true, reasons: [] });
+  });
+
+  test("the reason is kept when the provider cannot be resolved or the config types are off", () => {
+    mkdirSync(join(project, ".git"));
+    config('profile = "fixture"\n');
+    expect(codex()).toMatchObject({ locally_ready: "unknown", reasons: [notTrusted(project), "effective provider auth requirements unrecognized"] });
+    config("model = 123\n");
+    expect(codex()).toMatchObject({ locally_ready: "unknown", reasons: [notTrusted(project), "config field types unrecognized"] });
+    fixture(join(project, ".codex/config.toml"), 'model_provider = "local"');
+    config("");
+    expect(codex()).toMatchObject({ locally_ready: "unknown", reasons: [notTrusted(project), "effective provider auth requirements unrecognized"] });
+  });
+
+  test("an explicitly untrusted root stays a blocker next to an unknown probe", () => {
+    mkdirSync(join(project, ".git"));
+    config(`profile = "fixture"\n${table(project, "untrusted")}`);
+    expect(codex().locally_ready).toBe(false);
+  });
+
+  test("an unreadable config reports no trust and discloses nothing", () => {
+    mkdirSync(join(project, ".git"));
+    config("malformed fixture-secret");
+    const output = report(["codex", "--project", project]);
+    expect(output.agents.codex.reasons).toEqual(["auth storage config unreadable or unrecognized"]);
+    expect(JSON.stringify(output)).not.toContain("fixture-secret");
+  });
+
+  test("CODEX_HOME decides which config holds the trust", () => {
+    mkdirSync(join(project, ".git"));
+    const custom = join(root, "custom-codex");
+    fixture(join(custom, "auth.json"), '{"OPENAI_API_KEY":"fixture-secret"}');
+    fixture(join(custom, "config.toml"), table(project));
+    expect(codex(project, { CODEX_HOME: custom }).reasons).toEqual([]);
+    fixture(join(custom, "config.toml"), "");
+    config(table(project));
+    expect(codex(project, { CODEX_HOME: custom }).reasons).toEqual([notTrusted(project)]);
+  });
+});

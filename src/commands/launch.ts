@@ -2,7 +2,7 @@ import { StateDB, type CreateSessionInput } from "../state";
 import { Tmux } from "../tmux";
 import { defaultWakeup } from "../wakeup";
 import { getDriver } from "../drivers/registry";
-import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } from "../drivers/types";
+import { codexTrustNote, type AgentDriver, type DriverRuntime, type HelperRole, type TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
 import { activeSessionAncestorIds, getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree, readPositiveInt } from "../nesting";
 import { $ } from "bun";
@@ -63,6 +63,8 @@ export interface LaunchResult {
   warning?: string;
   // The task text looks like a pointer to a temp file that will not survive.
   taskWarning?: string;
+  // Set when Codex asked to trust the repository root and the driver accepted: the root Codex now trusts.
+  codexTrust?: string;
   jobId?: string;
   // Active sessions sharing this tree where at least one side may write. The
   // launch proceeds; evidence can no longer say whose change is whose.
@@ -447,6 +449,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   let wakeupOwned = false;
   let worktreeCreated = false;
   let submissionUnconfirmed = false;
+  let codexTrust: string | undefined;
   let resultLink: string | null = null;
   try {
     if (plan.input.db.getSession(plan.sessionId)) {
@@ -505,7 +508,8 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     taskFileOwned = true;
     prepareFileHandoff(plan.fileHandoff, plan.input.task, plan.handoffContext);
     resultLink = linkResultDir(plan.fileHandoff);
-    await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
+    const notes = await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
+    if (notes) codexTrust = notes.codexTrust;
     const submissionContext: TaskSubmissionContext = {};
     try {
       submissionContext.beforeOutput = await driverRuntime.capture(plan.sessionId, 80);
@@ -557,6 +561,8 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       daemon.startDaemon();
     }
   } catch (error) {
+    // The driver already answered the Folder access screen, so Codex kept the trust whatever failed since.
+    if (codexTrust && error instanceof Error) error.message += `; ${codexTrustNote(codexTrust)}`;
     if (tmuxCreated) {
       await keepFailedLaunchScreen(plan.sessionId, error);
       try { await Tmux.kill(plan.sessionId); } catch {}
@@ -591,6 +597,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   if (plan.input.effort !== undefined) result.effort = plan.input.effort;
   if (plan.jobId) result.jobId = plan.jobId;
   if (plan.writerConflict.length > 0) result.writerConflict = plan.writerConflict;
+  if (codexTrust) result.codexTrust = codexTrust;
   if (submissionUnconfirmed) {
     result.warning = `${plan.driver.name} received the task but did not confirm a new turn; session marked needs_attention`;
   }
@@ -618,6 +625,8 @@ export interface ResumeResult {
   role?: HelperRole;
   model?: string;
   effort?: string;
+  // As on LaunchResult: the root whose Codex "Folder access" prompt the driver accepted.
+  codexTrust?: string;
 }
 
 export async function resume(input: ResumeInput): Promise<ResumeResult> {
@@ -672,6 +681,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   let dbCreated = false;
   let wakeupOwned = false;
   let handoffOwned = false;
+  let codexTrust: string | undefined;
   let resultLink: string | null = null;
   try {
     reserveSession(input.db, {
@@ -725,7 +735,8 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     // Do not hand the new tmux session back until the driver's startup/trust
     // flow has had a chance to reach an input prompt. Otherwise an immediate
     // `send` can be typed into a loading or confirmation screen.
-    await driver.prepareForResume(sessionId, driverRuntime);
+    const notes = await driver.prepareForResume(sessionId, driverRuntime);
+    if (notes) codexTrust = notes.codexTrust;
     input.db.updateResumeId(sessionId, oldSession.agentResumeId);
     await defaultWakeup.prepare(sessionId);
     wakeupOwned = true;
@@ -738,6 +749,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       daemon.startDaemon();
     }
   } catch (error) {
+    if (codexTrust && error instanceof Error) error.message += `; ${codexTrustNote(codexTrust)}`;
     if (tmuxCreated) {
       await keepFailedLaunchScreen(sessionId, error);
       try { await Tmux.kill(sessionId); } catch {}
@@ -759,5 +771,6 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   if (oldSession.role != null) result.role = oldSession.role;
   if (oldSession.model != null) result.model = oldSession.model;
   if (oldSession.effort != null) result.effort = oldSession.effort;
+  if (codexTrust) result.codexTrust = codexTrust;
   return result;
 }

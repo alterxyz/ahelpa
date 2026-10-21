@@ -6,10 +6,15 @@ import { getDriver } from "../src/drivers/registry";
 // with Enter, so "idle" must never be mistaken for "the composer has focus".
 const trust = JSON.parse(readFileSync(new URL("./fixtures/claude-trust.json", import.meta.url), "utf-8"));
 const diffRows = (n: number) => Array.from({ length: n }, (_, i) => `  ${String(i + 3).padStart(3)} + - finding ${i}`);
+const folder = (name: string) => readFileSync(new URL(`./fixtures/codex/folder-access-${name}.txt`, import.meta.url), "utf8").trimEnd();
 const longReply = Array.from({ length: 24 }, (_, i) => `  - P2 finding ${i}: src/foo.ts:${i + 10} returns early`);
 
 const MUST_REFUSE: Record<string, Record<string, string>> = {
   codex: {
+    "Folder access (80 columns)": folder("80"),
+    "Folder access (120 columns)": folder("120"),
+    "Folder access with row 2 highlighted": folder("120").replace("› 1. Trust and continue", "  1. Trust and continue").replace("  2. Quit", "› 2. Quit"),
+    "Folder access of an untrusted root": folder("restricted"),
     "model menu": "  Select Model and Effort\n\n› 1. gpt-6.1-sol (current)\n  2. gpt-6-astra\n\n  Press enter to select reasoning effort, or esc to dismiss.",
     "command approval": [
       "› Please read and complete the task described in /tmp/ahelpa/ahelpa-task-codex-x.md.",
@@ -61,6 +66,7 @@ const MUST_REFUSE: Record<string, Record<string, string>> = {
 
 const READY: Record<string, Record<string, string>> = {
   codex: {
+    "composer below an answered Folder access screen": `${folder("120")}\n\n› Improve documentation in @filename\n\n  gpt-6.1-sol xhigh · 62% context left · ~/proj`,
     "placeholder composer after a long reply": [
       ...longReply, "", "─ Worked for 4m 12s ─────────────", "", "› Improve documentation in @filename", "",
       "  gpt-6.1-sol xhigh · 62% context left · ~/proj",

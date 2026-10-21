@@ -25,6 +25,8 @@ Verify with `command -v codex` or `command -v claude`, not `command -v claude-co
 
 In some directories, `codex` shows a one-time trust prompt (`Do you trust the contents of this directory?`). The launch flow handles this automatically by sending Enter, then proceeds to task delivery. If a task appears idle for an unusually long time, run `ahelpa check` to re-read session state.
 
+Codex 0.163+ also shows a one-time "Folder access" screen when the git repository root is not trusted yet. The launch flow presses Enter once, and only while the highlighted first row is **Trust and continue**; Codex then writes `[projects."<root>"] trust_level = "trusted"` to its config (the main checkout for a linked worktree, in default and `--safe` modes alike), and the launch result carries `codexTrust: "<root>"`. Any other row, or the "Open restricted" screen of a root marked `untrusted`, is left alone and the launch fails with "did not reach its input prompt"; a launch that fails after the Enter says "Folder access was accepted for <root>", because Codex already saved that trust. To pre-trust, run `codex` once in the project and accept, or add that table to the config. `ahelpa doctor codex` reports an untrusted root.
+
 ## Typical Workflow
 
 ```bash
