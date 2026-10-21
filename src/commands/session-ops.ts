@@ -107,7 +107,7 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
   let submissionContext: TaskSubmissionContext = {};
   await deliverTurn(db, session, instruction, () => Tmux.sendKeys(session.id, instruction), {
     prepare: async () => {
-      prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd, targetFingerprint: session.targetFingerprint, jobId: session.jobId });
+      prepareFileHandoff(fileHandoff, content, { role: session.role, check: session.checkCmd, scope: session.scope, targetFingerprint: session.targetFingerprint, jobId: session.jobId });
       submissionContext = await captureSubmissionContext(session.id);
     },
     afterSend: async registered => {
@@ -286,7 +286,7 @@ export function check(db: StateDB, parentId?: string, jobId?: string, callerId =
     role: s.role ?? null, model: s.model ?? null, effort: s.effort ?? null,
     task: s.task.slice(0, 80), label: s.label, updatedAt: s.updatedAt,
     agentResumeId: s.agentResumeId ?? null, resumedFrom: s.resumedFrom ?? null,
-    afterId: s.afterId ?? null, jobId: s.jobId ?? null, checkCmd: s.checkCmd ?? null, projectPath: s.projectPath,
+    afterId: s.afterId ?? null, jobId: s.jobId ?? null, checkCmd: s.checkCmd ?? null, scope: s.scope ?? null, projectPath: s.projectPath,
   }));
 }
 

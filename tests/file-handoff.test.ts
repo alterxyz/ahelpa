@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "fs";
 import { RuntimeLayout } from "../src/runtime-layout";
 import {
+  buildContractSection,
   buildTaskInstruction,
   isTaskInstructionEcho,
   planFileHandoff,
@@ -269,5 +270,41 @@ describe("file handoff", () => {
 
     expect(isTaskInstructionEcho(plan.taskInstruction)).toBe(true);
     expect(isTaskInstructionEcho("Working (3s)")).toBe(false);
+  });
+});
+
+describe("scope discipline in the contract", () => {
+  // Pure: the contract is built from three paths, so no scratch directory is needed.
+  const paths = { summaryPath: "/p/.ahelpa/x/summary.md", artifactsDir: "/p/.ahelpa/x/artifacts", sessionDeliveryDir: "/p/.ahelpa/x" };
+  const DISCIPLINE = "Scope discipline: change only what the objective needs. No unrequested refactors, renames, abstractions, flags, dependencies, or doc rewrites.";
+  const SUGGESTIONS = 'goes under "## Suggestions (not done)" in summary.md, not into the diff.';
+
+  test("every non-reviewer role is told to change only what the objective needs and where extras go", () => {
+    for (const role of ["worker", "advisor", null] as const) {
+      const contract = buildContractSection(paths, { role });
+      expect(contract).toContain(DISCIPLINE);
+      expect(contract).toContain(SUGGESTIONS);
+      expect(contract).not.toContain("- Scope: ");
+      expect(scanSentinels(contract)).toEqual([]);
+    }
+  });
+
+  test("a launch scope adds one line naming it, after the rule and inside the Rules list", () => {
+    const contract = buildContractSection(paths, { role: "worker", scope: "src/parser/**,tests/parser" });
+    const line = "- Scope: src/parser/**,tests/parser (relative to the project). Changes outside it are reported to the host as out of scope.";
+
+    expect(contract).toContain(line);
+    expect(contract.indexOf(line)).toBeGreaterThan(contract.indexOf(DISCIPLINE));
+    expect(contract.indexOf(line)).toBeLessThan(contract.indexOf("- Before signaling done"));
+    expect(contract.match(/- Scope: /g)).toHaveLength(1);
+    expect(scanSentinels(contract)).toEqual([]);
+    expect(buildContractSection(paths, { role: "worker", scope: null })).not.toContain("- Scope: ");
+  });
+
+  test("the reviewer contract is unchanged, even when a scope is passed", () => {
+    const plain = buildContractSection(paths, { role: "reviewer" });
+
+    expect(plain).not.toMatch(/Scope discipline|Suggestions \(not done\)|- Scope: /);
+    expect(buildContractSection(paths, { role: "reviewer", scope: "src/**" })).toBe(plain);
   });
 });

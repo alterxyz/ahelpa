@@ -161,7 +161,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   },
   {
     name: "launch",
-    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--job <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--after <id>] [--unblind] [--worktree]",
+    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--job <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--scope \"<glob>[,<glob>...]\"] [--after <id>] [--unblind] [--worktree]",
     description: "Launch a helper agent",
     minPositionals: 1,
     flags: {
@@ -175,6 +175,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       model: { kind: "string" },
       effort: { kind: "string" },
       check: { kind: "string" },
+      scope: { kind: "string" },
       after: { kind: "string" },
       unblind: { kind: "boolean" },
       worktree: { kind: "boolean" },
@@ -193,6 +194,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         model: ctx.flags.strings.model,
         effort: ctx.flags.strings.effort,
         check: ctx.flags.strings.check,
+        scope: ctx.flags.strings.scope,
         after: ctx.flags.strings.after,
         unblind: ctx.flags.booleans.unblind,
         worktree: ctx.flags.booleans.worktree,

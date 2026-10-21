@@ -32,6 +32,8 @@ export interface SessionRecord {
   role?: HelperRole | null;
   safe: boolean;
   checkCmd?: string | null;
+  // Host-declared globs the helper's changes belong in; null = no scope (see --scope).
+  scope?: string | null;
   baseCommit?: string | null;
   afterId?: string | null;
   nudgedAt?: string | null;
@@ -68,6 +70,7 @@ export interface CreateSessionInput {
   role?: HelperRole | null;
   safe?: boolean;
   checkCmd?: string | null;
+  scope?: string | null;
   baseCommit?: string | null;
   afterId?: string | null;
   jobId?: string | null;
@@ -109,6 +112,7 @@ interface SessionRow {
   role: HelperRole | null;
   safe: number;
   check_cmd: string | null;
+  scope: string | null;
   base_commit: string | null;
   after_id: string | null;
   nudged_at: string | null;
@@ -149,6 +153,7 @@ function rowToRecord(row: SessionRow): SessionRecord {
     role: row.role,
     safe: row.safe === 1,
     checkCmd: row.check_cmd,
+    scope: row.scope,
     baseCommit: row.base_commit,
     afterId: row.after_id,
     nudgedAt: row.nudged_at,
@@ -250,7 +255,7 @@ export class StateDB {
         }
         // Migration: acceptance command, launch baseline, and hand lineage for evidence.
         // job_id groups the hands of one change so they can be checked and awaited together.
-        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "delivery_root", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history", "turn_in_flight"]) {
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "delivery_root", "unblind", "scope", "turn_started_at", "turn_input_digest", "turn_input_history", "turn_in_flight"]) {
           if (!columns.some((existing) => existing.name === column)) {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
@@ -291,8 +296,8 @@ export class StateDB {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id, launch_pid, target_fingerprint, target_result_dirs, delivery_root, unblind, mail_budget)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id, launch_pid, target_fingerprint, target_result_dirs, delivery_root, unblind, mail_budget, scope)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -320,6 +325,7 @@ export class StateDB {
       input.deliveryRoot ?? null,
       input.unblind === undefined ? null : String(input.unblind),
       input.mailBudget ?? null,
+      input.scope ?? null,
     );
     return this.getSession(input.id) as SessionRecord;
   }

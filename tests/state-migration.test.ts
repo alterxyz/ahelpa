@@ -105,7 +105,7 @@ describe("state schema migrations", () => {
         expect(db.getSession("legacy")).toMatchObject({
           task: "synthetic saved task", status: "idle", ownerToken: "test-token", projectPath: root,
           createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-02T00:00:00.000Z", label: "saved label",
-          depth: 1, agentResumeId: null, resumedFrom: null, role: null, model: null, effort: null, safe: false, version: 0,
+          depth: 1, agentResumeId: null, resumedFrom: null, role: null, model: null, effort: null, safe: false, version: 0, scope: null,
         });
       }
     } finally {
@@ -157,6 +157,39 @@ describe("state schema migrations", () => {
       expect(reopened.getSession("saved")?.deliveryRoot).toBeNull();
     } finally {
       reopened.close();
+    }
+  });
+
+  test("adding scope leaves saved sessions without one and stores a scope for new ones", () => {
+    const previous = new StateDB(dbPath);
+    previous.createSession({ id: "saved", parentId: "p", agentType: "codex", task: "original task", ownerToken: "tok", projectPath: root, role: "worker" });
+    const original = previous.getSession("saved");
+    previous.close();
+    const legacy = new Database(dbPath);
+    legacy.exec("ALTER TABLE sessions DROP COLUMN scope");
+    legacy.close();
+
+    const migrated = new StateDB(dbPath);
+    try {
+      expect(migrated.getSession("saved")).toEqual(original);
+      expect(migrated.getSession("saved")?.scope).toBeNull();
+      migrated.createSession({ id: "scoped", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: root, scope: "src/**,tests/**" });
+      expect(migrated.getSession("scoped")?.scope).toBe("src/**,tests/**");
+    } finally {
+      migrated.close();
+    }
+    const reopened = new StateDB(dbPath);
+    try {
+      expect(reopened.getSession("scoped")?.scope).toBe("src/**,tests/**");
+      expect(reopened.getSession("saved")?.scope).toBeNull();
+    } finally {
+      reopened.close();
+    }
+    const raw = new Database(dbPath);
+    try {
+      expect((raw.prepare("PRAGMA table_info(sessions)").all() as Array<{ name: string }>).some((column) => column.name === "scope")).toBe(true);
+    } finally {
+      raw.close();
     }
   });
 

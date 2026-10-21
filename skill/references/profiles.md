@@ -47,6 +47,7 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 **Watch for**
 - Weak tests, not cheating: mutation survival rates of 18-40% (13 mutants with 5 surviving, 17 with 5, 12 with 3 missed).
 - Stale or partial verification: failures traced to cached `go test` results and to no full-suite rerun after the last edit.
+- Over-building: unrequested refactors, renames, abstractions, flags, dependencies, or doc rewrites grow the diff you must judge. Launch with `--scope` and read `evidence.outOfScopeChanges` before the summary; the contract sends other ideas to `## Suggestions (not done)` in `summary.md`.
 - No verification claim at all: 115 of 376 summaries never mention it; only 32% give an exit code.
 - Self-report vs. review: of about 20 adversarial reviews of codex implementations, about 19 ruled "must fix". Treat "done, all green" as a claim to check, not a result.
 - Rework risk: two rework rounds introduced a new P1. About half of focused re-reviews after rework still ruled "needs rework".

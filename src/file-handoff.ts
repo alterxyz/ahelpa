@@ -30,6 +30,8 @@ export interface HandoffContext {
   role?: HelperRole | null;
   // Acceptance command the host will rerun on the final diff (see --check).
   check?: string | null;
+  // Comma-separated globs the host expects changes inside (see --scope).
+  scope?: string | null;
   // The hand this one follows (see --after): where to read its ask and claims.
   previous?: { sessionId: string; taskCopyPath: string; askPath?: string | null; askIncomplete?: boolean; summaryPath: string; artifactsDir: string; baseCommit?: string | null } | null;
   targetFingerprint?: TargetFingerprint | null;
@@ -101,10 +103,11 @@ function reviewTargetLine(target: TargetFingerprint): string {
   return `Review target: HEAD \`${target.head}\`, working-tree fingerprint \`${target.treeHash}\`. If this changes while you work, say so in summary.md.`;
 }
 
-// Every clause targets a failure seen in archived helper sessions: "all green"
+// Most clauses target a failure seen in archived helper sessions: "all green"
 // from a cached or pre-final-edit run, summaries with no verification at all,
 // tests weak enough for most mutations to survive, and reviewers that judged
-// from the author's summary instead of their own run.
+// from the author's summary instead of their own run. The scope rule answers
+// over-building (issue #22), not an archive count.
 export function buildContractSection(
   plan: Pick<FileHandoffPlan, "summaryPath" | "artifactsDir" | "sessionDeliveryDir">,
   context: HandoffContext = {},
@@ -140,6 +143,8 @@ export function buildContractSection(
       `Rules:`,
       `- Do not change tests or assertions to fit the implementation. If an existing assertion is wrong, say so in summary.md with the reason.`,
       `- New behavior needs a test that fails without your change.`,
+      `- Scope discipline: change only what the objective needs. No unrequested refactors, renames, abstractions, flags, dependencies, or doc rewrites. Anything else worth doing goes under "## Suggestions (not done)" in summary.md, not into the diff.`,
+      ...(context.scope ? [`- Scope: ${context.scope} (relative to the project). Changes outside it are reported to the host as out of scope.`] : []),
       `- Before signaling done: reread the full diff; remove dead code, leftovers, and debug output.`,
       `- Read-only or review tasks: write "N/A" for changed files and tests. Never edit code or tests just to satisfy this contract.`,
     );

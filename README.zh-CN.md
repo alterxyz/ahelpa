@@ -106,7 +106,7 @@ Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex` 或 `kimi`）；`--after` 串联前后手，显式 `--role reviewer` 增加盲审和目标证据 |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex` 或 `kimi`）；`--after` 串联前后手，显式 `--role reviewer` 增加盲审和目标证据；`--scope` 把给定 glob 之外的改动记入 `wait` 证据 |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>] [--job <id>]` | 非阻塞状态查询，做 inline refresh 并显示与调用方的关系 |
 | `models [agent]` | 列出启动时可选的模型 |

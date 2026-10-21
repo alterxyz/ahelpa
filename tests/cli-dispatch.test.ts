@@ -148,6 +148,7 @@ describe("cli dispatch", () => {
     { argv: ["launch", "codex", "--task", "task", "--parent="], flag: "parent" },
     { argv: ["launch", "codex", "--task", "task", "--label", ""], flag: "label" },
     { argv: ["launch", "codex", "--task", "task", "--safe="], flag: "safe" },
+    { argv: ["launch", "codex", "--task", "task", "--scope="], flag: "scope" },
     { argv: ["install-skill", "--source"], flag: "source" },
   ])("rejects an explicitly empty --$flag before executing its handler", async ({ argv, flag }) => {
     db = new StateDB(TEST_DB);

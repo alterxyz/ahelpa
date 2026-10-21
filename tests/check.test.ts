@@ -68,4 +68,12 @@ describe("check", () => {
     expect(rows.find((row) => row.id === "legacy")).toMatchObject({ role: null, model: null, effort: null });
     expect(JSON.stringify(rows)).not.toContain("private-token");
   });
+
+  test("shows the scope a session was launched with, and null when it has none", () => {
+    db.createSession({ id: "scoped", parentId: "p", agentType: "codex", task: "work", ownerToken: "tok", projectPath: "/tmp", scope: "src/**,tests/**" });
+    db.createSession({ id: "unscoped", parentId: "p", agentType: "codex", task: "work", ownerToken: "tok", projectPath: "/tmp" });
+    const rows = check(db);
+    expect(rows.find((row) => row.id === "scoped")?.scope).toBe("src/**,tests/**");
+    expect(rows.find((row) => row.id === "unscoped")?.scope).toBeNull();
+  });
 });

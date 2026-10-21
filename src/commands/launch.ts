@@ -15,7 +15,7 @@ import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
 import { deliverTurn } from "../turn-delivery";
 import { resolveLaunchProfile } from "../launch-profiles";
-import { computeTargetFingerprint, LAUNCH_FINGERPRINT_TIMEOUT_MS } from "../evidence";
+import { computeTargetFingerprint, LAUNCH_FINGERPRINT_TIMEOUT_MS, parseScope } from "../evidence";
 
 export interface LaunchInput {
   db: StateDB;
@@ -30,6 +30,9 @@ export interface LaunchInput {
   role?: HelperRole;
   // Acceptance command rerun by `wait` on the helper's final state.
   check?: string;
+  // Comma-separated globs, relative to the project, that the helper's changes
+  // belong in; `wait` reports the changed files outside them (not a sandbox).
+  scope?: string;
   // Session this hand follows; reviewers receive its ask without its claims.
   after?: string;
   unblind?: boolean;
@@ -218,6 +221,10 @@ function resolveProjectPath(projectPath: string): string {
 
 export function planLaunch(input: LaunchInput): LaunchPlan {
   if (input.unblind && input.role !== "reviewer") throw new Error("--unblind requires --role reviewer");
+  if (input.scope !== undefined) {
+    if (input.role === "reviewer") throw new Error("--scope cannot be used with --role reviewer: a reviewer must not change files");
+    input = { ...input, scope: parseScope(input.scope) };
+  }
   const driver = getDriver(input.agentType);
   // Resolve once in the caller's working directory. The helper changes cwd,
   // and a later resume may be invoked from an entirely different directory.
@@ -238,6 +245,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   const handoffContext: HandoffContext = {
     role: input.role,
     check: input.check,
+    ...(input.scope ? { scope: input.scope } : {}),
     ...(jobId ? { jobId } : {}),
     previous: input.after ? previousHandContext(input.db, input.after) : null,
     ...(input.unblind ? { unblind: true } : {}),
@@ -469,6 +477,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       role: plan.input.role,
       safe: plan.input.safe,
       checkCmd: plan.input.check,
+      scope: plan.input.scope,
       afterId: plan.input.after,
       jobId: plan.jobId,
       targetResultDirs: plan.input.role === "reviewer" ? resultDirsOf(plan.fileHandoff) : null,
@@ -699,6 +708,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       role: oldSession.role,
       safe,
       checkCmd: oldSession.checkCmd,
+      scope: oldSession.scope,
       baseCommit: oldSession.baseCommit,
       afterId: oldSession.afterId,
       jobId: validateJobId(oldSession.jobId ?? null),
