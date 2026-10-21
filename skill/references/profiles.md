@@ -98,5 +98,5 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 - Continue with `task` or `resume` when the session's context is the asset; launch fresh when blindness is the asset. Never continue a reviewer into a fix. Zero findings is a valid review result; do not invent findings to fill a quota.
 - Pass `--check "<cmd>"` for implementation and rework: ahelpa reruns it on the final state when `wait` returns and puts the result in `evidence.check`. Trust that over the summary's own exit codes.
 - Pass `--after <previous-id>` on review and rework hands so the helper gets the previous `task.md`, `summary.md`, and `artifacts/` paths (as claims to check, not facts).
-- Pass `--worktree` when the helper's edits should not touch your working tree, or when several helpers run in parallel on one repo. It branches from `HEAD`, so uncommitted changes are not included; ahelpa never removes the worktree.
+- Pass `--worktree` when the helper's edits should not touch your working tree, or when several helpers run in parallel on one repo. It branches from `HEAD`, so uncommitted changes are not included; ahelpa never removes the worktree, and its results go to the source repo's `.ahelpa/<id>/`, so removing the worktree keeps them.
 - Read the diff before committing. Helpers do not commit for you.

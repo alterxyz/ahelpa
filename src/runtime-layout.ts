@@ -1,5 +1,43 @@
+import { existsSync, readFileSync, realpathSync, statSync } from "fs";
 import { homedir } from "os";
-import { join, resolve } from "path";
+import { basename, dirname, join, resolve } from "path";
+
+// The main checkout of the repository that holds `path`, read from .git files
+// without running git. `linked` is true when `path` is inside a linked worktree.
+// ponytail: answers null (results stay in the project, as before) for submodules,
+// any repository whose common git dir is not named `.git` (bare repositories and
+// their worktrees, --separate-git-dir), and a vanished or moved main checkout.
+export function mainCheckoutOf(path: string): { main: string; linked: boolean } | null {
+  try {
+    for (let dir = resolve(path); ; dir = dirname(dir)) {
+      const dotGit = join(dir, ".git");
+      const stat = statSync(dotGit, { throwIfNoEntry: false });
+      if (stat?.isDirectory()) return { main: realpathSync(dir), linked: false };
+      if (stat?.isFile()) {
+        const gitdir = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, "utf8"))?.[1]?.trim();
+        if (!gitdir) return null;
+        const gitdirPath = resolve(dir, gitdir);
+        const commondirFile = join(gitdirPath, "commondir");
+        if (!existsSync(commondirFile)) return null; // a submodule's own git dir
+        const common = resolve(gitdirPath, readFileSync(commondirFile, "utf8").trim());
+        if (basename(common) !== ".git" || !existsSync(common)) return null;
+        return { main: realpathSync(dirname(common)), linked: true };
+      }
+      if (dirname(dir) === dir) return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+// Where a session in `path` keeps its results: the main checkout when `path` is
+// in a linked worktree, otherwise undefined (the project itself). Read once at
+// launch or resume and stored on the session row, because `git worktree remove`
+// takes the evidence that finds the main checkout with it.
+export function deliveryRootFor(path: string): string | undefined {
+  const checkout = mainCheckoutOf(path);
+  return checkout?.linked ? checkout.main : undefined;
+}
 
 export interface RuntimeLayoutOptions {
   homeDir?: string;
@@ -50,16 +88,19 @@ export class RuntimeLayout {
     return join(this.ahelpaHomeDir(), "launch-failures", `${sessionId}.txt`);
   }
 
-  projectDeliveryDir(projectPath: string): string {
-    return join(projectPath, ".ahelpa");
+  // `git worktree remove` deletes a linked worktree's ignored .ahelpa/ with it,
+  // so a session there keeps its results under `deliveryRoot`, the main checkout
+  // stored on its row. Without one (every earlier session) they are in the project.
+  projectDeliveryDir(projectPath: string, deliveryRoot?: string): string {
+    return join(deliveryRoot ?? projectPath, ".ahelpa");
   }
 
-  sessionDeliveryDir(projectPath: string, sessionId: string): string {
-    return join(this.projectDeliveryDir(projectPath), sessionId);
+  sessionDeliveryDir(projectPath: string, sessionId: string, deliveryRoot?: string): string {
+    return join(this.projectDeliveryDir(projectPath, deliveryRoot), sessionId);
   }
 
-  turnsLogPath(projectPath: string, sessionId: string): string {
-    return join(this.sessionDeliveryDir(projectPath, sessionId), "turns.log");
+  turnsLogPath(projectPath: string, sessionId: string, deliveryRoot?: string): string {
+    return join(this.sessionDeliveryDir(projectPath, sessionId, deliveryRoot), "turns.log");
   }
 
   claudeSettingsPath(projectPath: string, sessionId: string): string {

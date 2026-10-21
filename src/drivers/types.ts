@@ -1,5 +1,7 @@
-export interface LaunchOptions { cwd: string; sessionId?: string; safe?: boolean; model?: string; effort?: string; }
-export interface ResumeOptions { cwd: string; sessionId?: string; resumeId: string; safe?: boolean; model?: string; effort?: string; }
+// deliveryDir: the session's result directory when the caller has planned it
+// (a linked worktree's results live in the main checkout, not under cwd).
+export interface LaunchOptions { cwd: string; sessionId?: string; deliveryDir?: string; safe?: boolean; model?: string; effort?: string; }
+export interface ResumeOptions { cwd: string; sessionId?: string; deliveryDir?: string; resumeId: string; safe?: boolean; model?: string; effort?: string; }
 export interface ModelSwitchOptions { model: string; effort?: string; persist?: boolean; }
 export type HelperRole = "worker" | "advisor" | "reviewer";
 

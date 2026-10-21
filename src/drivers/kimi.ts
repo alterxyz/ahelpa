@@ -24,6 +24,9 @@ function sessionStartError(captureOutput: string): string | null {
   return maskSentinels(captureOutput).match(KIMI_SESSION_START_ERROR)?.[1] ?? null;
 }
 
+// ponytail: unlike Claude and Codex, no --add-dir for a result directory outside the
+// cwd (a linked worktree's), so a --safe Kimi helper there needs a native approval to
+// write its summary. Kimi is shelved; add the flag if it comes back.
 function postureArgs(safe?: boolean): string[] {
   return safe ? [] : ["--yolo"];
 }

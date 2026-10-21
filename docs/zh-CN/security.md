@@ -23,9 +23,9 @@ Hook 对日志文件提供 symlink 和 hardlink 防护，但不能防止已拥�
 ## 实用防护
 
 - **用 `--project` 收窄范围。** 把 helper 指向最小可用工作目录。它设置 cwd 和任务意图边界，但不是 filesystem sandbox。做 review 时，应在 prompt 中明确禁止读取无关 home 目录、全局 `~/.ahelpa/archive` 和其他项目，除非任务确实需要。
-- **使用 git worktree。** 风险任务或实验任务放进临时 worktree，降低误改主工作区的影响。
+- **使用 git worktree。** 风险任务或实验任务放进临时 worktree，降低误改主工作区的影响。linked worktree 的结果写在它之外，即主 checkout 的 `.ahelpa/<session-id>/`（那里的 `.ahelpa/` 同样要保持 git-ignored）；`--safe` 下 Codex 和 Claude 恰好获得这一个目录的写权限，Kimi 没有额外授权。
 - **不要把 secret 放进任务 prompt。** 任务文件会写到 `/tmp/ahelpa/`，本地用户可读。不要在任务描述中嵌入 credential、API key 或敏感数据。
-- **不要把 secret 留在结果 artifact。** Helper 会把结果写到项目内 `.ahelpa/<session-id>/`。commit 或分享前先检查。
+- **不要把 secret 留在结果 artifact。** Helper 会把结果写到项目内 `.ahelpa/<session-id>/`；项目是 linked worktree 时写到主 checkout 内。commit 或分享前先检查。
 - **不要提交运行时 artifact。** `.ahelpa/`、本地数据库、日志、构建输出都应保持 git-ignored。
 
 ## Owner token 边界

@@ -5,7 +5,7 @@ import { check } from "../src/commands/session-ops";
 import { capture } from "../src/commands/session-ops";
 import { kill } from "../src/commands/session-ops";
 import { Tmux } from "../src/tmux";
-import { rmSync, rmdirSync, unlinkSync } from "fs";
+import { realpathSync, rmSync, rmdirSync, unlinkSync } from "fs";
 import { join } from "path";
 
 const TEST_DB = "/tmp/ahelpa-integration-test.db";
@@ -13,6 +13,10 @@ const TEST_DB = "/tmp/ahelpa-integration-test.db";
 // leave orphaned workspace-trust paths and can stall on the trust menu.
 const TEST_PROJECT = join(import.meta.dir, "..");
 const createdSessions: string[] = [];
+
+function realOrSelf(path: string): string {
+  try { return realpathSync(path); } catch { return path; }
+}
 
 describe("integration", () => {
   let db: StateDB;
@@ -25,7 +29,10 @@ describe("integration", () => {
     try { unlinkSync(TEST_DB); } catch {}
     try { unlinkSync(TEST_DB + "-wal"); } catch {}
     try { unlinkSync(TEST_DB + "-shm"); } catch {}
+    // In a linked worktree the results are in the main checkout and only a link
+    // sits here: remove the real directory too, not just the link.
     for (const id of createdSessions) {
+      rmSync(realOrSelf(join(TEST_PROJECT, ".ahelpa", id)), { recursive: true, force: true });
       rmSync(join(TEST_PROJECT, ".ahelpa", id), { recursive: true, force: true });
     }
     try { rmdirSync(join(TEST_PROJECT, ".ahelpa")); } catch {}

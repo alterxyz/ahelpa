@@ -145,6 +145,8 @@ Helper 终端回收后，已完成会话仍保留状态、日志和恢复信息�
 | `<recipient-project>/.ahelpa/<id>/inbox/` | Peer 消息文件 |
 | `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` | Peer 投递 ledger |
 
+对 linked git worktree 中的 helper（`--worktree`，或 `--project` 指向 linked worktree），`<project>` 指主 checkout，因此 `git worktree remove` 删不掉这些文件；worktree 存在期间，其自身 `.ahelpa/<id>` 处的链接仍可用。
+
 隔离测试或自动化可以通过 `AHELPA_HOME` 覆盖状态/archive 目录，通过 `AHELPA_TMP_DIR` 覆盖 FIFO/任务文件目录。这两个 override 会传入 helper 的 tmux session，使嵌套 ahelpa 调用也保持隔离；它们不会改变 helper CLI 的 OS home 或凭据目录。
 
 ## 安全姿态

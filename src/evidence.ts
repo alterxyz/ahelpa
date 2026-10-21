@@ -2,7 +2,7 @@ import { $ } from "bun";
 import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from "fs";
 import { dirname, join, relative, resolve, sep } from "path";
 import { createHash } from "crypto";
-import { planFileHandoff } from "./file-handoff";
+import { planSessionHandoff } from "./file-handoff";
 import type { HelperRole } from "./drivers/types";
 
 // Objective facts a host can hold against summary.md. Archived sessions
@@ -41,6 +41,7 @@ export interface CheckResult {
 export interface EvidenceSubject {
   id: string;
   projectPath: string;
+  deliveryRoot?: string | null;
   baseCommit?: string | null;
   checkCmd?: string | null;
   role?: HelperRole | null;
@@ -185,7 +186,7 @@ export async function computeTargetFingerprint(projectPath: string, resultDirs: 
 }
 
 export async function collectEvidence(subject: EvidenceSubject, options: EvidenceOptions = {}): Promise<Evidence> {
-  const { summaryPath, sessionDeliveryDir } = planFileHandoff(subject.projectPath, subject.id);
+  const { summaryPath, sessionDeliveryDir } = planSessionHandoff(subject);
   let summaryBytes = 0;
   try { summaryBytes = statSync(summaryPath).size; } catch {}
   const evidence: Evidence = { summaryBytes };

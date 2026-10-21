@@ -1,5 +1,7 @@
-import { describe, expect, test } from "bun:test";
-import { RuntimeLayout } from "../src/runtime-layout";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { deliveryRootFor, mainCheckoutOf, RuntimeLayout } from "../src/runtime-layout";
 import { join, resolve } from "path";
 import { shellEscape } from "../src/shell";
 
@@ -96,6 +98,16 @@ describe("runtime layout", () => {
     }
   });
 
+  test("a delivery root moves the results; without one they stay in the project, whatever git says", () => {
+    const layout = new RuntimeLayout({ homeDir: "/tmp/ahelpa-home", tmpDir: "/tmp/ahelpa-runtime" });
+
+    expect(layout.projectDeliveryDir("/tmp/wt", "/tmp/main")).toBe("/tmp/main/.ahelpa");
+    expect(layout.sessionDeliveryDir("/tmp/wt", "codex-abc", "/tmp/main")).toBe("/tmp/main/.ahelpa/codex-abc");
+    expect(layout.turnsLogPath("/tmp/wt", "codex-abc", "/tmp/main")).toBe("/tmp/main/.ahelpa/codex-abc/turns.log");
+    expect(layout.sessionDeliveryDir("/tmp/wt", "codex-abc")).toBe("/tmp/wt/.ahelpa/codex-abc");
+    expect(layout.turnsLogPath("/tmp/wt", "codex-abc")).toBe("/tmp/wt/.ahelpa/codex-abc/turns.log");
+  });
+
   test("ignores blank environment overrides", () => {
     const previousHome = process.env.AHELPA_HOME;
     const previousTmp = process.env.AHELPA_TMP_DIR;
@@ -113,5 +125,104 @@ describe("runtime layout", () => {
       if (previousTmp === undefined) delete process.env.AHELPA_TMP_DIR;
       else process.env.AHELPA_TMP_DIR = previousTmp;
     }
+  });
+});
+
+describe("main checkout of a path", () => {
+  let root: string;
+  beforeEach(() => { root = mkdtempSync(join(realpathSync(tmpdir()), "main-checkout-test-")); });
+  afterEach(() => { rmSync(root, { recursive: true, force: true }); });
+
+  const git = (cwd: string, ...args: string[]) => {
+    const run = Bun.spawnSync(["git", "-c", "user.email=t@t", "-c", "user.name=t", "-c", "commit.gpgsign=false", "-C", cwd, ...args], { stdout: "pipe", stderr: "pipe" });
+    if (!run.success) throw new Error(`git ${args.join(" ")} failed: ${run.stderr.toString()}`);
+  };
+  function repo(name: string): string {
+    const path = join(root, name);
+    mkdirSync(path);
+    git(path, "init", "-q");
+    git(path, "commit", "-q", "--allow-empty", "-m", "init");
+    return path;
+  }
+
+  test("a main checkout and its subdirectories are not linked", () => {
+    const main = repo("main");
+    mkdirSync(join(main, "pkg", "deep"), { recursive: true });
+    expect(mainCheckoutOf(main)).toEqual({ main, linked: false });
+    expect(mainCheckoutOf(join(main, "pkg", "deep"))).toEqual({ main, linked: false });
+    expect(deliveryRootFor(main)).toBeUndefined();
+    expect(deliveryRootFor(join(main, "pkg"))).toBeUndefined();
+  });
+
+  test("a linked worktree and its subdirectories point at the main checkout", () => {
+    const main = repo("main");
+    const wt = join(root, "wt");
+    git(main, "worktree", "add", "-q", "-b", "b1", wt);
+    mkdirSync(join(wt, "pkg"));
+    for (const path of [wt, join(wt, "pkg")]) {
+      expect(mainCheckoutOf(path)).toEqual({ main, linked: true });
+      expect(deliveryRootFor(path)).toBe(main);
+    }
+  });
+
+  test("a worktree with a relative gitdir resolves too", () => {
+    const main = repo("main");
+    const wt = join(root, "wt");
+    git(main, "-c", "worktree.useRelativePaths=true", "worktree", "add", "-q", "-b", "b1", wt);
+    expect(mainCheckoutOf(wt)).toEqual({ main, linked: true });
+  });
+
+  test("a symlinked path resolves to the canonical main checkout", () => {
+    const main = repo("main");
+    const wt = join(root, "wt");
+    git(main, "worktree", "add", "-q", "-b", "b1", wt);
+    symlinkSync(wt, join(root, "link-to-wt"));
+    symlinkSync(main, join(root, "link-to-main"));
+    expect(mainCheckoutOf(join(root, "link-to-wt"))).toEqual({ main, linked: true });
+    expect(mainCheckoutOf(join(root, "link-to-main"))).toEqual({ main, linked: false });
+  });
+
+  test("layouts it cannot place give null, so results stay in the project", () => {
+    const plain = join(root, "plain");
+    mkdirSync(plain);
+    expect(mainCheckoutOf(plain)).toBeNull();
+    expect(deliveryRootFor(plain)).toBeUndefined();
+
+    // A .git file without a gitdir line.
+    const odd = join(root, "odd");
+    mkdirSync(odd);
+    writeFileSync(join(odd, ".git"), "not a gitdir pointer\n");
+    expect(mainCheckoutOf(odd)).toBeNull();
+
+    // A submodule's .git file names a git dir that has no commondir.
+    const sub = join(root, "sub");
+    mkdirSync(join(root, "modules", "sub"), { recursive: true });
+    mkdirSync(sub);
+    writeFileSync(join(sub, ".git"), "gitdir: ../modules/sub\n");
+    expect(mainCheckoutOf(sub)).toBeNull();
+
+    // --separate-git-dir: the work tree and its worktrees have a common dir not named .git.
+    const separate = join(root, "separate");
+    git(root, "init", "-q", "--separate-git-dir", join(root, "separate.git"), separate);
+    git(separate, "commit", "-q", "--allow-empty", "-m", "init");
+    expect(mainCheckoutOf(separate)).toBeNull();
+    git(separate, "worktree", "add", "-q", "-b", "b1", join(root, "separate-wt"));
+    expect(mainCheckoutOf(join(root, "separate-wt"))).toBeNull();
+
+    // A bare repository's worktrees.
+    const source = repo("source");
+    git(root, "clone", "-q", "--bare", source, join(root, "bare.git"));
+    git(join(root, "bare.git"), "worktree", "add", "-q", "-b", "b1", join(root, "bare-wt"));
+    expect(mainCheckoutOf(join(root, "bare-wt"))).toBeNull();
+  });
+
+  test("a main checkout that moved or vanished gives null", () => {
+    const main = repo("main");
+    const wt = join(root, "wt");
+    git(main, "worktree", "add", "-q", "-b", "b1", wt);
+    renameSync(main, join(root, "main-moved"));
+    expect(mainCheckoutOf(wt)).toBeNull();
+    rmSync(join(root, "main-moved"), { recursive: true });
+    expect(mainCheckoutOf(wt)).toBeNull();
   });
 });

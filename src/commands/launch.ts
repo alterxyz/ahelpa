@@ -6,10 +6,10 @@ import type { AgentDriver, DriverRuntime, HelperRole, TaskSubmissionContext } fr
 import * as daemon from "../daemon";
 import { activeSessionAncestorIds, getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree, readPositiveInt } from "../nesting";
 import { $ } from "bun";
-import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync, readFileSync, writeFileSync } from "fs";
+import { mkdirSync, existsSync, rmSync, rmdirSync, unlinkSync, statSync, realpathSync, readFileSync, symlinkSync, writeFileSync } from "fs";
 import { basename, dirname, isAbsolute, join, resolve, relative, sep } from "path";
-import { defaultRuntimeLayout } from "../runtime-layout";
-import { isTaskInstructionEcho, ORIGINAL_ASK_UNAVAILABLE, planFileHandoff, prepareFileHandoff, type FileHandoffPlan, type HandoffContext } from "../file-handoff";
+import { defaultRuntimeLayout, deliveryRootFor, mainCheckoutOf } from "../runtime-layout";
+import { isTaskInstructionEcho, ORIGINAL_ASK_UNAVAILABLE, planFileHandoff, planSessionHandoff, prepareFileHandoff, type FileHandoffPlan, type HandoffContext } from "../file-handoff";
 import { requireAuthorizedSession } from "../session-access";
 import { SESSION_STATUS } from "../session-lifecycle";
 import { shellEscape } from "../shell";
@@ -83,6 +83,9 @@ export interface LaunchPlan {
   handoffContext: HandoffContext;
   // Set when --worktree asked for a new worktree of this repository.
   worktreeSource?: string;
+  // The checkout that will hold the results when it is not the project; stored
+  // on the session row. Undefined: the project itself.
+  deliveryRoot?: string;
   jobId: string | null;
   writerConflict: WriterConflict[];
   input: LaunchInput;
@@ -108,7 +111,7 @@ function previousHandContext(db: StateDB, afterId: string): NonNullable<HandoffC
   if (!isAbsolute(previous.projectPath)) {
     throw new Error(`--after session ${afterId} stores a relative project path; its result files cannot be located from another directory`);
   }
-  const plan = planFileHandoff(previous.projectPath, previous.id);
+  const plan = planSessionHandoff(previous);
   return {
     sessionId: previous.id,
     taskCopyPath: plan.taskCopyPath,
@@ -254,10 +257,15 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
   assertParentMayLaunch(input.db, input.parentId, treeId);
 
   const writerConflict = input.worktree ? [] : findWriterConflicts(input.db, input.projectPath, input.role, callerId ?? input.parentId);
-  const fileHandoff = planFileHandoff(input.projectPath, sessionId);
+  // A --worktree does not exist yet, so its root comes from the source repository.
+  // Either way results of a linked worktree go to the main checkout, which
+  // `git worktree remove` cannot take away.
+  const deliveryRoot = worktreeSource ? mainCheckoutOf(worktreeSource)?.main : deliveryRootFor(input.projectPath);
+  const fileHandoff = planFileHandoff(input.projectPath, sessionId, defaultRuntimeLayout, deliveryRoot);
   const baseLaunchCmd = driver.buildLaunchCommand({
     cwd: input.projectPath,
     sessionId,
+    deliveryDir: fileHandoff.sessionDeliveryDir,
     safe: input.safe,
     model: input.model,
     effort: input.effort,
@@ -277,6 +285,7 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     fileHandoff,
     handoffContext,
     worktreeSource,
+    deliveryRoot,
     jobId,
     writerConflict,
     input,
@@ -398,6 +407,26 @@ async function keepFailedLaunchScreen(sessionId: string, error: unknown): Promis
   }
 }
 
+// Results of a linked-worktree session live in the main checkout. A link at the
+// usual <project>/.ahelpa/<id> keeps that path working while the worktree
+// lives; `git worktree remove` then deletes only the link. Best effort.
+function linkResultDir(handoff: FileHandoffPlan): string | null {
+  if (!handoff.compatLink) return null;
+  try {
+    mkdirSync(dirname(handoff.compatLink), { recursive: true });
+    symlinkSync(handoff.sessionDeliveryDir, handoff.compatLink);
+    return handoff.compatLink;
+  } catch {
+    return null;
+  }
+}
+
+// A reviewer's own result directory, and the link to it, are not the target
+// under review: the link shows up in the work tree, the directory may not.
+function resultDirsOf(handoff: FileHandoffPlan): string[] {
+  return handoff.compatLink ? [handoff.sessionDeliveryDir, handoff.compatLink] : [handoff.sessionDeliveryDir];
+}
+
 function rollbackReservation(db: StateDB, sessionId: string): void {
   db.immediateTransaction(() => {
     // Remove the reservation from the active set before checking ancestry.
@@ -418,6 +447,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   let wakeupOwned = false;
   let worktreeCreated = false;
   let submissionUnconfirmed = false;
+  let resultLink: string | null = null;
   try {
     if (plan.input.db.getSession(plan.sessionId)) {
       throw new Error(`Session ID already exists: ${plan.sessionId}`);
@@ -438,7 +468,8 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       checkCmd: plan.input.check,
       afterId: plan.input.after,
       jobId: plan.jobId,
-      targetResultDirs: plan.input.role === "reviewer" ? [plan.fileHandoff.sessionDeliveryDir] : null,
+      targetResultDirs: plan.input.role === "reviewer" ? resultDirsOf(plan.fileHandoff) : null,
+      deliveryRoot: plan.deliveryRoot,
       unblind: plan.input.unblind,
       mailBudget: readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8),
     }, plan.callerId, plan.maxDepth);
@@ -453,16 +484,15 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     if (plan.input.role === "reviewer" && plan.handoffContext.previous) {
       plan.handoffContext.previous.baseCommit ??= baseCommit;
     }
-    const targetResultDirs = [plan.fileHandoff.sessionDeliveryDir];
     const targetFingerprint = plan.input.role === "reviewer"
-      ? await computeTargetFingerprint(plan.input.projectPath, targetResultDirs, { deadline: Date.now() + LAUNCH_FINGERPRINT_TIMEOUT_MS })
+      ? await computeTargetFingerprint(plan.input.projectPath, resultDirsOf(plan.fileHandoff), { deadline: Date.now() + LAUNCH_FINGERPRINT_TIMEOUT_MS })
       : null;
     plan.handoffContext.targetFingerprint = targetFingerprint;
     if (plan.driver.turnHooks) {
       mkdirSync(plan.fileHandoff.projectDeliveryDir, { recursive: true });
       mkdirSync(plan.fileHandoff.sessionDeliveryDir);
       handoffOwned = true;
-      plan.driver.prepareLaunchFiles?.({ cwd: plan.input.projectPath, sessionId: plan.sessionId });
+      plan.driver.prepareLaunchFiles?.({ cwd: plan.input.projectPath, sessionId: plan.sessionId, deliveryDir: plan.fileHandoff.sessionDeliveryDir });
     }
     await Tmux.create(plan.sessionId, plan.launchCmd);
     tmuxCreated = true;
@@ -474,6 +504,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     handoffOwned = true;
     taskFileOwned = true;
     prepareFileHandoff(plan.fileHandoff, plan.input.task, plan.handoffContext);
+    resultLink = linkResultDir(plan.fileHandoff);
     await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
     const submissionContext: TaskSubmissionContext = {};
     try {
@@ -539,6 +570,9 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }
     if (handoffOwned) {
       try { rmSync(plan.fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
+    }
+    if (resultLink) {
+      try { unlinkSync(resultLink); } catch {}
     }
     if (worktreeCreated && plan.worktreeSource) {
       await removeWorktree(plan.worktreeSource, plan.input.projectPath, plan.sessionId);
@@ -608,12 +642,13 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     );
   }
   const projectPath = resolveProjectPath(oldSession.projectPath);
-  const sourceHandoff = planFileHandoff(projectPath, oldSession.id);
+  const sourceHandoff = planSessionHandoff(oldSession);
 
   const driver = getDriver(oldSession.agentType);
   const sessionId = generateAvailableSessionId(input.db, driver.sessionPrefix);
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
-  const fileHandoff = planFileHandoff(projectPath, sessionId);
+  const deliveryRoot = deliveryRootFor(projectPath);
+  const fileHandoff = planFileHandoff(projectPath, sessionId, defaultRuntimeLayout, deliveryRoot);
   const maxDepth = getMaxNestingDepth();
   // Safe posture is sticky across native resumes. `--safe` may upgrade an
   // older/default session, but omission must never silently remove safety.
@@ -622,6 +657,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   const resumeCmd = driver.buildResumeCommand({
     cwd: projectPath,
     sessionId,
+    deliveryDir: fileHandoff.sessionDeliveryDir,
     resumeId: oldSession.agentResumeId,
     safe,
     model: oldSession.model ?? undefined,
@@ -636,6 +672,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   let dbCreated = false;
   let wakeupOwned = false;
   let handoffOwned = false;
+  let resultLink: string | null = null;
   try {
     reserveSession(input.db, {
       id: sessionId,
@@ -657,8 +694,9 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       jobId: validateJobId(oldSession.jobId ?? null),
       targetFingerprint: oldSession.role === "reviewer" ? oldSession.targetFingerprint : null,
       targetResultDirs: oldSession.role === "reviewer" && oldSession.targetFingerprint
-        ? [...(oldSession.targetResultDirs ?? [planFileHandoff(projectPath, oldSession.id).sessionDeliveryDir]), planFileHandoff(projectPath, sessionId).sessionDeliveryDir]
+        ? [...(oldSession.targetResultDirs ?? [sourceHandoff.sessionDeliveryDir]), ...resultDirsOf(fileHandoff)]
         : null,
+      deliveryRoot,
       unblind: oldSession.unblind,
       mailBudget: readPositiveInt(process.env.AHELPA_MAIL_BUDGET, 8),
     }, callerId, maxDepth);
@@ -669,7 +707,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
       mkdirSync(fileHandoff.projectDeliveryDir, { recursive: true });
       mkdirSync(fileHandoff.sessionDeliveryDir);
       handoffOwned = true;
-      driver.prepareLaunchFiles?.({ cwd: projectPath, sessionId });
+      driver.prepareLaunchFiles?.({ cwd: projectPath, sessionId, deliveryDir: fileHandoff.sessionDeliveryDir });
     }
     await Tmux.create(sessionId, launchCmd);
     tmuxCreated = true;
@@ -683,6 +721,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     writeFileSync(fileHandoff.askPath, existsSync(sourceHandoff.askPath)
       ? readFileSync(sourceHandoff.askPath)
       : `${ORIGINAL_ASK_UNAVAILABLE}\n`);
+    resultLink = linkResultDir(fileHandoff);
     // Do not hand the new tmux session back until the driver's startup/trust
     // flow has had a chance to reach an input prompt. Otherwise an immediate
     // `send` can be typed into a loading or confirmation screen.
@@ -706,6 +745,9 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     if (wakeupOwned) defaultWakeup.cleanup(sessionId);
     if (handoffOwned) {
       try { rmSync(fileHandoff.sessionDeliveryDir, { recursive: true, force: true }); } catch {}
+    }
+    if (resultLink) {
+      try { unlinkSync(resultLink); } catch {}
     }
     if (dbCreated) {
       try { rollbackReservation(input.db, sessionId); } catch {}

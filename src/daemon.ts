@@ -12,7 +12,7 @@ import { defaultRuntimeLayout } from "./runtime-layout";
 import { shellEscape } from "./shell";
 import type { AgentDriver, DriverRuntime } from "./drivers/types";
 import { deliverTurn } from "./turn-delivery";
-import { planFileHandoff } from "./file-handoff";
+import { planSessionHandoff } from "./file-handoff";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
 const PID_FILE = defaultRuntimeLayout.daemonPidPath();
@@ -51,7 +51,7 @@ export function shouldNudgeForCompletion(db: StateDB, session: SessionRecord, dr
     ? driver.acceptsInputAfterTurn(output)
     : driver.acceptsInput?.(output);
   if (!ready) return false;
-  if (!existsSync(planFileHandoff(session.projectPath, session.id).summaryPath)) return false;
+  if (!existsSync(planSessionHandoff(session).summaryPath)) return false;
   // Re-read: the host may have sent a new turn since this capture was taken.
   const fresh = db.getSession(session.id);
   return fresh !== null
@@ -177,7 +177,7 @@ export async function refreshSessionStatuses(
       }
       pendingAttention.delete(session.id);
       const turn = driver.turnHooks
-        ? readTurnEvents(defaultRuntimeLayout.turnsLogPath(session.projectPath, session.id), session.turnHookOffset ?? 0,
+        ? readTurnEvents(defaultRuntimeLayout.turnsLogPath(session.projectPath, session.id, session.deliveryRoot ?? undefined), session.turnHookOffset ?? 0,
           session.turnStartedAt ?? session.createdAt, session.agentType, session.turnInputAmbiguous ? null : session.turnInputDigest ?? null)
         : { offset: session.turnHookOffset ?? 0, event: null };
       for (const ignored of turn.ignored ?? []) {
@@ -213,7 +213,7 @@ export async function refreshSessionStatuses(
               safe: ledgerSession.safe,
               projectPath: ledgerSession.projectPath,
               tags: outcome.needHelpTags,
-              summaryPath: planFileHandoff(ledgerSession.projectPath, ledgerSession.id).summaryPath,
+              summaryPath: planSessionHandoff(ledgerSession).summaryPath,
             }) + "\n");
           } catch (error) {
             log(`${session.id}: need-help ledger append failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -229,7 +229,7 @@ export async function refreshSessionStatuses(
           }
         }
       } else if (turn.event) {
-        const summary = existsSync(planFileHandoff(session.projectPath, session.id).summaryPath);
+        const summary = existsSync(planSessionHandoff(session).summaryPath);
         const failure = turn.event.event === "stop_failure";
         // Stop can precede engine shutdown. Keep it pending until the composer
         // is ready, rather than consume it and lose the early-nudge opportunity.

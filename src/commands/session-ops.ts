@@ -11,7 +11,7 @@ import { SESSION_STATUS } from "../session-lifecycle";
 import { requireAuthorizedSession } from "../session-access";
 import { activeSessionAncestorIds, getSessionNestingInfo, listActiveDescendants } from "../nesting";
 import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
-import { planFileHandoff, prepareFileHandoff } from "../file-handoff";
+import { planSessionHandoff, prepareFileHandoff } from "../file-handoff";
 import { getDriver } from "../drivers/registry";
 import type { DriverRuntime, ModelSwitchOptions, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
@@ -102,7 +102,7 @@ export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
     );
   }
   const content = readTaskFile(filePath);
-  const fileHandoff = planFileHandoff(session.projectPath, session.id);
+  const fileHandoff = planSessionHandoff(session);
   const instruction = normalizeTurnInput(fileHandoff.taskInstruction);
   let submissionContext: TaskSubmissionContext = {};
   await deliverTurn(db, session, instruction, () => Tmux.sendKeys(session.id, instruction), {

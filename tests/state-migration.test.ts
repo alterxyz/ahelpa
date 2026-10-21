@@ -133,6 +133,33 @@ describe("state schema migrations", () => {
     }
   });
 
+  test("adding delivery_root keeps saved sessions in their project and stores a root for new ones", () => {
+    const previous = new StateDB(dbPath);
+    previous.createSession({ id: "saved", parentId: "p", agentType: "codex", task: "original task", ownerToken: "tok", projectPath: root, role: "worker" });
+    const original = previous.getSession("saved");
+    previous.close();
+    const legacy = new Database(dbPath);
+    legacy.exec("ALTER TABLE sessions DROP COLUMN delivery_root");
+    legacy.close();
+
+    const migrated = new StateDB(dbPath);
+    try {
+      expect(migrated.getSession("saved")).toEqual(original);
+      expect(migrated.getSession("saved")?.deliveryRoot).toBeNull();
+      migrated.createSession({ id: "relocated", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: join(root, "worktree"), deliveryRoot: join(root, "main") });
+      expect(migrated.getSession("relocated")).toMatchObject({ projectPath: join(root, "worktree"), deliveryRoot: join(root, "main") });
+    } finally {
+      migrated.close();
+    }
+    const reopened = new StateDB(dbPath);
+    try {
+      expect(reopened.getSession("relocated")?.deliveryRoot).toBe(join(root, "main"));
+      expect(reopened.getSession("saved")?.deliveryRoot).toBeNull();
+    } finally {
+      reopened.close();
+    }
+  });
+
   test("adding a version preserves existing records and reopening preserves subsequent increments", () => {
     const previous = new StateDB(dbPath);
     previous.createSession({ id: "saved", parentId: "p", agentType: "codex", task: "original task", ownerToken: "tok", projectPath: root,

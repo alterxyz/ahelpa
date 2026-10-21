@@ -111,6 +111,7 @@ run_gate() (
   session_id=""
   owner_token=""
   delivery=""
+  real_delivery=""
   cleaned=0
   wait_seconds=180
   if [ "$agent" = "kimi" ]; then
@@ -124,8 +125,9 @@ run_gate() (
       mkdir -p "$GATE_DIR/result-$label" || return 1
       cp -R "$delivery/." "$GATE_DIR/result-$label/" || return 1
       if [ "$cleaned" -eq 1 ]; then
-        rm -rf -- "$delivery" || return 1
-        rmdir "$project/.ahelpa" >/dev/null 2>&1 || true
+        # In a linked worktree $delivery is a link; the results are in the main checkout.
+        rm -rf -- "$delivery" "$real_delivery" || return 1
+        rmdir "$project/.ahelpa" "$(dirname "$real_delivery")" >/dev/null 2>&1 || true
       fi
     fi
   }
@@ -157,6 +159,8 @@ run_gate() (
     # Never construct a cleanup path from an invalid session identifier.
     if [[ ! "$session_id" =~ ^[A-Za-z0-9_-]+$ ]]; then fail "Invalid session ID for $agent"; fi
     delivery="$project/.ahelpa/$session_id"
+    real_delivery="$delivery"
+    if [ -L "$delivery" ]; then real_delivery="$(cd -P "$delivery" && pwd -P)" || fail "Cannot resolve the result directory of $agent session $session_id"; fi
     cleaned=0
     echo "session > $session_id"
   }

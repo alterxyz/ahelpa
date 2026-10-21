@@ -1,6 +1,11 @@
-import { describe, test, expect } from "bun:test";
+import { afterEach, describe, test, expect, mock, spyOn } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { getDriver } from "../src/drivers/registry";
 import { codexNeedsHooksTrustEscape } from "../src/drivers/codex";
+import * as capabilities from "../src/drivers/codex-capabilities";
+import { shellEscape } from "../src/shell";
 
 describe("Drivers", () => {
   test("claude-code driver exists", () => {
@@ -113,5 +118,58 @@ describe("Drivers", () => {
 
   test("unknown driver throws", () => {
     expect(() => getDriver("unknown")).toThrow();
+  });
+});
+
+// A linked worktree's results live in the main checkout, outside the cwd and
+// outside a safe helper's writable workspace, so --safe must grant that directory.
+describe("safe mode and a result directory outside the project", () => {
+  let cwd: string | undefined;
+  afterEach(() => { mock.restore(); if (cwd) rmSync(cwd, { recursive: true, force: true }); cwd = undefined; });
+  function project(): string {
+    cwd = mkdtempSync(join(realpathSync(tmpdir()), "drivers-add-dir-"));
+    spyOn(capabilities, "getCodexCapabilities").mockReturnValue({ executable: "/bin/echo", noDaemon: false });
+    return cwd;
+  }
+  const outside = "/tmp/main repo's checkout/.ahelpa/helper-1";
+
+  test("claude-code adds the directory last, after --settings, for launch and resume", () => {
+    const driver = getDriver("claude-code");
+    const base = { cwd: project(), sessionId: "helper-1", deliveryDir: outside, safe: true };
+    const settings = `--settings ${shellEscape(join(outside, "claude-settings.json"))}`;
+    for (const command of [driver.buildLaunchCommand(base), driver.buildResumeCommand({ ...base, resumeId: "native" })]) {
+      expect(command).toEndWith(` --add-dir ${shellEscape(outside)}`);
+      expect(command.indexOf(settings)).toBeGreaterThan(-1);
+      expect(command.indexOf(settings)).toBeLessThan(command.indexOf("--add-dir"));
+    }
+  });
+
+  test("codex adds the directory for launch and resume, quoted for the shell", async () => {
+    const driver = getDriver("codex");
+    const base = { cwd: project(), sessionId: "helper-1", deliveryDir: outside, safe: true };
+    for (const command of [driver.buildLaunchCommand(base), driver.buildResumeCommand({ ...base, resumeId: "native" })]) {
+      expect(command).toContain(` -s workspace-write -a never --add-dir ${shellEscape(outside)} `);
+      // The shell must see the path as one argument, whatever characters it holds.
+      const child = Bun.spawn(["bash", "-c", command], { stdout: "pipe", stderr: "pipe" });
+      expect(await new Response(child.stdout).text()).toContain(`--add-dir ${outside} -c notify=`);
+      expect(await child.exited).toBe(0);
+    }
+  });
+
+  test.each(["claude-code", "codex"])("%s adds nothing when not safe, or when the directory is inside the project", agent => {
+    const driver = getDriver(agent);
+    const dir = project();
+    const inside = join(dir, ".ahelpa", "helper-1");
+    const resume = { resumeId: "native" };
+    for (const opts of [
+      { cwd: dir, sessionId: "helper-1", deliveryDir: outside },
+      { cwd: dir, sessionId: "helper-1", deliveryDir: outside, safe: false },
+      { cwd: dir, sessionId: "helper-1", deliveryDir: inside, safe: true },
+      { cwd: dir, sessionId: "helper-1", safe: true },
+      { cwd: dir, safe: true },
+    ]) {
+      expect(driver.buildLaunchCommand(opts)).not.toContain("--add-dir");
+      expect(driver.buildResumeCommand({ ...opts, ...resume })).not.toContain("--add-dir");
+    }
   });
 });

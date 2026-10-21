@@ -37,7 +37,7 @@ session_id=$(echo "$result" | jq -r .sessionId)
 token=$(echo "$result" | jq -r .ownerToken)
 ```
 
-`launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同）。请保存 token；所有写操作都需要它。
+`launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同；若它是 linked git worktree，结果在主 checkout 的 `.ahelpa/<id>/`，不在其下）。请保存 token；所有写操作都需要它。
 - `jobId`（可选）：该 helper 所属的 job（见[把多个 hand 归入一个 job](#把多个-hand-归入一个-job)）。
 - `writerConflict`（可选）：同一棵目录树中（物理 project 路径相同，或一个包含另一个）仍在活跃的其他 session，且双方至少有一个不是 `reviewer`。比较前会解析符号链接和文件系统别名，包括 macOS 的 `/tmp` 与 `/private/tmp`；`/` 与所有项目重叠。路径保留文件系统自身的大小写规则，不会统一转成小写。已保存的目录不存在时，会解析最近的现存祖先，并保留缺失部分。每项包含 `sessionId`、`role`、`status` 和 `projectPath`。launch 仍会进行，但 evidence 将无法分辨改动属于谁。除非重叠是有意的，请 kill 其中一个，或改用 `--worktree` 重新 launch。同一棵树中的两个 reviewer 不会被报告，发起本次 launch 的 helper 本身也不会（它负责委派并等待）；`--worktree` 启动的 session 不会产生冲突。
 - `taskWarning`（可选）：`--task` 文本较短且含 `/tmp/`、`/private/tmp/` 或 `scratchpad/` 路径，通常意味着任务引用了可能消失的临时文件。请把内容放进持久文件，改用 `--file`。
@@ -87,7 +87,7 @@ ahelpa launch codex --file ./task.md --check "bun test --no-cache"
 ahelpa launch claude-code --role reviewer --after "$impl_id" --file ./review.md
 ```
 
-在 git 项目中，只有显式指定 `--role reviewer` 启动时，才会在会话和任务文件中记录 `targetFingerprint = {head, treeHash}`。`head` 是 launch 时的 HEAD；`treeHash` 是 `git status --porcelain -z --untracked-files=all` 与 tracked 文件 `git diff`、`git diff --cached` 的 SHA-256，并递归纳入每个已初始化子模块自己的 HEAD、status 和 staged/unstaged binary diff。Untracked 文件只计文件名，因此只修改其内容不会被检测到。Reviewer 的整个结果目录（`.ahelpa/<id>/`，包括 `ask.md`、`task.md`、`summary.md`、`artifacts/` 和 `check.log`）都排除在指纹之外，避免交接和结果写入改变目标。`resume` 保留原始指纹并沿用 `targetResultDirs`，排除原 reviewer 及所有恢复 reviewer 的交付目录。其他 `.ahelpa/` 路径仍按 git 规则参与取证，不排除整个目录。非 git 项目省略指纹。计算使用绝对截止时间（launch 为 10 秒，`wait` 为剩余预算），遇到重复物理仓库或达到 128 个仓库时停止；未完成的 launch 快照保存为 `{incomplete: "<原因>"}`，reviewer 仍继续启动。
+在 git 项目中，只有显式指定 `--role reviewer` 启动时，才会在会话和任务文件中记录 `targetFingerprint = {head, treeHash}`。`head` 是 launch 时的 HEAD；`treeHash` 是 `git status --porcelain -z --untracked-files=all` 与 tracked 文件 `git diff`、`git diff --cached` 的 SHA-256，并递归纳入每个已初始化子模块自己的 HEAD、status 和 staged/unstaged binary diff。Untracked 文件只计文件名，因此只修改其内容不会被检测到。Reviewer 的整个结果目录（`.ahelpa/<id>/`，包括 `ask.md`、`task.md`、`summary.md`、`artifacts/` 和 `check.log`；在 linked worktree 中还包括指向它的链接）都排除在指纹之外，避免交接和结果写入改变目标。`resume` 保留原始指纹并沿用 `targetResultDirs`，排除原 reviewer 及所有恢复 reviewer 的交付目录。其他 `.ahelpa/` 路径仍按 git 规则参与取证，不排除整个目录。非 git 项目省略指纹。计算使用绝对截止时间（launch 为 10 秒，`wait` 为剩余预算），遇到重复物理仓库或达到 128 个仓库时停止；未完成的 launch 快照保存为 `{incomplete: "<原因>"}`，reviewer 仍继续启动。
 
 用 `--worktree` 把 helper 隔离在独立的 git worktree 里：
 
@@ -95,7 +95,7 @@ ahelpa launch claude-code --role reviewer --after "$impl_id" --file ./review.md
 ahelpa launch codex --worktree --file ./task.md --project /path/to/project
 ```
 
-ahelpa 会在 `<project 的父目录>/<project 名>-worktrees/<session-id>` 创建 worktree，分支为 `ahelpa/<session-id>`，从 `HEAD` 分出（未提交的改动不在其中）。helper 的 `projectPath` 就是该 worktree，结果也落在其 `.ahelpa/<id>/`。项目必须是 git 仓库，否则 `launch` 报错。ahelpa 不会删除已交付的 worktree（launch 在返回前失败时会回滚自己建的那个）；用完后执行 `git worktree remove <path> && git branch -D ahelpa/<session-id>`。新 worktree 里没有安装依赖，安装步骤要写进任务或放在 `--check` 命令最前面。
+ahelpa 会在 `<project 的父目录>/<project 名>-worktrees/<session-id>` 创建 worktree，分支为 `ahelpa/<session-id>`，从 `HEAD` 分出（未提交的改动不在其中）。helper 的 `projectPath` 就是该 worktree，但结果不落在那里：`git worktree remove` 会连同 worktree 里被忽略的 `.ahelpa/` 一起删除，所以结果写到源仓库的 `.ahelpa/<id>/`（任务里写的是这个绝对路径）。worktree 存在期间，`<worktree>/.ahelpa/<id>` 处有一个指向结果的链接，惯用的相对路径照常可用。session 记录了结果所在位置，因此 worktree 删除后，`wait` evidence、`--after` 和 `task` 仍能找到它们（`resume` 仍要求 worktree 目录存在）。项目必须是 git 仓库，否则 `launch` 报错。ahelpa 不会删除已交付的 worktree（launch 在返回前失败时会回滚自己建的那个）；用完后执行 `git worktree remove <path> && git branch -D ahelpa/<session-id>`，这只会删掉链接，结果仍留在源仓库。请保持 `.ahelpa/` 被 git 忽略：否则链接是未跟踪文件，不带 `--force` 的 `git worktree remove` 会拒绝执行。`--project` 指向你自己创建的 linked worktree 时同样适用。此前启动的 session，以及 git 元数据无法定位主 checkout 的项目（子模块、bare 仓库或 `--separate-git-dir`、已被移动的主 checkout），结果仍在 `<projectPath>/.ahelpa/<id>/`；若移动了源仓库，已启动的 session 仍指向其旧位置。`--safe` 下，Codex 和 Claude 通过 `--add-dir` 获得这一个结果目录的写权限；Kimi 没有，所以 linked worktree 中的 safe Kimi helper 写 summary 需要原生审批。新 worktree 里没有安装依赖，安装步骤要写进任务或放在 `--check` 命令最前面。
 
 ### 把多个 hand 归入一个 job
 
@@ -135,9 +135,9 @@ ahelpa inbox --read 1                          # 读取序号 1 并标记已读
 
 `--file` 只接受最多 1 MiB（1,048,576 字节）的有效 UTF-8。两种输入方式都会拒绝正文中能被暗号扫描器识别的行，包括缩进或带 bullet 的完成和求助暗号。`inbox --read` 先把正文中每一处 `[AHELPA:` 替换为 `[AHELPA_:`，再给每行加上 `> ` 前缀。旧消息和行内提及也会转义，因此终端折行或去除控制字符后，显示的正文仍不会暴露有效暗号。末尾换行不会额外生成空引用行；保存的消息字节保持不变。
 
-消息原子写入 `<recipient-project>/.ahelpa/<to-id>/inbox/<seq>-from-<from-id>.md`，序号按收件人递增。发送方项目保存 `.ahelpa/jobs/<job>/mail.jsonl`，每次投递追加一条 `{ts, from, to, seq, bytes}`。Helper 在不同 worktree 时，需要分别查看各发送方项目的 ledger。`inbox` 列出调用 helper 的全部消息及已读状态；`--read <seq>` 显示并标记对应消息已读。投递不注入终端输入，本次没有实现 inbox nudge。按 job 任务合同，在验证前和打印信号前检查 inbox。没有自动回复、共享 transcript 或发给 peer 的 `NEED_HELP`；求助仍通过正常信号协议交给 host。
+消息原子写入 `<recipient-project>/.ahelpa/<to-id>/inbox/<seq>-from-<from-id>.md`，序号按收件人递增。发送方项目保存 `.ahelpa/jobs/<job>/mail.jsonl`，每次投递追加一条 `{ts, from, to, seq, bytes}`。对 linked worktree 中的 helper，这里的“项目”指主 checkout：它的 inbox 和 ledger 都在主 checkout 的 `.ahelpa/` 下，同一仓库不同 linked worktree 里的 helper 因此共用一份 ledger。互不相关的项目，或在结果迁到主 checkout 之前启动的 helper，仍是每个发送方项目各有一份 ledger，需要分别查看；跨越这一变更仍在运行的 job 会在主 checkout 中新建 ledger。`inbox` 列出调用 helper 的全部消息及已读状态；`--read <seq>` 显示并标记对应消息已读。投递不注入终端输入，本次没有实现 inbox nudge。按 job 任务合同，在验证前和打印信号前检查 inbox。没有自动回复、共享 transcript 或发给 peer 的 `NEED_HELP`；求助仍通过正常信号协议交给 host。
 
-投递检查项目 `.ahelpa` 到 inbox 和 jobs ledger 目录的每一级，拒绝符号链接和非目录；ledger 必须是普通文件。读信时也检查 inbox 路径，并在标记已读前拒绝符号链接形式的消息文件。若中断投递留下孤儿序号文件，下次投递会保留它，跳到下一个空闲序号，并在 ledger notes 中记录跳过的序号。
+投递检查保存该 session 结果的 `.ahelpa`（项目自己的，或主 checkout 的）到 inbox 和 jobs ledger 目录的每一级，拒绝符号链接和非目录；ledger 必须是普通文件。读信时也检查 inbox 路径，并在标记已读前拒绝符号链接形式的消息文件。若中断投递留下孤儿序号文件，下次投递会保留它，跳到下一个空闲序号，并在 ledger notes 中记录跳过的序号。
 
 Job ID 沿用 launch 约定：1–64 个字母、数字、点、下划线或横线，并以字母或数字开头。
 
@@ -235,7 +235,7 @@ ahelpa wait "$session_id" --timeout 300    # 5 分钟
 
 Claude 和 Codex 会向 ahelpa 提供回合结束时机。回合结束但没有暗号、也没写 summary 时，`wait` 可能更早返回 `needs_attention`。已有 summary 时，ahelpa 会在输入框就绪后请求一次完成暗号。收到可归属当前回合的 Claude Stop 后，历史回复／工具 bullet 和已完成的 spinner 行不会阻止该请求。整屏出现任何 spinner 或中断提示都会阻止，包括无计时器、无图标的省略号行及较新 bullet 上方的活动。Claude helper 通过会话设置关闭输入建议，避免建议文字阻碍就绪检查；真实输入草稿仍会阻止发送。最下方 column-0 composer 必须为空，其下方的对话提示或确认／选择／取消页脚也会阻止输入。这不验证任务成功，仍需照常读取 summary 和 evidence。中断及没有 hook 通知的 CLI 保留无活动兜底。结果目录还可能包含 `turns.log`（事件标识、输入摘要及正文长度／存在性元数据），Claude 会另有 `claude-settings.json`（会话 hooks）。
 
-Helper 完成后，输出位于项目目录：
+Helper 完成后，输出位于项目目录（linked worktree 存在期间，相对路径通过链接可用；结果本身在主 checkout 的 `.ahelpa/<id>/`）：
 
 ```bash
 cat ".ahelpa/$session_id/summary.md"

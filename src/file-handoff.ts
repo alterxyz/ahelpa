@@ -12,6 +12,9 @@ export interface FileHandoffPlan {
   taskFilePath: string;
   projectDeliveryDir: string;
   sessionDeliveryDir: string;
+  // <project>/.ahelpa/<id>, when results live elsewhere (a linked worktree's go
+  // to the main checkout): a symlink there keeps the usual path working.
+  compatLink: string | null;
   summaryPath: string;
   artifactsDir: string;
   // Durable copy of what the helper was asked, beside its summary. The tmp
@@ -37,9 +40,13 @@ export function planFileHandoff(
   projectPath: string,
   sessionId: string,
   layout: RuntimeLayout = defaultRuntimeLayout,
+  // The checkout that holds the results when it is not the project; see
+  // SessionRecord.deliveryRoot. A session row's root decides, not live git state.
+  deliveryRoot?: string,
 ): FileHandoffPlan {
-  const projectDeliveryDir = layout.projectDeliveryDir(projectPath);
-  const sessionDeliveryDir = layout.sessionDeliveryDir(projectPath, sessionId);
+  const projectDeliveryDir = layout.projectDeliveryDir(projectPath, deliveryRoot);
+  const sessionDeliveryDir = layout.sessionDeliveryDir(projectPath, sessionId, deliveryRoot);
+  const compatLink = join(projectPath, ".ahelpa", sessionId);
   const summaryPath = join(sessionDeliveryDir, "summary.md");
   const artifactsDir = join(sessionDeliveryDir, "artifacts");
   const taskCopyPath = join(sessionDeliveryDir, "task.md");
@@ -49,12 +56,19 @@ export function planFileHandoff(
     taskFilePath,
     projectDeliveryDir,
     sessionDeliveryDir,
+    compatLink: compatLink === sessionDeliveryDir ? null : compatLink,
     summaryPath,
     artifactsDir,
     taskCopyPath,
     askPath: join(sessionDeliveryDir, "ask.md"),
     taskInstruction: buildTaskInstruction({ taskFilePath, sessionDeliveryDir, summaryPath, artifactsDir }),
   };
+}
+
+// Where an existing session's results are: its row says, once the worktree it
+// ran in may be gone.
+export function planSessionHandoff(session: { projectPath: string; id: string; deliveryRoot?: string | null }): FileHandoffPlan {
+  return planFileHandoff(session.projectPath, session.id, defaultRuntimeLayout, session.deliveryRoot ?? undefined);
 }
 
 export function buildPreviousHandSection(previous: NonNullable<HandoffContext["previous"]>, context: HandoffContext = {}): string {

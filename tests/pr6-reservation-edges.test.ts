@@ -226,7 +226,9 @@ describe("PR6 launch cancellation", () => {
         expect(alive).toBe(false);
         expect(db.getSession(id)).toBeNull();
         expect(existsSync(defaultRuntimeLayout.fifoPath(id))).toBe(false);
-        const handoff = planFileHandoff(kind === "launch" ? plan.input.projectPath : project, id);
+        // A --worktree launch keeps its results in the source repository, not in
+        // the worktree that the rollback removes: look where they were planned.
+        const handoff = kind === "launch" ? plan.fileHandoff : planFileHandoff(project, id);
         expect(existsSync(handoff.taskFilePath)).toBe(false);
         expect(existsSync(handoff.sessionDeliveryDir)).toBe(false);
         if (boundary === "tmux creation") {
@@ -253,7 +255,7 @@ describe("PR6 launch cancellation", () => {
       await expect(kind === "launch" ? executeLaunch(plan) : resume({ db, sessionId: "old", ownerToken: "tok" })).rejects.toThrow(/cancelled/i);
       expect(alive).toBe(false);
       expect(existsSync(defaultRuntimeLayout.fifoPath(id))).toBe(false);
-      expect(existsSync(planFileHandoff(kind === "launch" ? plan.input.projectPath : project, id).sessionDeliveryDir)).toBe(false);
+      expect(existsSync((kind === "launch" ? plan.fileHandoff : planFileHandoff(project, id)).sessionDeliveryDir)).toBe(false);
       if (kind === "launch") await expectWorktreeRemoved(plan.input.projectPath, id);
     });
   }

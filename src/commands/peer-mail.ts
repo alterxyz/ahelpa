@@ -1,7 +1,7 @@
 import { appendFileSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, renameSync, truncateSync, unlinkSync, writeFileSync, type Stats } from "fs";
 import { dirname, isAbsolute, join, relative, sep } from "path";
 import { resolveJobId } from "./launch";
-import { planFileHandoff } from "../file-handoff";
+import { planSessionHandoff } from "../file-handoff";
 import { scanSentinels } from "../drivers/sentinels";
 import { StateDB, type PeerMailRecord, type SessionRecord } from "../state";
 
@@ -41,8 +41,9 @@ function existingStat(path: string): Stats | null {
   }
 }
 
-function requireDirectoryChain(project: string, path: string, label: string): void {
-  const base = join(project, ".ahelpa");
+// `base` is the .ahelpa directory of the session that owns `path`: its project's,
+// or the main checkout's for a session whose results live there.
+function requireDirectoryChain(base: string, path: string, label: string): void {
   const suffix = relative(base, path);
   if (isAbsolute(suffix) || suffix === ".." || suffix.startsWith(`..${sep}`)) {
     throw new Error(`Peer mail ${label} is outside the project .ahelpa directory`);
@@ -149,10 +150,11 @@ export function mail(db: StateDB, toId: string | undefined, peers: boolean, cont
       const budget = sender.mailBudget ?? 8;
       const sent = db.peerMailCounts(sender.id).sent;
       if (sent + recipients.length > budget) throw new Error(`Peer mail budget exceeded (${sent} sent, ${recipients.length} requested, limit ${budget})`);
-      ledgerPath = join(planFileHandoff(sender.projectPath, sender.id).projectDeliveryDir, "jobs", sender.jobId!, "mail.jsonl");
-      requireDirectoryChain(sender.projectPath, dirname(ledgerPath), "ledger");
+      const ledgerBase = planSessionHandoff(sender).projectDeliveryDir;
+      ledgerPath = join(ledgerBase, "jobs", sender.jobId!, "mail.jsonl");
+      requireDirectoryChain(ledgerBase, dirname(ledgerPath), "ledger");
       mkdirSync(dirname(ledgerPath), { recursive: true });
-      requireDirectoryChain(sender.projectPath, dirname(ledgerPath), "ledger");
+      requireDirectoryChain(ledgerBase, dirname(ledgerPath), "ledger");
       const ledgerStat = existingStat(ledgerPath);
       ledgerExisted = ledgerStat !== null;
       if (ledgerStat && (ledgerStat.isSymbolicLink() || !ledgerStat.isFile())) throw new Error("Peer mail ledger must be a regular file, not a symlink");
@@ -162,10 +164,11 @@ export function mail(db: StateDB, toId: string | undefined, peers: boolean, cont
       for (const recipient of recipients) {
         const to = recipient!;
         let seq = db.nextPeerMailSeq(to.id);
-        const inbox = join(planFileHandoff(to.projectPath, to.id).sessionDeliveryDir, "inbox");
-        requireDirectoryChain(to.projectPath, inbox, "inbox");
+        const { projectDeliveryDir: inboxBase, sessionDeliveryDir } = planSessionHandoff(to);
+        const inbox = join(sessionDeliveryDir, "inbox");
+        requireDirectoryChain(inboxBase, inbox, "inbox");
         mkdirSync(inbox, { recursive: true });
-        requireDirectoryChain(to.projectPath, inbox, "inbox");
+        requireDirectoryChain(inboxBase, inbox, "inbox");
         // An interrupted delivery may have left a file without SQLite metadata.
         // Preserve it and reserve a free sequence across all senders' files.
         const occupied = new Set(readdirSync(inbox).flatMap((name) => {
@@ -211,7 +214,7 @@ export function inbox(db: StateDB, seq?: number): PeerMailRecord[] | string {
   if (!Number.isSafeInteger(seq) || seq <= 0) throw new Error("--read must be a positive integer");
   const message = messages.find((m) => m.seq === seq);
   if (!message) throw new Error(`Peer message not found: ${seq}`);
-  requireDirectoryChain(caller.projectPath, dirname(message.path), "inbox");
+  requireDirectoryChain(planSessionHandoff(caller).projectDeliveryDir, dirname(message.path), "inbox");
   const stat = existingStat(message.path);
   if (stat?.isSymbolicLink() || (stat && !stat.isFile())) throw new Error("Peer mail message must be a regular file, not a symlink");
   const content = readFileSync(message.path, "utf8");

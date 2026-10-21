@@ -1,4 +1,5 @@
 import { writeFileSync } from "fs";
+import { join } from "path";
 import { defaultRuntimeLayout } from "../runtime-layout";
 import { turnHookCommand } from "../turn-hooks";
 import type { AgentDriver, DetectedStatus, DriverRuntime, LaunchOptions, ModelSwitchOptions, ResumeOptions, TaskSubmissionContext } from "./types";
@@ -179,6 +180,20 @@ function postureArgs(safe?: boolean): string[] {
   return safe ? ["--verbose"] : ["--dangerously-skip-permissions", "--verbose"];
 }
 
+function sessionDir(opts: LaunchOptions & { sessionId: string }): string {
+  return opts.deliveryDir ?? defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId);
+}
+
+// A linked worktree's results live in the main checkout, outside the project;
+// safe mode grants that one directory so the helper can write its summary.
+// --add-dir is variadic, so it stays last.
+function sessionArgs(opts: LaunchOptions): string[] {
+  if (!opts.sessionId) return [];
+  const dir = sessionDir({ ...opts, sessionId: opts.sessionId });
+  const outside = opts.safe && dir !== join(opts.cwd, ".ahelpa", opts.sessionId);
+  return ["--settings", shellEscape(join(dir, "claude-settings.json")), ...(outside ? ["--add-dir", shellEscape(dir)] : [])];
+}
+
 function modelArgs(opts: { model?: string; effort?: string }): string[] {
   const args: string[] = [];
   if (opts.model) args.push("--model", shellEscape(opts.model));
@@ -244,18 +259,19 @@ export const claudeCodeDriver: AgentDriver = {
   turnHooks: true,
   prepareLaunchFiles(opts: LaunchOptions): void {
     if (!opts.sessionId) return;
-    const command = turnHookCommand(defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "claude-code").map(shellEscape).join(" ");
+    const dir = sessionDir({ ...opts, sessionId: opts.sessionId });
+    const command = turnHookCommand(dir, "claude-code").map(shellEscape).join(" ");
     const hook = [{ hooks: [{ type: "command", command, timeout: 2 }] }];
-    writeFileSync(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId), JSON.stringify({ promptSuggestionEnabled: false, hooks: { UserPromptSubmit: hook, Stop: hook, StopFailure: hook } }) + "\n", { flag: "wx", mode: 0o600 });
+    writeFileSync(join(dir, "claude-settings.json"), JSON.stringify({ promptSuggestionEnabled: false, hooks: { UserPromptSubmit: hook, Stop: hook, StopFailure: hook } }) + "\n", { flag: "wx", mode: 0o600 });
   },
 
   buildLaunchCommand(opts: LaunchOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(opts.sessionId ? ["--settings", shellEscape(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId))] : [])];
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...sessionArgs(opts)];
     return `cd ${shellEscape(opts.cwd)} && claude ${args.join(" ")}`;
   },
 
   buildResumeCommand(opts: ResumeOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...(opts.sessionId ? ["--settings", shellEscape(defaultRuntimeLayout.claudeSettingsPath(opts.cwd, opts.sessionId))] : [])];
+    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...sessionArgs(opts)];
     return `cd ${shellEscape(opts.cwd)} && claude --resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
   },
 

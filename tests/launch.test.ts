@@ -5,7 +5,7 @@ import { createWorktree, executeLaunch, launch, planLaunch, removeWorktree, resu
 import { $ } from "bun";
 import { FIFO } from "../src/fifo";
 import * as daemon from "../src/daemon";
-import { unlinkSync, existsSync, rmSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { unlinkSync, existsSync, rmSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 import { relative, resolve } from "path";
 import { shellEscape } from "../src/shell";
@@ -223,7 +223,37 @@ describe("launch", () => {
     expect(tempPointerWarning(`${"x".repeat(700)} output goes to /tmp/out.log`)).toBeUndefined();
   });
 
-  test("planLaunch with --worktree targets a sibling worktree and records the source", () => {
+  test("planLaunch with --worktree targets a sibling worktree, records the source, and keeps results in the source repo", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
+    await $`git -C ${TEST_PROJECT} init -q`.quiet();
+    await $`git -C ${TEST_PROJECT} -c user.email=t@t -c user.name=t commit -q --allow-empty -m init`.quiet();
+    db = new StateDB(TEST_DB);
+
+    try {
+      const plan = planLaunch({
+        db, agentType: "codex", task: "isolated", projectPath: TEST_PROJECT, parentId: "test-parent", worktree: true,
+      });
+
+      expect(plan.worktreeSource).toBe(TEST_PROJECT);
+      expect(plan.input.projectPath).toBe(worktreePathFor(TEST_PROJECT, plan.sessionId));
+      expect(plan.input.projectPath).toBe(`/tmp/ahelpa-launch-test-project-worktrees/${plan.sessionId}`);
+      // The worktree does not exist yet, and `git worktree remove` would take
+      // its .ahelpa/ along: the results are planned in the source repository.
+      // (realpath: /tmp is /private/tmp on macOS, and the source is reported canonical.)
+      const source = realpathSync(TEST_PROJECT);
+      expect(plan.deliveryRoot).toBe(source);
+      expect(plan.fileHandoff.projectDeliveryDir).toBe(`${source}/.ahelpa`);
+      expect(plan.fileHandoff.sessionDeliveryDir).toBe(`${source}/.ahelpa/${plan.sessionId}`);
+      expect(plan.fileHandoff.sessionDeliveryDir).not.toStartWith(plan.input.projectPath);
+      expect(plan.fileHandoff.compatLink).toBe(`${plan.input.projectPath}/.ahelpa/${plan.sessionId}`);
+      expect(plan.launchCmd).toContain(shellEscape(plan.input.projectPath));
+      expect(plan.launchCmd).toContain(`${source}/.ahelpa/${plan.sessionId}`);
+    } finally {
+      rmSync(`${TEST_PROJECT}-worktrees`, { recursive: true, force: true });
+    }
+  });
+
+  test("planLaunch with --worktree on a source with no main checkout keeps results in the worktree", () => {
     mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
 
@@ -231,11 +261,9 @@ describe("launch", () => {
       db, agentType: "codex", task: "isolated", projectPath: TEST_PROJECT, parentId: "test-parent", worktree: true,
     });
 
-    expect(plan.worktreeSource).toBe(TEST_PROJECT);
-    expect(plan.input.projectPath).toBe(worktreePathFor(TEST_PROJECT, plan.sessionId));
-    expect(plan.input.projectPath).toBe(`/tmp/ahelpa-launch-test-project-worktrees/${plan.sessionId}`);
-    expect(plan.fileHandoff.sessionDeliveryDir).toStartWith(plan.input.projectPath);
-    expect(plan.launchCmd).toContain(shellEscape(plan.input.projectPath));
+    expect(plan.deliveryRoot).toBeUndefined();
+    expect(plan.fileHandoff.sessionDeliveryDir).toBe(`${plan.input.projectPath}/.ahelpa/${plan.sessionId}`);
+    expect(plan.fileHandoff.compatLink).toBeNull();
   });
 
   test("planLaunch with --after links the previous hand and rejects an unknown one", () => {
@@ -337,6 +365,8 @@ describe("launch", () => {
     expect(plan.launchCmd).toContain(" -s workspace-write -a never");
     expect(plan.launchCmd).not.toContain("--dangerously-bypass");
     expect(plan.launchCmd).not.toContain("--dangerously-skip-permissions");
+    // Results are inside the project here; nothing outside needs granting.
+    expect(plan.launchCmd).not.toContain("--add-dir");
   });
 
   test("planLaunch passes model and effort to the driver launch command", () => {

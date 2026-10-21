@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
@@ -21,7 +21,7 @@ async function runFixture(scenario: string, agent = "codex", integration = false
   const projectRoot = join(root, "project");
   mkdirSync(join(projectRoot, "tests", "fixtures", "closure"), { recursive: true });
   writeFileSync(cliPath, `#!/usr/bin/env bun
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 const root = process.env.CLOSURE_TEST_ROOT;
 const scenario = process.env.CLOSURE_TEST_SCENARIO;
@@ -53,8 +53,13 @@ switch (command) {
     sessions[id] = { id, project, task, marker, role, model, effort, status: scenario === "reaped" ? "idle" : "draining",
       agentResumeId: scenario === "missing-native-id" ? null : "session_fixture" };
     save();
-    const delivery = join(project, ".ahelpa", id);
+    // A linked worktree keeps its results in the main checkout and a link in the project.
+    const delivery = scenario === "linked-results" ? join(root, "main", ".ahelpa", id) : join(project, ".ahelpa", id);
     mkdirSync(delivery, { recursive: true });
+    if (scenario === "linked-results") {
+      mkdirSync(join(project, ".ahelpa"), { recursive: true });
+      symlinkSync(delivery, join(project, ".ahelpa", id));
+    }
     if (scenario !== "marker-echo") {
       writeFileSync(join(delivery, "summary.md"), scenario === "wrong-summary" ? "wrong\\n" : completionMarker + "\\n");
     }
@@ -153,7 +158,7 @@ exit 1
   ]);
   const calls = readFileSync(join(root, "calls.jsonl"), "utf8")
     .trim().split("\n").map((line): { command: string; args: string[]; home: string; runtime: string } => JSON.parse(line));
-  return { exitCode, stdout, stderr, calls, evidenceDir: integration ? join(calls[0].home, "..") : evidenceDir };
+  return { exitCode, stdout, stderr, calls, root, evidenceDir: integration ? join(calls[0].home, "..") : evidenceDir };
 }
 
 describe("closure gate", () => {
@@ -168,6 +173,16 @@ describe("closure gate", () => {
     expect(result.calls[0].args.join(" ")).toContain("summary.md");
     expect(result.calls.find((call) => call.command === "kill")?.args)
       .toEqual(["codex-worker-fixture", "--token", "fixture-token"]);
+  });
+
+  test("a linked worktree's results are kept as evidence and removed from the main checkout, not only the link", async () => {
+    const result = await runFixture("linked-results");
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(join(result.evidenceDir, "result-codex-worker", "summary.md"), "utf8")).toBe("gate-codex-worker\n");
+    const launch = result.calls.find((call) => call.command === "launch")!;
+    const project = launch.args[launch.args.indexOf("--project") + 1];
+    expect(existsSync(join(result.root, "main", ".ahelpa", "codex-worker-fixture"))).toBe(false);
+    expect(lstatSync(join(project, ".ahelpa", "codex-worker-fixture"), { throwIfNoEntry: false })).toBeUndefined();
   });
 
   test("exercises Claude worker explicitly with independent evidence", async () => {

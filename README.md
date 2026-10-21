@@ -145,6 +145,8 @@ Completed sessions keep their status, logs, and resume metadata after the helper
 | `<recipient-project>/.ahelpa/<id>/inbox/` | Peer message files |
 | `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` | Peer delivery ledger |
 
+For a helper in a linked git worktree (`--worktree`, or `--project` on one), `<project>` is the main checkout, so `git worktree remove` cannot delete these files; a link at the worktree's own `.ahelpa/<id>` works while the worktree lives.
+
 For isolated tests or automation, set `AHELPA_HOME` to override the state/archive directory and `AHELPA_TMP_DIR` to override FIFO/task-file storage. These overrides are passed into helper tmux sessions so nested ahelpa calls stay isolated; they do not change the helper CLI's OS home or credential directories.
 
 ## Security Posture

@@ -9,7 +9,7 @@ import { detectSentinelOutcome } from "./sentinels";
 import { findModelChoice, parseModelMenuChoices, waitForOutput } from "./model-menu";
 import { restoreCodexConfig, snapshotCodexConfig } from "./codex-config";
 import { getCodexCapabilities } from "./codex-capabilities";
-import { resolve } from "path";
+import { join, resolve } from "path";
 
 function codexNeedsSubmitNudge(captureOutput: string): boolean {
   return isTaskInstructionEcho(captureOutput)
@@ -292,11 +292,23 @@ function freshModelConfirmation(output: string, model: string, baseline: ModelEv
   return occurrences(events) > occurrences(baseline) ? latest.text : undefined;
 }
 
+function sessionDir(opts: LaunchOptions & { sessionId: string }): string {
+  return opts.deliveryDir ?? defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId);
+}
+
 function notifyArgs(opts: LaunchOptions & { resumeId?: string }): string[] {
   if (!opts.sessionId) return [];
-  const command = turnHookCommand(defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "codex", opts.resumeId);
+  const command = turnHookCommand(sessionDir({ ...opts, sessionId: opts.sessionId }), "codex", opts.resumeId);
   // JSON string arrays are valid TOML basic-string arrays; shell-quote once.
   return ["-c", shellEscape(`notify=${JSON.stringify(command)}`)];
+}
+
+// A linked worktree's results live in the main checkout, outside the
+// workspace-write sandbox; without this a safe helper cannot write its summary.
+function resultDirArgs(opts: LaunchOptions): string[] {
+  if (!opts.safe || !opts.sessionId) return [];
+  const dir = sessionDir({ ...opts, sessionId: opts.sessionId });
+  return dir === join(opts.cwd, ".ahelpa", opts.sessionId) ? [] : ["--add-dir", shellEscape(dir)];
 }
 
 export const codexDriver: AgentDriver = {
@@ -335,7 +347,7 @@ export const codexDriver: AgentDriver = {
     const executable = capabilities.executable ? shellEscape(capabilities.executable) : "codex";
     // Shared servers outlive terminal clients. Keep supported Codex versions
     // inside ahelpa's tmux lifecycle, including sessions without effort overrides.
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...notifyArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
+    const args = [...postureArgs(opts.safe), ...resultDirArgs(opts), ...modelArgs(opts), ...notifyArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
     return `cd ${shellEscape(cwd)} && ${executable} ${args.join(" ")}`;
   },
 
@@ -343,7 +355,7 @@ export const codexDriver: AgentDriver = {
     const cwd = resolve(opts.cwd);
     const capabilities = getCodexCapabilities(cwd);
     const executable = capabilities.executable ? shellEscape(capabilities.executable) : "codex";
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts), ...notifyArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
+    const args = [...postureArgs(opts.safe), ...resultDirArgs(opts), ...modelArgs(opts), ...notifyArgs(opts), ...(capabilities.noDaemon ? ["--no-daemon"] : [])];
     return `cd ${shellEscape(cwd)} && ${executable} resume ${shellEscape(opts.resumeId)} ${args.join(" ")}`;
   },
 

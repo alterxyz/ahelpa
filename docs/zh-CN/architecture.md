@@ -35,10 +35,10 @@ SQLite 建表和 schema 迁移在同一个 immediate transaction 内执行。CLI
 
 `needs_attention` 也涵盖 Codex 容量不足（`reason: "model_capacity"`）或明确的用量限制（`reason: "usage_limit"`）。检测要求错误行从第零列开始（`■`，或 Codex 0.154 容量提示使用的 `⚠`），随后出现空闲输入框，且没有后续工作证据。daemon 需在同一 session version 的连续两次轮询中确认相同原因，给草稿／新任务过渡帧留出消失的时间；当前回合的暗号仍优先。`check` 和 `wait` 会在可用时附带归档中的 `reason`，`status` 也会显示原因。仅当返回条目为 `needs_attention` 且原因为 `model_capacity` 或 `usage_limit` 时，`wait` 才以退出码 1 结束；其他原因、没有原因的 attention 结果及其他状态仍返回 0。不自动重试。容量或额度恢复后，可以重新启动，或通过 `ahelpa send <id> --token <token> "continue"` 发送后续指令（token 为占位符）。
 
-1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid12}`）和 owner token。在 SQLite immediate transaction 中检查调用方和嵌套限制，并预留 session，记录 parent、job、适用时的 resume 关联，以及启动进程标记。之后才创建 worktree、tmux session 或交接文件，通过所选 driver 提交第一轮任务。因此 helper 读取任务前已能找到自身记录。任务准备和 FIFO 创建完成后，仅当记录仍为 `running` 且启动 PID 仍属于本进程时，launch 才清除标记，并在需要时启动 daemon。tmux 创建完成后也会立即检查预留记录。预留记录被 kill 或删除时，启动取消，返回取消错误，并回收本次启动创建的资源。投递已可见、但尚未确认新回合时，会返回 warning，并把 helper 保留为 `needs_attention`。启动失败会回滚预留记录、tmux session、FIFO、交接文件及本次创建的 worktree。Resume 同样在外部副作用前执行这条检查并预留的路径，在事务内重新读取来源记录及当前 parent/resume 祖先关系；来源记录已被删除时拒绝恢复。
+1. **Launch**：`launch` 生成 session ID（`{driver-prefix}-{uuid12}`）和 owner token。在 SQLite immediate transaction 中检查调用方和嵌套限制，并预留 session，记录 parent、job、适用时的 resume 关联，以及启动进程标记。之后才创建 worktree、tmux session 或交接文件，通过所选 driver 提交第一轮任务。因此 helper 读取任务前已能找到自身记录。任务准备和 FIFO 创建完成后，仅当记录仍为 `running` 且启动 PID 仍属于本进程时，launch 才清除标记，并在需要时启动 daemon。tmux 创建完成后也会立即检查预留记录。预留记录被 kill 或删除时，启动取消，返回取消错误，并回收本次启动创建的资源。投递已可见、但尚未确认新回合时，会返回 warning，并把 helper 保留为 `needs_attention`。启动失败会回滚预留记录、tmux session、FIFO、交接文件、结果链接及本次创建的 worktree。Resume 同样在外部副作用前执行这条检查并预留的路径，在事务内重新读取来源记录及当前 parent/resume 祖先关系；来源记录已被删除时拒绝恢复。
 2. **任务投递**：driver 的 `prepareForTask` 处理 agent-specific 启动流程，例如 ready 检查和 trust prompt。随后通过 `tmux send-keys` 发送任务指令，告诉 helper 读取哪个任务文件、把结果写到哪里。
 3. **提交后准备**：driver 的 `afterTaskSubmitted` hook 处理第一条消息后的 agent-specific 确认。Kimi 只有在收到该消息后才会创建原生 `session_*` ID，因此 launch 流程会在这里捕获 resume token。
-4. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`，完成后打印暗号。
+4. **执行**：helper 读取任务文件，在目标项目目录工作，把结果写到 `.ahelpa/<session-id>/summary.md`，支撑文件放到 `artifacts/`（linked git worktree 中这是主 checkout 的 `.ahelpa/`，在 session 记录里存为 `delivery_root`；worktree 存在期间，项目路径下的链接继续提供旧位置），完成后打印暗号。
 5. **Settlement**：daemon 或 inline refresh 捕获 tmux 输出，通过 driver 检测暗号，并转换 session 状态。settlement 是一次性动作：更新 SQLite、保存 archive snapshot、通知 FIFO、清理 pipe。
 6. **Wakeup**：`wait` 收到 FIFO 事件后返回，调用者从文件交接目录读取结果。
 7. **运行时清理**：成功完成后，driver 请求正常退出，daemon 在 `draining` 期间记录 resume token，最多等待 15 秒后回收 tmux session，再将状态恢复为 `idle`。`wait` 在 draining 期间也返回 `idle`。清理只移除临时运行文件，SQLite 中的结果、owner token 和 resume 元数据仍保留，因此之后的 `wait`、`logs`、`resume` 仍可用。显式运行 `clean` 才会删除 tmux 已消失的结算记录；draining 和 attention 状态不在清理范围内。
@@ -73,7 +73,7 @@ idle/dead + 原生 resume token ── resume ─► needs_attention ── send
 | 方向 | 机制 |
 | --- | --- |
 | Host → helper | `/tmp/ahelpa/ahelpa-task-<id>.md` 任务文件 |
-| Helper → host | `<project>/.ahelpa/<id>/summary.md` 和 `artifacts/` |
+| Helper → host | `<project>/.ahelpa/<id>/summary.md` 和 `artifacts/`（linked worktree 的 `<project>` 是主 checkout） |
 | Helper → job peer | `<recipient-project>/.ahelpa/<to-id>/inbox/<seq>-from-<from-id>.md` |
 | 完成信号 | stdout 中的暗号行：`[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP]` |
 
@@ -83,7 +83,7 @@ idle/dead + 原生 resume token ── resume ─► needs_attention ── send
 
 `mail` 按 `AHELPA_PARENT_ID` 对应的现存 SQLite session 识别发送方，不使用 `AHELPA_JOB_ID` 或 owner token。收发双方必须是同一非空已保存 job 内的 running 非 reviewer。`--peers` 排除带启动预留标记的 session 和直接 parent/child（resume 链及其分支视为同一血缘节点）；显式指定这些收件人也会被拒绝。Host 对 child 使用带 token 的 `send`/`task`，child 通过 summary 和暗号协议向 host 报告。Host mail、已结算发送方和已结算收件方都会被拒绝。Daemon 未运行时，`mail` 会像 `check` 一样在投递前 inline refresh session 状态。`inbox` 列出调用 session 的全部消息及已读状态；`--read <seq>` 先将正文中每一处 `[AHELPA:` 替换为 `[AHELPA_:`，再给每行加上 `> ` 前缀后显示（末尾换行不额外生成空引用行），并标记已读。两种 mail 输入方式都会拒绝正文中能被现有暗号扫描器识别的行。
 
-投递先写临时文件，再 rename 到收件方自己项目的结果目录。序号按收件人递增；孤儿序号文件会保留并跳过，跳过的序号记在 ledger notes 中。`--file` 限于 1 MiB 的有效 UTF-8；检查项目 `.ahelpa` 到 inbox 和 ledger 目录的每一级，拒绝符号链接和非目录。符号链接形式的 ledger 和消息文件也会被拒绝；读取失败不标记已读。每次投递向 `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` 追加 `{ts, from, to, seq, bytes}`；跨 worktree 的 job 因此在各发送方项目内保存 ledger。Launch/resume 用 `readPositiveInt` 从启动方环境解析 `AHELPA_MAIL_BUDGET`，保存在预留 session 记录中；调用方自身为 helper 时，上限不得超过调用方已保存预算（旧版记录按 8）。`mail` 只使用保存的预算（旧版记录默认为 8），此设置不会导出到 helper 环境中。无效值回退到 8；解析接受至少为 1 的有限十进制整数前缀，详见[使用说明](usage.md#在-job-内交换-peer-mail)。广播按每个收件人占一个名额，切换项目或 ledger 位置不会重置预算。Resume 创建新的 session，使用全新 inbox 和尚未消耗的预算，预算按恢复调用方环境重新解析。有通信时，`wait` evidence 包含 `peerMail: { sent, received }`，不受已读状态影响。
+投递先写临时文件，再 rename 到收件方自己的结果目录（它的项目；linked worktree 则是主 checkout）。序号按收件人递增；孤儿序号文件会保留并跳过，跳过的序号记在 ledger notes 中。`--file` 限于 1 MiB 的有效 UTF-8；检查保存该 session 结果的 `.ahelpa` 到 inbox 和 ledger 目录的每一级，拒绝符号链接和非目录。符号链接形式的 ledger 和消息文件也会被拒绝；读取失败不标记已读。每次投递向 `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` 追加 `{ts, from, to, seq, bytes}`；同一仓库多个 linked worktree 上的 job 因此在主 checkout 中只有一份 ledger，跨越互不相关项目的 job 则在各发送方项目内各保存一份。Launch/resume 用 `readPositiveInt` 从启动方环境解析 `AHELPA_MAIL_BUDGET`，保存在预留 session 记录中；调用方自身为 helper 时，上限不得超过调用方已保存预算（旧版记录按 8）。`mail` 只使用保存的预算（旧版记录默认为 8），此设置不会导出到 helper 环境中。无效值回退到 8；解析接受至少为 1 的有限十进制整数前缀，详见[使用说明](usage.md#在-job-内交换-peer-mail)。广播按每个收件人占一个名额，切换项目或 ledger 位置不会重置预算。Resume 创建新的 session，使用全新 inbox 和尚未消耗的预算，预算按恢复调用方环境重新解析。有通信时，`wait` evidence 包含 `peerMail: { sent, received }`，不受已读状态影响。
 
 非 reviewer 的 job 任务文件给出 job ID、发现同伴用的 `check --job <id>`、mail/inbox 命令，以及验证前和发信号前的 inbox 检查点。Peer 消息可以询问、告知或提示，但不能重新分配工作、改变验收要求或让收件方停止；超出任务范围的消息记在 `summary.md` 的 "Peer messages" 下。Reviewer 不接收 peer-mail 合同段落，也不能发送或接收。没有终端注入、inbox nudge、自动回复、共享 transcript 或 peer `NEED_HELP` 通道。
 

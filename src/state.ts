@@ -41,6 +41,10 @@ export interface SessionRecord {
   // Resume keeps the original baseline and excludes every delivery directory
   // in that native conversation, even if old session rows are later reaped.
   targetResultDirs?: string[] | null;
+  // The checkout that holds <deliveryRoot>/.ahelpa/<id>/ when that is not the
+  // project (a linked worktree's results live in the main checkout). Null: the
+  // project itself, as for every session launched before this column existed.
+  deliveryRoot?: string | null;
   unblind?: boolean;
   turnHookOffset?: number | null;
   turnStartedAt?: string | null;
@@ -70,6 +74,7 @@ export interface CreateSessionInput {
   launchPid?: number | null;
   targetFingerprint?: TargetFingerprint | null;
   targetResultDirs?: string[] | null;
+  deliveryRoot?: string | null;
   unblind?: boolean;
   mailBudget?: number | null;
 }
@@ -111,6 +116,7 @@ interface SessionRow {
   launch_pid: number | null;
   target_fingerprint: string | null;
   target_result_dirs: string | null;
+  delivery_root: string | null;
   unblind: string | null;
   turn_hook_offset: number | null;
   turn_started_at: string | null;
@@ -150,6 +156,7 @@ function rowToRecord(row: SessionRow): SessionRecord {
     launchPid: row.launch_pid,
     targetFingerprint: row.target_fingerprint ? JSON.parse(row.target_fingerprint) : null,
     targetResultDirs: row.target_result_dirs ? JSON.parse(row.target_result_dirs) : null,
+    deliveryRoot: row.delivery_root,
     unblind: row.unblind === "true",
     turnHookOffset: row.turn_hook_offset,
     turnStartedAt: row.turn_started_at,
@@ -243,7 +250,7 @@ export class StateDB {
         }
         // Migration: acceptance command, launch baseline, and hand lineage for evidence.
         // job_id groups the hands of one change so they can be checked and awaited together.
-        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history", "turn_in_flight"]) {
+        for (const column of ["check_cmd", "base_commit", "after_id", "nudged_at", "job_id", "target_fingerprint", "target_result_dirs", "delivery_root", "unblind", "turn_started_at", "turn_input_digest", "turn_input_history", "turn_in_flight"]) {
           if (!columns.some((existing) => existing.name === column)) {
             this.db.exec(`ALTER TABLE sessions ADD COLUMN ${column} TEXT`);
           }
@@ -284,8 +291,8 @@ export class StateDB {
     const now = new Date().toISOString();
     const depth = input.depth ?? 1;
     this.db.prepare(`
-      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id, launch_pid, target_fingerprint, target_result_dirs, unblind, mail_budget)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sessions (id, parent_id, agent_type, task, status, owner_token, project_path, created_at, updated_at, label, depth, resumed_from, model, effort, safe, role, check_cmd, base_commit, after_id, job_id, launch_pid, target_fingerprint, target_result_dirs, delivery_root, unblind, mail_budget)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       input.id,
       input.parentId,
@@ -310,6 +317,7 @@ export class StateDB {
       input.launchPid ?? null,
       input.targetFingerprint ? JSON.stringify(input.targetFingerprint) : null,
       input.targetResultDirs ? JSON.stringify(input.targetResultDirs) : null,
+      input.deliveryRoot ?? null,
       input.unblind === undefined ? null : String(input.unblind),
       input.mailBudget ?? null,
     );

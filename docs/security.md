@@ -23,9 +23,9 @@ The hook protects the log file against symlinks and hardlinks, but does not prot
 ## Practical Mitigations
 
 - **Scope with `--project`.** Point helpers at the smallest useful working directory. This sets cwd and the intended task boundary; it is not a filesystem sandbox. In review prompts, explicitly forbid unrelated home directories, global `~/.ahelpa/archive`, and other projects unless the task truly requires them.
-- **Use git worktrees.** For risky or experimental tasks, launch helpers into throwaway worktree copies. This limits blast radius without restricting helper capability.
+- **Use git worktrees.** For risky or experimental tasks, launch helpers into throwaway worktree copies. This limits blast radius without restricting helper capability. A linked worktree's results are written outside it, into the main checkout's `.ahelpa/<session-id>/` (keep `.ahelpa/` git-ignored there too); under `--safe`, Codex and Claude are granted exactly that directory, and Kimi is granted nothing extra.
 - **Keep secrets out of task prompts.** Task files are written to `/tmp/ahelpa/` and are readable by the local user. Don't embed credentials, API keys, or sensitive data in task descriptions.
-- **Keep secrets out of result artifacts.** Helpers write to `.ahelpa/<session-id>/` in the project directory. Review results before committing or sharing.
+- **Keep secrets out of result artifacts.** Helpers write to `.ahelpa/<session-id>/` in the project directory, or in the main checkout when the project is a linked worktree. Review results before committing or sharing.
 - **Don't commit runtime artifacts.** `.ahelpa/` directories, local databases, logs, and build output should stay git-ignored.
 
 ## Owner Token Boundaries
