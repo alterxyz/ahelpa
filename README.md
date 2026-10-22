@@ -87,8 +87,11 @@ For longer tasks, use `ahelpa launch codex --file ./task.md`. Choose exactly one
 | `claude-code` | `claude` |
 | `codex` | `codex` |
 | `kimi` | `kimi` |
+| `dsh` | `dsh` (DeepSeek Harness) |
 
-Verify prerequisites with `command -v claude`, `command -v codex`, or `command -v kimi` — the Claude helper type name is not its binary name.
+Verify prerequisites with `command -v claude`, `command -v codex`, `command -v kimi`, or `command -v dsh` — the Claude helper type name is not its binary name.
+
+DSH support targets `@deepseek-ai/dsh@0.2.1-rc.2`. ahelpa creates a separate `ahelpa` profile and a session-local terminal app; existing Desktop/Web profiles and credentials are preserved. Start with `ahelpa launch dsh --task "Review the parser" --project /path/to/project`. See [DSH setup and limitations](skill/references/dsh.md) for installation, authentication, and native resume. This is a new integration under observation; `--safe` and runtime model switching are not supported.
 
 ### Roles and defaults
 
@@ -99,14 +102,16 @@ Verify prerequisites with `command -v claude`, `command -v codex`, or `command -
 | `claude-code` | `advisor` (default) | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |
+| `dsh` | `worker` (default) | `deepseek-flash` | `high` |
+| `dsh` | `reviewer` | `deepseek-flash` | `high` |
 
-Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Use `reviewer` for read-only adversarial review; its task contract forbids modifying files outside the result directory. Codex rejects `advisor`. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
+Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Use `reviewer` for read-only adversarial review; its task contract forbids modifying files outside the result directory. Codex and DSH reject `advisor`. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, or `kimi`); `--after` chains hands, and explicit `--role reviewer` adds blind review and target evidence; `--scope` reports changes outside the given globs in `wait` evidence |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, `kimi`, or `dsh`); `--after` chains hands, and explicit `--role reviewer` adds blind review and target evidence; `--scope` reports changes outside the given globs in `wait` evidence |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh and caller relationship |
 | `models [agent]` | List launch-time model options |
@@ -151,7 +156,7 @@ For isolated tests or automation, set `AHELPA_HOME` to override the state/archiv
 
 ## Security Posture
 
-Helpers run with the same local user permissions as the host process by default. Use `--project` to constrain working directories, `--safe` to omit or bound default danger flags, git worktrees for risky tasks, and keep secrets out of task prompts and result artifacts. On Kimi's first launch in a directory, ahelpa automatically selects **Trust this folder**; that trust persists in Kimi and allows the directory's project MCP servers. This happens with or without `--safe`. For Kimi, `--safe` only omits `--yolo` and restores native approvals; it is not a sandbox. On Codex 0.163+, ahelpa also accepts the one-time "Folder access" prompt for the git repository root, with or without `--safe`, and Codex keeps that trust. See [docs/security.md](docs/security.md) for details.
+Helpers run with the same local user permissions as the host process by default. Use `--project` to constrain working directories, `--safe` where supported to omit or bound default danger flags, git worktrees for risky tasks, and keep secrets out of task prompts and result artifacts. DSH currently rejects `--safe`; its terminal profile runs with full local permissions. On Kimi's first launch in a directory, ahelpa automatically selects **Trust this folder**; that trust persists in Kimi and allows the directory's project MCP servers. This happens with or without `--safe`. For Kimi, `--safe` only omits `--yolo` and restores native approvals; it is not a sandbox. On Codex 0.163+, ahelpa also accepts the one-time "Folder access" prompt for the git repository root, with or without `--safe`, and Codex keeps that trust. See [docs/security.md](docs/security.md) for details.
 
 ## Development
 
@@ -162,7 +167,7 @@ bun test                       # Unit tests
 bun run build                  # Compile binary to dist/
 bun run package:skill          # Build skill package with runtime bundle
 bash scripts/deploy-local.sh   # Install runtime + global hard-copy skills
-bun run closure:gate           # End-to-end gate (Claude Code + Codex; AHELPA_GATE_KIMI=1 adds Kimi)
+bun run closure:gate           # End-to-end gate (Claude Code + Codex; AHELPA_GATE_KIMI=1 / AHELPA_GATE_DSH=1 opt in)
 ```
 
 The repository does not track compiled bundles — they are generated artifacts ignored by git.

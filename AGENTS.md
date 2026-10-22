@@ -26,7 +26,7 @@ Instructions for agents working on the ahelpa codebase.
 - `src/cli.ts` — process entry point
 - `src/command-contract.ts` — command registry (single source of truth for CLI surface)
 - `src/commands/` — launch, wait, session-ops
-- `src/drivers/` — agent-specific adapters (claude-code, codex, kimi)
+- `src/drivers/` — agent-specific adapters (claude-code, codex, kimi, dsh)
 - `tests/` — Bun test suite
 - `scripts/` — build, deploy, packaging, closure gate
 - `skill/` — skill package source (docs + generated bundle during local packaging)
@@ -67,7 +67,7 @@ Before closing local runtime work:
 bun run closure:gate
 ```
 
-The gate runs tests, typechecks, builds, and launches Claude Code and Codex; Kimi is shelved and runs only with `AHELPA_GATE_KIMI=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
+The gate runs tests, typechecks, builds, and launches Claude Code and Codex; DSH runs with `AHELPA_GATE_DSH=1`, and shelved Kimi runs only with `AHELPA_GATE_KIMI=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. DSH also verifies native resume and context continuity. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
 
 ## Open Work
 

@@ -144,29 +144,37 @@ On the next refresh, an accepted event without a current-turn sentinel triggers 
 | [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) | Check the advertised `loadSession` capability before attempting native resume. |
 | [Claude hooks](https://code.claude.com/docs/en/hooks) | `Stop`, `StopFailure`, and `SessionEnd` represent different lifecycle events. A finished response alone does not prove the assigned task succeeded. |
 
-The current implementation keeps tmux and file handoff. Adopting these transports requires a supervised process that outlives the caller, capability negotiation, approval handling, cancellation, and reconnection tests. Add one driver at a time behind the existing command contract. Before making it the default, verify launch, interruption, restart, native resume, and result delivery; keep the same owner-token and safe-mode guarantees. Structured transports are a follow-up design direction, not an implemented feature of this release.
+The current implementation keeps tmux and file handoff. Adopting these transports requires a supervised process that outlives the caller, capability negotiation, approval handling, cancellation, and reconnection tests. Add one driver at a time behind the existing command contract. Before making it the default, verify launch, interruption, restart, native resume, and result delivery; keep the same owner-token and safe-mode guarantees. These external structured transports remain a follow-up design direction; the DSH adapter below uses in-process APIs instead.
 
 ### Current terminal drivers
 
-Optional driver `launchProfiles` define supported roles and their default model/effort. `launch-profiles.ts` resolves the role and explicit overrides once during launch planning. The resulting role, model, and effort are stored with the session and returned to the host. Claude supports `advisor` (default) and `worker`; Codex only supports `worker`; Kimi leaves the role unset and retains native model defaults. Roles do not alter task instructions or permissions. Resume uses the stored settings directly, including unknown values in legacy records, and never reapplies current launch presets.
+Optional driver `launchProfiles` define supported roles and their default model/effort. `launch-profiles.ts` resolves the role and explicit overrides once during launch planning. The resulting role, model, and effort are stored with the session and returned to the host. Claude supports `advisor` (default), `worker`, and `reviewer`; Codex and DSH support `worker` (default) and `reviewer`; Kimi leaves the role unset and retains native model defaults. Roles select defaults and the reviewer task contract, without changing permissions. Resume uses the stored settings directly, including unknown values in legacy records, and never reapplies current launch presets.
 
 Drivers encapsulate agent-specific terminal behavior so that launch orchestration stays generic. A driver defines:
 
 | Responsibility | Example |
 | --- | --- |
-| Session prefix | `claude`, `codex`, `kimi` |
+| Session prefix | `claude`, `codex`, `kimi`, `dsh` |
 | Launch command | `claude --dangerously-skip-permissions --verbose`, `codex --dangerously-bypass-approvals-and-sandbox`, `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` |
 | Pre-task readiness | Wait for CLI to be ready, handle trust prompts |
 | Post-submission handling | Press Enter if needed; capture a newly created native session ID |
-| Sentinel detection | Delegates to shared sentinel matching in `src/drivers/sentinels.ts` |
+| Sentinel detection | Shared sentinel matching in `src/drivers/sentinels.ts`, or DSH adapter state markers |
 
-The supported drivers are `claude-code`, `codex`, and `kimi`. All three share the same sentinel protocol and file handoff paths — they differ only in startup commands and interactive prompt handling. On Kimi's first launch in a directory, its driver automatically selects **Trust this folder**. Kimi persists that trust and may then start project MCP servers from the directory. Kimi initially shows no native session ID; after the first task message creates a `session_*` ID, ahelpa records it and resumes with `kimi --session <id>`.
+The supported drivers are `claude-code`, `codex`, `kimi`, and `dsh`. They share the task/result file contract and helper completion signals, with driver-specific startup and state detection. On Kimi's first launch in a directory, its driver automatically selects **Trust this folder**. Kimi persists that trust and may then start project MCP servers from the directory. Kimi initially shows no native session ID; after the first task message creates a `session_*` ID, ahelpa records it and resumes with `kimi --session <id>`.
 
 `launch --safe` passes a safe-mode hint into the selected driver and stores it with the session. Native resume inherits that posture; `resume --safe` can upgrade a default-posture record, but an omitted flag cannot downgrade a safe one. Claude Code omits `--dangerously-skip-permissions`; Codex uses `-s workspace-write -a never` instead of `--dangerously-bypass-approvals-and-sandbox`; Kimi omits `--yolo` and therefore restores its native approval flow. Kimi still automatically trusts the project directory in safe mode, so its safe mode is not a sandbox; Codex's "Folder access" prompt is likewise answered in safe mode (see [security](security.md)).
 
 Kimi sets the canonical `KIMI_CODE_NO_AUTO_UPDATE=1` flag so a CLI self-update cannot interrupt its persistent tmux session. It starts without a model flag by default and uses the default from its `config.toml`. A launch-time `--model` value must exactly match a complete alias already configured there; resume reuses it when present. Kimi does not support `--effort` or runtime `ahelpa model` switching.
 
 After Kimi prints `[AHELPA:DONE]`, `resume` is rejected while the old helper is draining. The host can wait for daemon reclamation until `check` reports `idle` and the terminal is gone, or explicitly `kill` the helper, then resume. All settled records are retained until `clean`; completed and legacy dead records with an `agentResumeId` can be resumed. `clean` deletes settled records and their resume metadata only after the terminal is gone; it preserves live, draining, and attention sessions. Persistence means reconnecting the native Kimi session in a new tmux session, not preserving the original tmux process indefinitely.
+
+### DSH terminal profile
+
+DSH `0.2.1-rc.2` ships Web, headless, SDK, and ACP entry profiles without a built-in TUI. The driver creates a separate base-backed `DSH_HOME/profiles/ahelpa` if absent and leaves existing profile files and credentials intact. It writes a Cordis terminal app and a `--patch` overlay into each session's delivery directory, then launches `dsh --profile ahelpa --patch <overlay>` inside tmux. The base profile alone has no terminal UI; start it through `ahelpa launch dsh`.
+
+The app uses the public Agent/Session APIs directly, retaining one DSH process and native session context across turns. It emits adapter state and turn markers for driver readiness, submission confirmation, and settlement, and records a native session ID for resume in a new process. This does not introduce an ACP/SDK transport or a third-party TUI. The existing owner-token, file handoff, wait/check, and cleanup paths remain in charge.
+
+The adapter uses the shared `DSH_HOME` (default `~/.dsh`) and stored Web credentials or `DEEPSEEK_API_KEY`. Its launch overlay disables the session-log contributor, and its environment disables OTel upload; provider model requests continue normally. DSH runs with full local permissions and explicitly rejects `--safe` and runtime model switching. Both `worker` and `reviewer` default to `deepseek-flash`/`high`; launch accepts native model IDs and `off|low|high|max` effort. This is a new integration under observation; future CLI releases are unverified. See [DSH reference](../skill/references/dsh.md).
 
 ## Nesting
 

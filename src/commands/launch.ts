@@ -500,7 +500,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
       ? await computeTargetFingerprint(plan.input.projectPath, resultDirsOf(plan.fileHandoff), { deadline: Date.now() + LAUNCH_FINGERPRINT_TIMEOUT_MS })
       : null;
     plan.handoffContext.targetFingerprint = targetFingerprint;
-    if (plan.driver.turnHooks) {
+    if (plan.driver.turnHooks || plan.driver.prepareLaunchFiles) {
       mkdirSync(plan.fileHandoff.projectDeliveryDir, { recursive: true });
       mkdirSync(plan.fileHandoff.sessionDeliveryDir);
       handoffOwned = true;
@@ -509,7 +509,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     await Tmux.create(plan.sessionId, plan.launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(plan.input.db, plan.sessionId);
-    // Hook-enabled drivers reserved their delivery directory before startup.
+    // Drivers with startup files reserved their delivery directory before startup.
     // Re-check the separate tmp task path after tmux creation as well.
     if (!handoffOwned) assertFileHandoffAvailable(plan.fileHandoff);
     else if (existsSync(plan.fileHandoff.taskFilePath)) throw new Error("Refusing to overwrite existing task file");
@@ -722,7 +722,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
-    if (driver.turnHooks) {
+    if (driver.turnHooks || driver.prepareLaunchFiles) {
       assertFileHandoffAvailable(fileHandoff);
       mkdirSync(fileHandoff.projectDeliveryDir, { recursive: true });
       mkdirSync(fileHandoff.sessionDeliveryDir);
@@ -732,7 +732,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     await Tmux.create(sessionId, launchCmd);
     tmuxCreated = true;
     assertLaunchReservation(input.db, sessionId);
-    // Hook startup already reserved this directory; the tmp task path remains
+    // Driver startup already reserved this directory; the tmp task path remains
     // separate and must still be checked before copying the original ask.
     if (!handoffOwned) assertFileHandoffAvailable(fileHandoff);
     else if (existsSync(fileHandoff.taskFilePath)) throw new Error("Refusing to overwrite existing task file");

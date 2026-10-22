@@ -138,29 +138,37 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 | [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) | 原生恢复前必须确认 `loadSession` 能力，而不能默认所有 agent 均支持。 |
 | [Claude hooks](https://code.claude.com/docs/en/hooks) | `Stop`、`StopFailure` 和 `SessionEnd` 是不同生命周期事件；一轮回复结束本身不能证明任务成功。 |
 
-当前实现保留 tmux 与文件交接。接入这些传输方式需要能独立于调用方存活的受管进程，以及能力协商、审批处理、取消和重连测试。后续应保留现有命令契约，每次接入一个 driver；成为默认实现前，验证启动、中断、重启、原生恢复和结果交付，并保持 owner token 与 safe mode 的保证。结构化传输是后续设计方向，本版本尚未实现。
+当前实现保留 tmux 与文件交接。接入这些传输方式需要能独立于调用方存活的受管进程，以及能力协商、审批处理、取消和重连测试。后续应保留现有命令契约，每次接入一个 driver；成为默认实现前，验证启动、中断、重启、原生恢复和结果交付，并保持 owner token 与 safe mode 的保证。这些外部结构化传输仍是后续设计方向；下述 DSH 适配器使用进程内 API。
 
 ### 当前终端驱动
 
-Driver 可选的 `launchProfiles` 定义支持的角色及其默认模型/effort。`launch-profiles.ts` 在启动规划时解析一次角色和显式覆盖参数，最终值随 session 存储并返回 host。Claude 支持默认 `advisor` 与 `worker`；Codex 只支持 `worker`；Kimi 保持既有配置，不设置角色。角色不改写任务指令或权限。Resume 直接使用记录中的设置，包括旧记录中的未知值，不重新套用当前启动预设。
+Driver 可选的 `launchProfiles` 定义支持的角色及其默认模型/effort。`launch-profiles.ts` 在启动规划时解析一次角色和显式覆盖参数，最终值随 session 存储并返回 host。Claude 支持默认 `advisor`、`worker` 和 `reviewer`；Codex 与 DSH 支持默认 `worker` 和 `reviewer`；Kimi 保持既有配置，不设置角色。角色选择默认值及 reviewer 任务合同，不改变权限。Resume 直接使用记录中的设置，包括旧记录中的未知值，不重新套用当前启动预设。
 
 Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration 保持通用。
 
 | 职责 | 示例 |
 | --- | --- |
-| Session prefix | `claude`、`codex`、`kimi` |
+| Session prefix | `claude`、`codex`、`kimi`、`dsh` |
 | Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
 | 提交后处理 | 必要时补 Enter；捕获新创建的原生 session ID |
-| 状态检测 | 委托 `src/drivers/sentinels.ts` 的暗号匹配 |
+| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 DSH 适配器状态标记 |
 
-当前支持 `claude-code`、`codex` 和 `kimi`。三者共享暗号协议和文件交接路径，只在启动命令和交互细节上不同。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust this folder**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
+当前支持 `claude-code`、`codex`、`kimi` 和 `dsh`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust this folder**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
 
 `launch --safe` 会把 safe-mode hint 传给选定 driver，并把它写入 session 状态。原生 resume 会继承该姿态；`resume --safe` 可以升级默认姿态记录，但省略参数不会把 safe 记录降级。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`；Kimi 会省略 `--yolo`，从而恢复自身原生审批流程。Kimi 在 safe mode 下仍会自动信任项目目录，因此它的 safe mode 不是 sandbox；Codex 的 "Folder access" 提示在 safe mode 下同样会被应答（见[安全说明](security.md)）。
 
 Kimi 会设置 canonical `KIMI_CODE_NO_AUTO_UPDATE=1`，避免 CLI 自更新中断持久 tmux session。它默认不带模型参数启动，使用其 `config.toml` 中的默认模型。launch 时传入的 `--model` 必须与该文件中已配置的完整 alias 精确匹配；如果存在，resume 会沿用它。Kimi 不支持 `--effort`，也不支持运行中的 `ahelpa model` 切换。
 
 Kimi 打印 `[AHELPA:DONE]` 后，旧 helper 仍在 draining 时 `resume` 会被拒绝。host 可以等待 daemon 回收终端且 `check` 显示 `idle`，也可以显式 `kill` 后再恢复。所有已结算记录都会保留到 `clean`；已完成及旧版 dead 记录只要带有 `agentResumeId` 就可以恢复。`clean` 仅在终端已回收后删除已结算记录及其 resume 元数据；live、draining 和 attention session 会保留。持久性指通过原生 Kimi session 在新 tmux session 中重新连接，而不是无限保留原 tmux process。
+
+### DSH 终端 profile
+
+DSH `0.2.1-rc.2` 提供 Web、headless、SDK 和 ACP 入口 profile，没有内置 TUI。driver 会在缺失时创建独立的、基于 base bundle 的 `DSH_HOME/profiles/ahelpa`，保留已有 profile 文件与凭据。每个会话的交接目录中会生成 Cordis 终端 app 和 `--patch` overlay，再由 tmux 启动 `dsh --profile ahelpa --patch <overlay>`。单独启动 base profile 没有终端界面，请通过 `ahelpa launch dsh` 使用。
+
+该 app 直接使用公开 Agent/Session API，在同一 DSH 进程中保留多轮原生会话上下文。它输出适配器状态与回合标记，供 driver 确认 readiness、任务提交和结算，并记录原生 session ID，以便在新进程中恢复。这不会引入 ACP／SDK 传输或第三方 TUI；owner token、文件交接、wait/check 和清理仍由现有路径管理。
+
+适配器使用共享的 `DSH_HOME`（默认 `~/.dsh`）与已有 Web 凭据或 `DEEPSEEK_API_KEY`。启动 overlay 关闭 session-log contributor，环境变量关闭 OTel 上传；provider 模型请求仍照常发送。DSH 以完整本地权限运行，明确拒绝 `--safe` 和运行时模型切换。`worker` 与 `reviewer` 均默认使用 `deepseek-flash`／`high`；launch 接受原生 model ID 和 `off|low|high|max` effort。此接入仍待观察，未来 CLI 版本未验证。详见 [DSH 接入说明](../../skill/references/dsh.md)。
 
 ## Nesting
 

@@ -169,7 +169,7 @@ For each driver, the gate requires:
 
 Timeouts, echoed task text, and account errors fail the gate. Logs are retained for diagnosis, including when the daemon has already reclaimed tmux. Failed checks also attempt to kill only the helper launched by that run. The printed evidence directory contains the summaries and command results. The gate copies its result directories into that evidence directory before removing its own fixture handoff files, and stops only its isolated daemon.
 
-Kimi also completes a second task after `kill` and `resume`. The gate requires a retained native session ID, a resumed helper waiting in `needs_attention`, and a new summary containing the context marker remembered from the first turn.
+DSH (`AHELPA_GATE_DSH=1`) and Kimi (`AHELPA_GATE_KIMI=1`) also complete a second task after `kill` and `resume`. The gate requires a retained native session ID, a resumed helper waiting in `needs_attention`, and a new summary containing the context marker remembered from the first turn.
 
 To verify an installed binary with the same checks, set an absolute executable path:
 
@@ -177,7 +177,7 @@ To verify an installed binary with the same checks, set an absolute executable p
 AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 ```
 
-**Prerequisite:** All three helper CLIs (`claude`, `codex`, and `kimi`) must be authenticated locally. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
+**Prerequisite:** The helper CLIs selected for the run must be authenticated locally: `claude` and `codex` by default, plus `dsh` or `kimi` when enabled. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
 
 ## Adding a Driver
 

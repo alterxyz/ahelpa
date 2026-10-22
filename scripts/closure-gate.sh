@@ -76,6 +76,9 @@ run_gate() (
   # Bash 3 discards function-local variables before an EXIT trap after a
   # nested function exits, so cleanup state belongs to this subshell scope.
   agent="$1"
+  agent_name="$agent"
+  if [ "$agent" = "kimi" ]; then agent_name="Kimi"; fi
+  if [ "$agent" = "dsh" ]; then agent_name="DSH"; fi
   requested_role="${2:-}"
   expected_role=""
   expected_model=""
@@ -96,6 +99,11 @@ run_gate() (
       expected_model="gpt-6-astra"
       expected_effort="high"
       ;;
+    dsh: | dsh:worker)
+      expected_role="worker"
+      expected_model="deepseek-flash"
+      expected_effort="high"
+      ;;
     kimi:) ;;
     *) fail "Unsupported gate scenario: $agent $requested_role" ;;
   esac
@@ -114,7 +122,7 @@ run_gate() (
   real_delivery=""
   cleaned=0
   wait_seconds=180
-  if [ "$agent" = "kimi" ]; then
+  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ]; then
     context_marker="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
     task="Remember this context marker for our next turn: $context_marker. $task"
     wait_seconds=500
@@ -228,24 +236,28 @@ run_gate() (
   fi
   reclaim_session
 
-  if [ "$agent" = "kimi" ]; then
+  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ]; then
     prior_session="$session_id"
     resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
-    label="kimi-resumed"
+    label="$agent-resumed"
     take_session "$resume_output"
-    if [ "$session_id" = "$prior_session" ]; then fail "Kimi resume reused the old helper ID"; fi
+    if [ "$session_id" = "$prior_session" ]; then fail "$agent_name resume reused the old helper ID"; fi
     if ! check_session_status "$("$CLI" check)" "$session_id" ready; then
-      fail "Kimi resume did not reach needs_attention for a follow-up task"
+      fail "$agent_name resume did not reach needs_attention for a follow-up task"
     fi
-    if [ -e "$delivery/summary.md" ]; then fail "Kimi resumed summary already exists before its new task"; fi
-    expected_marker="gate-kimi-resumed:$context_marker"
-    cat >"$GATE_DIR/kimi-resume-task.md" <<'TASK'
+    if [ -e "$delivery/summary.md" ]; then fail "$agent_name resumed summary already exists before its new task"; fi
+    expected_marker="gate-$agent-resumed:$context_marker"
+    cat >"$GATE_DIR/$agent-resume-task.md" <<'TASK'
 Recall the exact context marker from our prior conversation without reading prior task files, result files, other projects, home directories, or global ahelpa state. Write one line to summary.md in your assigned result directory. Construct it by concatenating the literal prefix `gate-kimi-resumed:` and the remembered UUID, then one newline. There must be NO SPACE after the colon or anywhere in the line. Do not include backticks, quotes, placeholders, or commentary. Before declaring completion, check only the new summary.md for this exact format. Then output [AHELPA:DONE] on its own line. Only write within that assigned result directory.
 TASK
-    "$CLI" task "$session_id" --file "$GATE_DIR/kimi-resume-task.md" --token "$owner_token" >"$GATE_DIR/task-kimi-resumed.txt"
+    if [ "$agent" = "dsh" ]; then
+      sed 's/gate-kimi-resumed:/gate-dsh-resumed:/' "$GATE_DIR/$agent-resume-task.md" >"$GATE_DIR/dsh-task.md"
+      mv "$GATE_DIR/dsh-task.md" "$GATE_DIR/$agent-resume-task.md"
+    fi
+    "$CLI" task "$session_id" --file "$GATE_DIR/$agent-resume-task.md" --token "$owner_token" >"$GATE_DIR/task-$agent-resumed.txt"
     verify_completion
     reclaim_session
-    echo "pass > kimi resume readiness, new turn, and context continuity"
+    echo "pass > $agent resume readiness, new turn, and context continuity"
   fi
   echo "pass > $agent${expected_role:+-$expected_role} ($session_id)"
 )
@@ -275,6 +287,11 @@ run_integration_gate() (
   run_gate claude-code
   run_gate claude-code worker
   run_gate codex
+  if [ "${AHELPA_GATE_DSH:-}" = 1 ]; then
+    run_gate dsh
+  else
+    echo "skip > dsh (set AHELPA_GATE_DSH=1 to include)"
+  fi
   # ponytail: Kimi is shelved; its driver and unit tests stay, its live run is opt-in.
   if [ "${AHELPA_GATE_KIMI:-}" = 1 ]; then
     run_gate kimi

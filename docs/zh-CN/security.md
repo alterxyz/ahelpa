@@ -14,6 +14,8 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未被信任时，会在输入提示符之前询问一次（"Folder access"）。ahelpa 通过按一次 Enter 应答，但只在高亮的第一项是 **Trust and continue** 时才会这样做；任何其他选项，或根目录被标为 `untrusted` 时出现的受限目录界面，都不会被应答，launch 随之失败。随后 Codex 把 `[projects."<root>"]` 及 `trust_level = "trusted"` 持久写入 `CODEX_HOME/config.toml`。这个根目录是仓库根目录（linked worktree 对应主 checkout），可能比 `--project` 范围更大；该信任在 helper 结束后仍然有效，也适用于你自己在那里运行的 `codex`。受信任的目录允许 Codex 加载项目配置、hooks 和 exec 策略，项目配置还可以声明 MCP server 和模型 provider。该步骤在默认模式和 `--safe` 模式下都会执行，所以 `--safe` 不会让不可信仓库变得安全。launch 结果以 `codexTrust` 报告被信任的根目录；之后若 launch 失败，错误信息会写出 "Folder access was accepted for <root>"，因为该信任已经保存；`ahelpa doctor codex` 会提前提示，而在项目中先运行一次 `codex`（或自己把该表加入配置）也能不经过 ahelpa 完成应答。
 
+DSH 以 `DSH_PERMISSION_MODE=danger-full-access` 启动。其终端适配器没有原生审批界面，因此 launch 和 resume 都拒绝 `--safe`。它创建独立的 `ahelpa` profile，不覆盖现有 profile 或凭据。会话 overlay 关闭 session-log 贡献，`DSH_TELEMETRY_DISABLED=1` 关闭 OTel 上传；正常模型请求仍会发送给 provider。共享 home 级 DSH 配置仍然生效。详见 [DSH 接入说明](../../skill/references/dsh.md)。
+
 ## 会话回合 Hooks
 
 Claude 通过 `--settings` 加载 `.ahelpa/<id>/claude-settings.json`，该会话设置文件还写入 `promptSuggestionEnabled: false`，关闭 helper 输入框内的建议文字。Codex 使用仅本次调用生效的 `notify` override。ahelpa 在 launch 和 resume 时自己不编辑 `~/.claude/settings.json` 或 `~/.codex/config.toml`。（ahelpa 应答 Codex 的 "Folder access" 界面后，由 Codex 自己写入信任记录，见上文。）Claude 现有 project/user hooks 仍会与会话 hooks 合并运行。Codex 的 notify override 会替换本次调用原有的 notify 命令；native hooks 及其信任设置不变。

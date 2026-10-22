@@ -1,6 +1,6 @@
 # Helper Profiles
 
-Callee profiles for choosing a helper type, role, model, and contract. They come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. Defaults (model, effort, roles) are in `SKILL.md`; this file only says which to pick and what to put in the task.
+Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. DSH is newly integrated and is not represented in that sample. Defaults (model, effort, roles) are in `SKILL.md`; this file only says which to pick and what to put in the task.
 
 Every profile assumes the task file ends with the `## ahelpa contract` and `## ahelpa signals` sections ahelpa appends. Do not weaken them.
 
@@ -77,6 +77,21 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 
 **Runtime quirks**
 - Auto-trusts the project folder; `--safe` is not a sandbox. See `kimi.md`.
+
+## dsh
+
+**Observation status**
+- New integration targeting DeepSeek Harness `0.2.1-rc.2`; no archived task sample supports a capability ranking or task preference yet.
+- Start with bounded, independently checkable tasks and inspect the result and evidence before expanding its use.
+
+**Give it**
+- A clear objective, narrow scope, acceptance command, and explicit forbidden paths, as for other workers.
+- `--role reviewer` when testing the review-only contract; the preset uses the same `deepseek-flash`/`high` settings as the default worker.
+
+**Runtime quirks**
+- Uses a separate `ahelpa` profile and a session-local terminal app; native DSH session persistence supports resume.
+- `--model` takes native DeepSeek model IDs; effort is `off|low|high|max`.
+- No `--safe` or runtime model switching. See `dsh.md` for prerequisites, authentication, and profile behavior.
 
 ## Task type to helper
 

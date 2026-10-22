@@ -10,7 +10,7 @@ afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "") {
+async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gateDsh = "") {
   const root = mkdtempSync(join(tmpdir(), "ahelpa-closure-test-"));
   fixtureRoots.push(root);
   const binDir = join(root, "bin");
@@ -40,10 +40,10 @@ switch (command) {
   case "daemon": break;
   case "launch": {
     const roleIndex = args.indexOf("--role");
-    const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : args[0] === "codex" ? "worker" : null)
+    const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : ["codex", "dsh"].includes(args[0]) ? "worker" : null)
       : args[roleIndex + 1];
     const model = args[0] === "claude-code" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
-      : args[0] === "codex" ? "gpt-6-astra" : null;
+      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "deepseek-flash" : null;
     const effort = args[0] === "claude-code" && role === "advisor" ? "xhigh" : args[0] === "kimi" ? null : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
@@ -103,7 +103,7 @@ switch (command) {
     break;
   }
   case "resume": {
-    const id = "kimi-resumed-fixture";
+    const id = sessionId.split("-")[0] + "-resumed-fixture";
     sessions[id] = { ...session, id, status: scenario === "resume-not-ready" ? "running" : "needs_attention" };
     save();
     console.log(JSON.stringify({ sessionId: id, ownerToken: "fixture-token" }));
@@ -118,7 +118,7 @@ switch (command) {
     const delivery = join(session.project, ".ahelpa", sessionId);
     mkdirSync(delivery, { recursive: true });
     if (scenario !== "stale-first-turn") {
-      writeFileSync(join(delivery, "summary.md"), "gate-kimi-resumed:" +
+      writeFileSync(join(delivery, "summary.md"), "gate-" + sessionId.split("-")[0] + "-resumed:" +
         (scenario === "resumed-extra-space" ? " " : "") +
         (scenario === "context-loss" ? "wrong" : session.marker) + "\\n");
     }
@@ -147,6 +147,7 @@ exit 1
       AHELPA_TMP_DIR: "/unused-inherited-ahelpa-runtime",
       TMPDIR: root,
       AHELPA_GATE_KIMI: gateKimi,
+      AHELPA_GATE_DSH: gateDsh,
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -162,6 +163,27 @@ exit 1
 }
 
 describe("closure gate", () => {
+  test("DSH gate checks profile, native resume, context continuity and reclamation", async () => {
+    const result = await runFixture("success", "dsh");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("pass > dsh resume readiness, new turn, and context continuity");
+    expect(result.calls.filter(call => call.command === "kill")).toHaveLength(2);
+    expect(result.calls.find(call => call.command === "resume")).toBeDefined();
+    expect(readFileSync(join(result.evidenceDir, "result-dsh-resumed", "summary.md"), "utf8"))
+      .toMatch(/^gate-dsh-resumed:[a-f0-9-]+\n$/);
+  });
+  test("DSH gate rejects context loss and cleans its resumed helper", async () => {
+    const result = await runFixture("context-loss", "dsh");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("missing or incorrect summary");
+    expect(result.calls.at(-1)?.args[0]).toBe("dsh-resumed-fixture");
+  });
+  test("live DSH gate is opt-in and has isolated evidence", async () => {
+    const result = await runFixture("success", "codex", true, "", "", "1");
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
+      .toEqual(["claude-code", "claude-code", "codex", "dsh"]);
+  });
   test("requires file delivery and checks completion and reclamation", async () => {
     const result = await runFixture("success");
     expect(result.exitCode).toBe(0);

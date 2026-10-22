@@ -170,7 +170,7 @@ bun run closure:gate
 
 超时、任务文本回显和账号错误都会使 gate 失败。日志仅用于诊断，daemon 已回收 tmux 时也可以读取。检查失败时仍会尝试终止本轮启动的 helper，不处理其他 session。输出中的 evidence 目录保留 summary 和命令结果。 gate 先将自己的结果目录复制到 evidence，再移除自己在 fixture 中创建的交接文件，最后只停止本轮隔离的 daemon。
 
-Kimi 还会在 `kill` 和 `resume` 后完成第二个任务。gate 要求保留原生 session ID、恢复后的 helper 处于等待新任务的 `needs_attention` 状态，并在新 summary 中准确写出第一轮记住的上下文标记。
+DSH（`AHELPA_GATE_DSH=1`）和 Kimi（`AHELPA_GATE_KIMI=1`）还会在 `kill` 和 `resume` 后完成第二个任务。gate 要求保留原生 session ID、恢复后的 helper 处于等待新任务的 `needs_attention` 状态，并在新 summary 中准确写出第一轮记住的上下文标记。
 
 验证已安装 binary 时，可指定可执行文件的绝对路径，使用同一套检查：
 
@@ -178,7 +178,7 @@ Kimi 还会在 `kill` 和 `resume` 后完成第二个任务。gate 要求保留�
 AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 ```
 
-**前置条件**：`claude`、`codex` 和 `kimi` 三个 helper CLI 都需要在本机完成登录。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
+**前置条件**：本轮选中的 helper CLI 需要在本机完成登录，默认是 `claude` 和 `codex`，启用对应开关后还包括 `dsh` 或 `kimi`。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
 
 ## 添加 driver
 
