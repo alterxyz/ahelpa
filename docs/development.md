@@ -177,7 +177,7 @@ To verify an installed binary with the same checks, set an absolute executable p
 AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 ```
 
-**Prerequisite:** The helper CLIs selected for the run must be authenticated locally: `claude` and `codex` by default, plus `dsh` or `kimi` when enabled. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
+**Prerequisite:** With DSH enabled, the local Magpie gateway must be running, and `$DSH_HOME/profiles/ahelpa/cordis.patch.yml` must configure its provider/model with the provider key available through `$DSH_HOME/.env`; see the [Magpie route setup](../skill/references/dsh.md#magpie-route). The helper CLIs selected for the run must be authenticated locally: `claude` and `codex` by default, plus `dsh` or `kimi` when enabled. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
 
 ## Adding a Driver
 

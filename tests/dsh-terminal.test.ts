@@ -35,6 +35,7 @@ class Fixture {
   timerId = 0;
   timers = new Map<number, () => void>();
   selections: any[] = [];
+  agentOptions: any[] = [];
   records: Event[] = [];
   disposers: Array<() => void> = [];
   listeners = new Map<string, Set<(...args: any[]) => void>>();
@@ -46,7 +47,7 @@ class Fixture {
   flushBarrier: Promise<void> | undefined;
   behavior: Turn;
 
-  constructor(options: { env?: Record<string, string>; behavior?: Turn; header?: Record<string, unknown>; loader?: Promise<void>; missingResume?: boolean; configureInput?: () => () => void } = {}) {
+  constructor(options: { defaultModel?: { provider: string; model: string; reasoningEffort: string }; env?: Record<string, string>; behavior?: Turn; header?: Record<string, unknown>; loader?: Promise<void>; missingResume?: boolean; configureInput?: () => () => void } = {}) {
     // The getter belongs to this fixture rather than a module-global session.
     Object.defineProperty(this.native, "seq", { get: () => this.records.length });
     this.native.header = options.header ?? { cwd: "/project" };
@@ -69,13 +70,13 @@ class Fixture {
     this.services = {
       appExit: (code: number) => { this.exits.push(code); },
       loader: { await: () => options.loader ?? Promise.resolve() },
-      agentDefaultModel: { currentSelection: () => ({ provider: "deepseek-official", model: "native-default", reasoningEffort: "high" }) },
+      agentDefaultModel: { currentSelection: () => options.defaultModel ?? ({ provider: "deepseek-official", model: "native-default", reasoningEffort: "high" }) },
       sessionPersistence: {},
       sessions: { flush: async (session: NativeSession) => { await this.flushBarrier; this.flushed.push(session.id); } },
       agents: {
         get: () => undefined,
-        create: async (opts: any) => { this.created++; this.native.id = opts.sessionId; opts.setup(this.agent.ctx, this.agent); return handle; },
-        resume: async (opts: any) => { this.resumed++; this.native.id = opts.resumeSessionId; opts.setup(this.agent.ctx, this.agent); return handle; },
+        create: async (opts: any) => { this.created++; this.agentOptions.push(opts.agentOptions); this.native.id = opts.sessionId; opts.setup(this.agent.ctx, this.agent); return handle; },
+        resume: async (opts: any) => { this.resumed++; this.agentOptions.push(opts.agentOptions); this.native.id = opts.resumeSessionId; opts.setup(this.agent.ctx, this.agent); return handle; },
       },
       sessionQuery: {
         observeSession: async () => {
@@ -247,6 +248,27 @@ describe("DSH persistent terminal app", () => {
     fixture.mount(); await until(() => fixture.exits.length > 0);
     expect(fixture.created).toBe(0); expect(fixture.resumed).toBe(0);
     expect(fixture.output).toContain("does not exist"); expect(fixture.output).not.toContain("fixture-secret");
+  });
+
+  test.each([undefined, "", " \t "])("a non-official default provider reaches ready with provider override %s", async provider => {
+    const defaults = { provider: "magpie", model: "deepseek/deepseek-flash", reasoningEffort: "high" };
+    const fixture = new Fixture({ defaultModel: defaults, env: provider === undefined ? {} : { AHELPA_DSH_PROVIDER: provider } });
+    fixture.mount();
+    await until(() => fixture.states().includes("ready"));
+    expect(fixture.selections[0].current).toEqual(defaults);
+    expect(fixture.agentOptions[0]).toMatchObject({ provider: "magpie", model: "deepseek/deepseek-flash" });
+  });
+
+  test.each([false, true])("provider override reaches native Agent on resume=%s", async resume => {
+    const fixture = new Fixture({ env: {
+      AHELPA_DSH_PROVIDER: "magpie", AHELPA_DSH_MODEL: "deepseek/deepseek-flash",
+      ...(resume ? { AHELPA_DSH_RESUME_ID: "session-existing" } : {}),
+    } });
+    fixture.mount();
+    await until(() => fixture.states().includes("ready"));
+    expect(fixture.selections[0].current.provider).toBe("magpie");
+    expect(fixture.agentOptions[0]).toMatchObject({ provider: "magpie", model: "deepseek/deepseek-flash" });
+    expect(fixture.resumed).toBe(resume ? 1 : 0);
   });
 
   test("resume rechecks the leased log, and model/effort only alter the selected Agent", async () => {

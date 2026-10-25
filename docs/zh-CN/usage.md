@@ -26,7 +26,7 @@ JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver �
 - Claude 检查 `.claude.json` 中的工作区信任，查找键按 NFC 规范化；对 worktree 检查公共仓库的规范根目录，再检查 Git 根目录范围内已信任的祖先目录。支持旧式 `.config.json`、`CLAUDE_CONFIG_DIR` 和自定义 OAuth 的独立信任文件。worktree／子模块的祖先信任无法确认规范 Git 边界时，返回 `unknown`。
 - Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下受支持的 API key／token 认证文件结构。选中的自定义 provider 若配置 `requires_openai_auth = false`，无需 OpenAI 登录；配置了 `env_key` 时，相应环境变量必须存在。profile 选择、额外系统／项目配置层、不支持的 provider 选项、keyring／auto／ephemeral 存储，以及无法识别或读取的认证状态，在只读检查无法确认有效状态时返回 `unknown`。它还会从同一份配置读取 `[projects."<root>"].trust_level`；仓库根目录尚未被信任时，在不改变 `locally_ready` 的前提下追加 `repository root not trusted by Codex: <root> (launch accepts the prompt)`。根目录是最近的包含 `.git` 条目的祖先目录（linked worktree 对应主 checkout）；键只按真实路径精确匹配，不尝试 NFC 或符号链接写法，取第一个带 `trust_level` 的条目：先项目目录自身，再最近的 `.git` 目录（linked worktree 自己的目录），最后是根目录。根目录或项目目录被标为 `untrusted` 时，Codex 会显示 launch 不会应答的受限目录界面，此时 `locally_ready` 为 `false`。任何项目条目的 `trust_level` 若不是 `trusted` 或 `untrusted`，Codex 会拒绝加载该配置，因此报告 `unknown`（`config field types unrecognized`）。不在 git 仓库内时不报告任何内容。
 - Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。模型必须包含模型名称及正整数 `max_context_size`；provider 的 API key 与 OAuth 互斥。缺失或冲突的配置、keyring 和服务身份状态返回 `unknown`。
-- DSH 检查已安装包的版本，以及 `DEEPSEEK_API_KEY` 或 `DSH_HOME`（默认 `~/.dsh`）下凭据文件是否存在。它不读取凭据正文，也不验证认证；`doctor` 报告 `unknown`，由 DSH 在 runtime 验证认证。
+- DSH 检查已安装包的版本，以及 `DEEPSEEK_API_KEY`、`$DSH_HOME/.env` 或 `$DSH_HOME/.credentials.yaml` 是否存在（`DSH_HOME` 默认 `~/.dsh`），不读取这些文件的凭据正文。它还在 profile patch 文本中检查 `magpie:` provider 键，缺失时给出 `unknown` 提示；这不是 YAML 或网关验证。认证仍为 `unknown`，由 DSH 在 runtime 验证。
 
 `doctor` 检查本地凭据和配置的结构，不验证其完整有效性；例如，不检测 JWT claim 键的重复。`locally_ready: true` 表示未发现已知的本地启动阻塞。不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
 
@@ -79,11 +79,11 @@ ahelpa doctor dsh --project /path/to/project
 ahelpa launch dsh --project /path/to/project --task "Review the CLI parser"
 ```
 
-DSH 需要 Node.js、用于 profile／插件管理的 pnpm，以及官方原生 sandbox／PTY 组件。认证可沿用 `dsh web` 中已有的凭据，或通过环境变量提供 `DEEPSEEK_API_KEY`。ahelpa 保留共享的 `DSH_HOME`（默认 `~/.dsh`）、已有 Desktop/Web profile 与凭据。
+DSH 需要 Node.js、用于 profile／插件管理的 pnpm，以及官方原生 sandbox／PTY 组件。Magpie 的 provider 密钥通过 `apiKeyEnv` 引用 `$DSH_HOME/.env` 中的变量，DSH 启动时加载该文件。对应 provider 仍可使用 DSH Web 凭据或 `DEEPSEEK_API_KEY`。启动前按 [DSH 接入说明](../../skill/references/dsh.md#magpie-route)配置 Magpie 路由并启动本地网关。ahelpa 保留共享的 `DSH_HOME`（默认 `~/.dsh`）、已有 Desktop/Web profile 与凭据。
 
 启动时，ahelpa 会在缺失时从 base bundle 创建 `DSH_HOME/profiles/ahelpa`，并在会话交接目录中写入终端 app 与 `--patch` overlay。官方 CLI 提供 Web、headless、SDK 和 ACP profile，没有内置 TUI。适配器直接使用公开 Agent/Session API，让同一个 DSH 进程保持多轮上下文，并通过原生会话持久化实现 `resume`；不添加 ACP／SDK 传输或第三方 TUI。`task`、`wait`、`check`、`kill` 沿用通常工作流。
 
-DSH 默认为 `worker`、`deepseek-flash`、`high` effort；`reviewer` 使用相同模型与 effort，以及只审不改的任务合同。`--model` 接受原生 DeepSeek model ID，实际可用性取决于账号；`--effort` 接受 `off|low|high|max`。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。该 profile 以完整本地权限运行，并关闭适配器会话的 session-log contributor 与 OTel 上传；模型请求仍发送给 provider。此接入尚待观察，未来 DSH 版本未验证。详见 [DSH 接入说明](../../skill/references/dsh.md)。
+DSH 默认为 `worker`、`magpie:deepseek/deepseek-flash`、`high` effort；`reviewer` 使用相同模型与 effort，以及只审不改的任务合同。默认路由使用本地 Magpie 网关。`--model <model>` 保留 profile 的默认 provider；`--model <provider>:<model>` 指定 provider，仅按第一个冒号拆分。Model ID 因 provider 而异：Magpie 使用 `deepseek/deepseek-v4-pro`，`deepseek-official` 使用 `deepseek-flash`；实际可用性取决于配置的路由与账号。`--effort` 接受 `off|low|high|max`。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。该 profile 以完整本地权限运行，并关闭适配器会话的 session-log contributor 与 OTel 上传；模型请求仍发送给 provider。此接入尚待观察，未来 DSH 版本未验证。详见 [DSH 接入说明](../../skill/references/dsh.md)。
 
 用 `--label` 给 session 打标签，方便识别：
 
@@ -200,8 +200,8 @@ Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未�
 | `launch claude-code --role worker` | `worker`、`claude-sonnet-5-5`、`high` |
 | `launch claude-code --role reviewer` | `reviewer`、`claude-opus-5-5`、`xhigh` |
 | `launch codex --role reviewer` | `reviewer`、`gpt-6-astra`、`xhigh` |
-| `launch dsh` | `worker`、`deepseek-flash`、`high` |
-| `launch dsh --role reviewer` | `reviewer`、`deepseek-flash`、`high` |
+| `launch dsh` | `worker`、`magpie:deepseek/deepseek-flash`、`high` |
+| `launch dsh --role reviewer` | `reviewer`、`magpie:deepseek/deepseek-flash`、`high` |
 
 口语中的 extra-high 在 CLI 中写作 `xhigh`；`extra` 不是 Claude 接受的 effort 值。完整模型 ID 固定选择 5.5，避免不同提供方的 `opus`、`sonnet` 别名指向不同版本。两款模型均支持 `high`、`xhigh`。依据见 [Claude 模型配置](https://code.claude.com/docs/en/model-config)。
 
@@ -215,7 +215,7 @@ ahelpa launch claude-code --role worker --file ./implementation.md
 ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
-ahelpa launch dsh --model deepseek-flash --effort high --file ./task.md
+ahelpa launch dsh --model magpie:deepseek/deepseek-flash --effort high --file ./task.md
 ```
 
 `models [agent]` 会打印当前 ahelpa 版本已知的模型目录。对 Codex 而言，`gpt-5.6` 是稳定便捷别名，实际启动 `gpt-5.6-sol`；需要其他变体时请显式使用 `gpt-5.6-terra` 或 `gpt-5.6-luna`。Kimi 默认应省略 `--model`，让 CLI 使用其 `config.toml` 中的默认模型；如果传入 `--model`，值必须与该文件中已经配置的完整 alias 精确匹配，只有显示名称可能会失败。所选 agent 支持启动时设置 effort 时，`--effort` 会一并透传；Kimi 会拒绝 `--effort`。如果 launch 时显式传入了模型 alias，`resume` 会沿用它。
@@ -233,7 +233,7 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 
 Helper 必须停在可输入的 idle prompt。Claude Code 只切当前 session。Codex 会走自己的 `/model` TUI，而该 TUI 会写入 Codex config；ahelpa 默认在当前 session 切换后恢复原 config。检测到无关配置变化时，会保留当前文件并报告未能恢复默认值。需要保留 Codex 新默认模型时，加 `--persist`。成功切换会更新 `resume` 沿用的模型和显式 effort；省略 effort 时，恢复的 CLI 自行选择默认值。
 
-Kimi 和 DSH 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择模型。DSH 接受原生 DeepSeek model ID 和 `off|low|high|max` effort，不转换 Codex 或 Claude 模型别名。
+Kimi 和 DSH 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择模型。DSH 接受 `<model>` 或 `<provider>:<model>` 形式的 provider 专属 model ID，以及 `off|low|high|max` effort，不转换 Codex 或 Claude 模型别名。
 
 Claude Code 会拒绝运行时的 `--effort` 和 `--persist`；effort 请在 launch 时指定。切换成功必须有匹配所选模型的新确认信息；失败时会先退出模型菜单，再返回错误。
 
@@ -368,7 +368,7 @@ ahelpa logs "$session_id" --token "$token"
 
 如果 `check` 显示 `agentResumeId`，就可以把 agent 对话重新连接到新的 helper session。Kimi 初始启动时还没有 `session_*` ID；ahelpa 会在提交第一条任务消息后捕获它，之后通过 `kimi --session <id>` 重新连接。
 
-DSH 会记录原生 session ID，并在相同 `DSH_HOME` 下由新的终端 app 恢复该会话。Resume 保留已记录的模型和 effort；返回后用 `send` 或 `task` 发送后续任务。旧终端仍在 draining 时，DSH 同样拒绝恢复，也不接受 `resume --safe`。
+DSH 会记录原生 session ID，并在相同 `DSH_HOME` 下由新的终端 app 恢复该会话。Resume 保留已记录的模型和 effort，包括 `<provider>:<model>` 中指定的 provider；返回后用 `send` 或 `task` 发送后续任务。旧终端仍在 draining 时，DSH 同样拒绝恢复，也不接受 `resume --safe`。
 
 按当前 settle/drain 生命周期，旧 Kimi helper 仍在 draining 时，`resume` 会被拒绝。可以等待 `ahelpa check` 显示它已变为 `idle` 且终端已回收，也可以走更快的显式回收路径：
 

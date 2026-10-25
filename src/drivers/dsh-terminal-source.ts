@@ -107,10 +107,7 @@ function createDshTerminal(deps) {
       throw new TerminalError("terminal requires persistent DSH agent services");
     }
     const selection = { ...defaults.currentSelection() };
-    if (selection.provider !== "deepseek-official") {
-      throw new TerminalError("terminal currently requires the deepseek-official provider");
-    }
-    for (const [key, field] of [["AHELPA_DSH_MODEL", "model"], ["AHELPA_DSH_EFFORT", "reasoningEffort"]]) {
+    for (const [key, field] of [["AHELPA_DSH_PROVIDER", "provider"], ["AHELPA_DSH_MODEL", "model"], ["AHELPA_DSH_EFFORT", "reasoningEffort"]]) {
       // The driver clears absent overrides explicitly to block inherited values.
       // Trim only to recognize that sentinel; preserve every nonblank value.
       if (env[key] === undefined || !env[key].trim()) continue;

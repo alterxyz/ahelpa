@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "fs";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -25,8 +26,8 @@ function runtime(screens: string[]): DriverRuntime & { sent: string[]; captures:
 describe("DSH driver", () => {
   test("registers worker and reviewer profiles without inventing capability rankings", () => {
     expect(getDriver("dsh")).toBe(driver);
-    expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model: "deepseek-flash", effort: "high" });
-    expect(resolveLaunchProfile(driver, { role: "reviewer", effort: "max" }).effort).toBe("max");
+    expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model: "magpie:deepseek/deepseek-flash", effort: "high" });
+    expect(resolveLaunchProfile(driver, { role: "reviewer", effort: "max" })).toEqual({ role: "reviewer", model: "magpie:deepseek/deepseek-flash", effort: "max" });
     expect(() => resolveLaunchProfile(driver, { role: "advisor" })).toThrow("does not support role");
   });
   test("quotes launch values, clears inherited options and locates startup files in the delivery directory", () => {
@@ -41,6 +42,31 @@ describe("DSH driver", () => {
     expect(resumed).toContain(`AHELPA_DSH_RESUME_ID='${id}'`);
     expect(resumed).toContain("AHELPA_DSH_MODEL=''");
     expect(resumed).toContain("AHELPA_DSH_EFFORT=''");
+  });
+  test.each([
+    { model: undefined, provider: "", nativeModel: "" },
+    { model: "deepseek-flash", provider: "", nativeModel: "deepseek-flash" },
+    { model: "magpie:deepseek/deepseek-flash", provider: "magpie", nativeModel: "deepseek/deepseek-flash" },
+    { model: "magpie:vendor/model:variant", provider: "magpie", nativeModel: "vendor/model:variant" },
+    { model: " \tmagpie : model:variant \t", provider: " \tmagpie ", nativeModel: " model:variant \t" },
+  ])("launch and resume forward provider/model separately for $model", ({ model, provider, nativeModel }) => {
+    for (const command of [
+      driver.buildLaunchCommand({ cwd: "/tmp/project", model }),
+      driver.buildResumeCommand({ cwd: "/tmp/project", model, resumeId: id }),
+    ]) {
+      expect(command).toContain(`AHELPA_DSH_PROVIDER='${provider}'`);
+      expect(command).toContain(`AHELPA_DSH_MODEL='${nativeModel}'`);
+    }
+  });
+  test.each([":model", "provider:", ":", " \t:model", "magpie: \t", " \t: \t"])("rejects invalid qualified model %s before launch or resume", model => {
+    const message = "DSH --model must be <model> or <provider>:<model>, with nonempty provider and model";
+    expect(() => driver.buildLaunchCommand({ cwd: "/tmp/project", model })).toThrow(message);
+    expect(() => driver.buildResumeCommand({ cwd: "/tmp/project", model, resumeId: id })).toThrow(message);
+    // A regression must fail here without writing a profile into the real DSH home.
+    const priorHome = process.env.DSH_HOME;
+    process.env.DSH_HOME = join(root(), "dsh-home");
+    try { expect(() => prepareDshFiles({ cwd: root(), model })).toThrow(message); }
+    finally { if (priorHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = priorHome; }
   });
   test("rejects unsupported permissions, efforts and runtime model switching before terminal input", async () => {
     expect(() => driver.buildLaunchCommand({ cwd: "/tmp/project", safe: true })).toThrow("--safe");
@@ -120,5 +146,44 @@ describe("DSH driver", () => {
     expect(result.version).toBe("0.2.1-rc.2");
     expect(result.locally_ready).toBe("unknown");
     expect(JSON.stringify(result)).not.toContain("fixture-secret");
+  });
+  test.each([".env", ".credentials.yaml"])("doctor recognizes %s by existence without reading or leaking contents", source => {
+    const directory = root();
+    const bin = join(directory, "bin"); const home = join(directory, "dsh-home");
+    mkdirSync(bin); mkdirSync(home);
+    writeFileSync(join(bin, "dsh"), "#!/bin/sh\nexit 99\n"); chmodSync(join(bin, "dsh"), 0o755);
+    writeFileSync(join(home, source), "MAGPIE_API_KEY=fixture-stored-secret\n");
+    const profile = join(home, "profiles", "ahelpa");
+    mkdirSync(profile, { recursive: true });
+    writeFileSync(join(profile, "cordis.patch.yml"), "[]\n");
+    const reads = spyOn(fs, "readFileSync");
+    try {
+      const result = checkDshReadiness(directory, { homeDir: directory, env: { PATH: bin, DSH_HOME: home } });
+      const pathsRead = reads.mock.calls.map(([path]) => String(path));
+      // Positive control: the spy must observe the driver's imported fs binding.
+      expect(pathsRead).toContain(join(home, "profiles", "ahelpa", "cordis.patch.yml"));
+      expect(pathsRead).not.toContain(join(home, ".env"));
+      expect(pathsRead).not.toContain(join(home, ".credentials.yaml"));
+      expect(result.reasons).toContain("credentials are validated by DSH at launch");
+      expect(result.reasons.some(reason => reason.includes("configure credentials"))).toBe(false);
+      expect(JSON.stringify(result)).not.toContain("fixture-stored-secret");
+    } finally { reads.mockRestore(); }
+  });
+  test.each([
+    { patch: undefined, missing: true },
+    { patch: "[]\n# magpie: ignored comment\n", missing: true },
+    { patch: "- id: llm-pi-ai\n  config:\n    providers:\n      magpie-other: {}\n", missing: true },
+    { patch: "- id: llm-pi-ai\n  config:\n    providers:\n      magpie:\n        apiKeyEnv: FIXTURE_KEY\n", missing: false },
+  ])("doctor reports missing Magpie route: $patch", ({ patch, missing }) => {
+    const directory = root(); const bin = join(directory, "bin"); const home = join(directory, "dsh-home");
+    const profile = join(home, "profiles", "ahelpa");
+    mkdirSync(bin); mkdirSync(profile, { recursive: true });
+    writeFileSync(join(bin, "dsh"), "#!/bin/sh\nexit 99\n"); chmodSync(join(bin, "dsh"), 0o755);
+    if (patch !== undefined) writeFileSync(join(profile, "cordis.patch.yml"), patch + "# fixture-profile-secret\n");
+    const result = checkDshReadiness(directory, { homeDir: directory, env: { PATH: bin, DSH_HOME: home } });
+    expect(result.locally_ready).toBe("unknown");
+    expect(result.reasons).toContain("configure credentials with a provider key in $DSH_HOME/.env, DSH Web, or DEEPSEEK_API_KEY");
+    expect(result.reasons.includes("default route needs a magpie provider in $DSH_HOME/profiles/ahelpa/cordis.patch.yml")).toBe(missing);
+    expect(JSON.stringify(result)).not.toContain("fixture-profile-secret");
   });
 });

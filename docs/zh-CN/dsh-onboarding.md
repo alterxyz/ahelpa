@@ -4,6 +4,8 @@
 
 观察日期：2026-10-22。DSH 通过了下列有明确边界的实现与审阅小题，可以开始承接小规模真实任务。这是入职记录，不是模型排名、可靠率估计，也不替代已有的历史任务分工表。
 
+这些证据采集于 `deepseek-official` 路由；尚未在 Magpie 路由上重新评估。
+
 准备任务时使用 [Flash 工作卡](../../skill/references/dsh.md#working-with-flash)，选择角色时参考 [辅助成员档案](../../skill/references/profiles.md#dsh)。
 
 可复用 skill 参考文件沿用现有分发包的英文约定；本记录提供对应的中文说明。

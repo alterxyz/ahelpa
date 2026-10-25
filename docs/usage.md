@@ -26,7 +26,7 @@ The driver probes inspect local state only. Agent executables are never run, eve
 - Claude checks workspace trust in `.claude.json`, using NFC-normalized trust keys and the canonical common repository root for worktrees, then trusted ancestors within the Git root. Legacy `.config.json`, `CLAUDE_CONFIG_DIR`, and the custom OAuth trust file are respected. Worktree/submodule ancestor trust is `unknown` when its canonical Git boundary cannot be established.
 - Codex uses the same executable resolver as launch, and checks supported API-key/token auth-file shapes under `CODEX_HOME` (default `~/.codex`). A selected configured provider with `requires_openai_auth = false` needs no OpenAI login; a configured `env_key` must be present. Profile selection, additional system/project config layers, unsupported provider options, keyring/auto/ephemeral storage, and unrecognized or unreadable auth state are `unknown` when their effective state cannot be confirmed read-only. It also reads `[projects."<root>"].trust_level` from the same config and, when the repository root is not trusted yet, adds `repository root not trusted by Codex: <root> (launch accepts the prompt)` without changing `locally_ready`. The root is the nearest ancestor holding a `.git` entry (the main checkout for a linked worktree); keys are matched against the real path exactly, with no NFC or symlink spelling, and the first entry with a `trust_level` wins: the project directory's, then the nearest `.git` directory's (a linked worktree's own), then the root's. A root or directory marked `untrusted` makes Codex show a restricted-folder screen that launch does not answer, so that case sets `locally_ready: false`. A `trust_level` other than `trusted` or `untrusted`, in any project entry, makes Codex refuse the config, so it reports `unknown` (`config field types unrecognized`). Outside a git repository nothing is reported.
 - Kimi checks the default model/provider and local API-key or file OAuth presence under `KIMI_CODE_HOME` (default `~/.kimi-code`), including model environment overrides. Models require a model name and positive integer `max_context_size`; provider API keys and OAuth are mutually exclusive. Incomplete or conflicting config, keyring and service-identity state are `unknown`.
-- DSH checks the installed package version and only the presence of `DEEPSEEK_API_KEY` or a stored credential file under `DSH_HOME` (default `~/.dsh`). It does not read credential contents or validate authentication; `doctor` reports `unknown`, and DSH validates authentication at runtime.
+- DSH checks the installed package version and only the presence of `DEEPSEEK_API_KEY`, `$DSH_HOME/.env`, or `$DSH_HOME/.credentials.yaml` (`DSH_HOME` defaults to `~/.dsh`). It never reads those files' credential contents. It also checks the profile patch text for a `magpie:` provider key, reporting an `unknown` note if absent; this is not YAML or gateway validation. Authentication remains `unknown` until DSH validates it at runtime.
 
 `doctor` checks the shape of local credentials and configuration, not their full validity; for example, it does not detect duplicate JWT claim keys. `locally_ready: true` means nothing locally known to block a launch. It does not validate credentials against a server, refresh tokens, check quota, or guarantee a successful model call. No model is called, no interactive session or daemon starts, and no config, tmux session, database, task file, or FIFO is created. For source-mode checks, set `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` to also disable Bun's own transpilation cache.
 
@@ -80,11 +80,11 @@ ahelpa doctor dsh --project /path/to/project
 ahelpa launch dsh --project /path/to/project --task "Review the CLI parser"
 ```
 
-DSH requires Node.js, pnpm for profile/plugin management, and its official native sandbox/PTY components. Use credentials already configured in `dsh web`, or supply `DEEPSEEK_API_KEY` through the environment. ahelpa preserves the shared `DSH_HOME` (default `~/.dsh`), existing Desktop/Web profiles, and credentials.
+DSH requires Node.js, pnpm for profile/plugin management, and its official native sandbox/PTY components. For Magpie, configure a provider key through `apiKeyEnv` in `$DSH_HOME/.env`, which DSH loads at launch. DSH Web credentials or `DEEPSEEK_API_KEY` remain available for the corresponding provider. Configure the Magpie route as shown in the [DSH reference](../skill/references/dsh.md#magpie-route) and start the local gateway before launching. ahelpa preserves the shared `DSH_HOME` (default `~/.dsh`), existing Desktop/Web profiles, and credentials.
 
 On launch, ahelpa creates `DSH_HOME/profiles/ahelpa` from the base bundle if absent, then writes a terminal app and a `--patch` overlay in the session's delivery directory. The official CLI has Web, headless, SDK, and ACP profiles but no built-in TUI. The adapter uses DSH's public Agent/Session APIs inside one persistent DSH process for multiple turns, and native session persistence for `resume`; it does not add an ACP/SDK transport or a third-party TUI. `task`, `wait`, `check`, and `kill` use the usual workflow.
 
-DSH defaults to `worker`, `deepseek-flash`, and `high` effort; `reviewer` uses the same model/effort and the review-only contract. `--model` accepts native DeepSeek model IDs, subject to account availability; `--effort` accepts `off|low|high|max`. `--safe` and runtime `ahelpa model` switching fail explicitly. The profile runs with full local permissions and disables the adapter session's session-log contributor and OTel upload; model requests still reach the provider. This new integration is under observation, and future DSH versions are unverified. See [DSH setup and limitations](../skill/references/dsh.md).
+DSH defaults to `worker`, `magpie:deepseek/deepseek-flash`, and `high` effort; `reviewer` uses the same model/effort and the review-only contract. The default route uses the local Magpie gateway. `--model <model>` keeps the profile's default provider; `--model <provider>:<model>` selects a provider, splitting at the first colon only. Model IDs are provider-specific: Magpie uses `deepseek/deepseek-v4-pro`, while `deepseek-official` uses `deepseek-flash`; availability depends on the configured route and account. `--effort` accepts `off|low|high|max`. `--safe` and runtime `ahelpa model` switching fail explicitly. The profile runs with full local permissions and disables the adapter session's session-log contributor and OTel upload; model requests still reach the provider. This new integration is under observation, and future DSH versions are unverified. See [DSH setup and limitations](../skill/references/dsh.md).
 
 Use `--label` to tag sessions for easier identification:
 
@@ -201,8 +201,8 @@ Choose the role first. Claude defaults to `advisor` for analysis, planning, and 
 | `launch claude-code --role worker` | `worker`, `claude-sonnet-5-5`, `high` |
 | `launch claude-code --role reviewer` | `reviewer`, `claude-opus-5-5`, `xhigh` |
 | `launch codex --role reviewer` | `reviewer`, `gpt-6-astra`, `xhigh` |
-| `launch dsh` | `worker`, `deepseek-flash`, `high` |
-| `launch dsh --role reviewer` | `reviewer`, `deepseek-flash`, `high` |
+| `launch dsh` | `worker`, `magpie:deepseek/deepseek-flash`, `high` |
+| `launch dsh --role reviewer` | `reviewer`, `magpie:deepseek/deepseek-flash`, `high` |
 
 `xhigh` is the CLI spelling for the intended extra-high effort; `extra` is not an accepted Claude effort value. The full Claude model IDs pin 5.5 instead of relying on provider-specific `opus` and `sonnet` aliases. Both models support `high` and `xhigh`. See [Claude model configuration](https://code.claude.com/docs/en/model-config).
 
@@ -216,7 +216,7 @@ ahelpa launch claude-code --role worker --file ./implementation.md
 ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
-ahelpa launch dsh --model deepseek-flash --effort high --file ./task.md
+ahelpa launch dsh --model magpie:deepseek/deepseek-flash --effort high --file ./task.md
 ```
 
 `models [agent]` prints the model catalog known to this ahelpa release. For Codex, `gpt-5.6` is a stable convenience alias that launches `gpt-5.6-sol`; use `gpt-5.6-terra` or `gpt-5.6-luna` explicitly when you want those variants. For Kimi, omit `--model` by default so the CLI uses the default from its `config.toml`. If you pass `--model`, the value must exactly match a complete alias already configured in that file; a display name alone may fail. `--effort` is passed through when the selected agent supports launch-time effort settings; Kimi rejects `--effort`. `resume` reuses a launch-time model alias when one was explicitly supplied.
@@ -234,7 +234,7 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 
 The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. If unrelated config changes are detected, it preserves the current file and reports that defaults could not be restored. Add `--persist` when you want Codex's new model to remain the default. Successful switches update the model and explicit effort that `resume` reuses; omitting effort lets the resumed CLI choose its default.
 
-Runtime `ahelpa model` switching is not supported for Kimi or DSH. Choose the model at launch instead. DSH accepts native DeepSeek model IDs and `off|low|high|max` effort; it does not translate Codex or Claude model aliases.
+Runtime `ahelpa model` switching is not supported for Kimi or DSH. Choose the model at launch instead. DSH accepts provider-specific model IDs as `<model>` or `<provider>:<model>` and `off|low|high|max` effort; it does not translate Codex or Claude model aliases.
 
 Claude Code rejects runtime `--effort` and `--persist`; set its effort at launch. Model switches require a new confirmation matching the selected model, and failures close the model menu before returning an error.
 
@@ -369,7 +369,7 @@ ahelpa logs "$session_id" --token "$token"
 
 If `check` shows an `agentResumeId`, the agent conversation can be reconnected in a new helper session. For Kimi, the `session_*` ID does not exist at initial startup; ahelpa captures it after submitting the first task message, then reconnects with `kimi --session <id>`.
 
-DSH records its native session ID and restores that session in a new terminal app using the same `DSH_HOME`. Resume preserves the recorded model and effort; send the follow-up with `send` or `task` after resume returns. DSH also rejects resume while its old terminal is draining, and rejects `resume --safe`.
+DSH records its native session ID and restores that session in a new terminal app using the same `DSH_HOME`. Resume preserves the recorded model and effort, including a provider named in `<provider>:<model>`; send the follow-up with `send` or `task` after resume returns. DSH also rejects resume while its old terminal is draining, and rejects `resume --safe`.
 
 With the current settle/drain lifecycle, `resume` is rejected while the old Kimi helper is still draining. Either wait until `ahelpa check` reports it as `idle` and its terminal is gone, or reclaim it explicitly for the quickest path:
 

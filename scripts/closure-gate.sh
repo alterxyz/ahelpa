@@ -101,7 +101,7 @@ run_gate() (
       ;;
     dsh: | dsh:worker)
       expected_role="worker"
-      expected_model="deepseek-flash"
+      expected_model="magpie:deepseek/deepseek-flash"
       expected_effort="high"
       ;;
     kimi:) ;;

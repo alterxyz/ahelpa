@@ -118,8 +118,8 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | Claude `advisor` (default) | `claude-opus-5-5` | `xhigh` |
 | Claude `worker` | `claude-sonnet-5-5` | `high` |
 | Claude `reviewer` | `claude-opus-5-5` | `xhigh` |
-| DSH `worker` (default) | `deepseek-flash` | `high` |
-| DSH `reviewer` | `deepseek-flash` | `high` |
+| DSH `worker` (default) | `magpie:deepseek/deepseek-flash` | `high` |
+| DSH `reviewer` | `magpie:deepseek/deepseek-flash` | `high` |
 
 Use `--role worker` to select the Claude worker preset and `--role reviewer` for the review-only contract on Claude, Codex, or DSH. `--model` and `--effort` override their defaults independently. Extra-high is spelled `xhigh`, not `extra`. Defaults are applied only to new launches; `resume` reuses stored settings, including unknown values in legacy sessions. `check` exposes the stored role/model/effort, while `status` shows the role. Kimi retains its native defaults.
 
@@ -134,12 +134,12 @@ ahelpa launch claude-code --role worker --file ./implementation.md
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
 ahelpa launch claude-code --model sonnet --task "Review this change"
 ahelpa launch kimi --task "Review this change"
-ahelpa launch dsh --model deepseek-flash --effort high --file ./task.md
+ahelpa launch dsh --model magpie:deepseek/deepseek-flash --effort high --file ./task.md
 ```
 
 For Kimi, ahelpa sets `KIMI_CODE_NO_AUTO_UPDATE=1` so a CLI self-update cannot interrupt the persistent tmux session. Omit `--model` by default so the CLI uses the default from its `config.toml`. If you pass `--model`, the value must exactly match a complete alias already configured in that file; a display name alone may fail. `resume` reuses an explicitly supplied alias. Kimi does not support `--effort`.
 
-For DSH, `--model` accepts native DeepSeek model IDs and `--effort` accepts `off|low|high|max`. Account availability still applies. The adapter uses one persistent DSH process across turns and native session persistence for resume. It preserves the shared `DSH_HOME` and existing credentials, creates a separate `ahelpa` profile, and supplies a session-local terminal app through a patch overlay. It disables the adapter session's session-log contributor and OTel upload; model requests continue normally. `doctor dsh` only inspects version and credential presence, leaving auth readiness `unknown` until runtime validation. See `references/dsh.md` for installation and limits, and its [Flash working card](references/dsh.md#working-with-flash) for task-specific guidance and observed onboarding limits.
+DSH defaults to the local Magpie gateway route `magpie:deepseek/deepseek-flash`. `--model <model>` keeps the profile's default provider; `--model <provider>:<model>` selects a provider, splitting at the first colon only. Model IDs are provider-specific (Magpie `deepseek/deepseek-v4-pro`, `deepseek-official` `deepseek-flash`), and route/account availability still applies. `--effort` accepts `off|low|high|max`. Configure the provider in `$DSH_HOME/profiles/ahelpa/cordis.patch.yml` and its `apiKeyEnv` variable in `$DSH_HOME/.env`, which DSH loads; see the [Magpie route setup](references/dsh.md#magpie-route). The adapter uses one persistent DSH process across turns and native session persistence for resume. It preserves the shared `DSH_HOME` and existing credentials, creates a separate `ahelpa` profile, and supplies a session-local terminal app through a patch overlay. It disables the adapter session's session-log contributor and OTel upload; model requests continue normally. `doctor dsh` inspects version, credential-source presence (`.env`, `.credentials.yaml`, or `DEEPSEEK_API_KEY`), and a text-only `magpie:` provider-key check in the profile patch; it never reads credential-file contents and leaves auth readiness `unknown` until runtime validation. See `references/dsh.md` for installation and limits, and its [Flash working card](references/dsh.md#working-with-flash) for task-specific guidance and observed onboarding limits.
 
 ## Switching a Running Helper's Model
 
@@ -237,4 +237,4 @@ For development/testing of ahelpa itself:
 bun run closure:gate
 ```
 
-Verifies the full launch → wait → capture → kill cycle for Claude Code and Codex by default. `AHELPA_GATE_KIMI=1` adds Kimi; `AHELPA_GATE_DSH=1` adds DSH, including native resume context. If a selected helper returns an authentication error, fix its local login state before running the gate.
+Verifies the full launch → wait → capture → kill cycle for Claude Code and Codex by default. `AHELPA_GATE_KIMI=1` adds Kimi; `AHELPA_GATE_DSH=1` adds DSH, including native resume context, and requires the configured local Magpie gateway to be running. If a selected helper returns an authentication error, fix its local login state before running the gate.

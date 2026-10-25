@@ -12,9 +12,9 @@ ahelpa doctor dsh --project /path/to/project
 
 DSH needs Node.js, pnpm for profile/plugin management, and the official native sandbox/PTY components for the host platform. Follow the [official installation guide](https://github.com/deepseek-ai/deepseek-harness) for those prerequisites. A global CLI install alone does not prove that every native tool dependency is ready.
 
-Use the credentials already configured through `dsh web`, or provide `DEEPSEEK_API_KEY` in the launch environment. Keep keys out of task text and shell command arguments. ahelpa shares `DSH_HOME` (default `~/.dsh`) with DSH and preserves existing Desktop/Web profiles and credentials.
+For Magpie, place the provider key in `$DSH_HOME/.env` under the variable named by `apiKeyEnv`; DSH loads this file at launch. Credentials configured through `dsh web`, or `DEEPSEEK_API_KEY` in the launch environment, remain available for the corresponding provider. Keep keys out of task text and shell command arguments. ahelpa shares `DSH_HOME` (default `~/.dsh`) with DSH and preserves existing Desktop/Web profiles and credentials.
 
-`doctor dsh` reads the executable's package version and checks only whether the API-key environment variable or stored credential file exists. It does not read credential contents, refresh a login, call the model, create the profile, or validate native tool dependencies. It reports authentication as `unknown`; DSH validates it at runtime. A missing executable or tmux is still a definite blocker.
+`doctor dsh` reads the executable's package version and checks whether `DEEPSEEK_API_KEY`, `$DSH_HOME/.env`, or `$DSH_HOME/.credentials.yaml` exists. It also checks the profile patch text for a `magpie:` provider key and adds an `unknown` note when absent; this is a text sniff, not YAML parsing or gateway validation. It does not read credential-file contents, refresh a login, call the model, create the profile, or validate native tool dependencies. It reports authentication as `unknown`; DSH validates it at runtime. A missing executable or tmux is still a definite blocker.
 
 ## Profile and terminal app
 
@@ -30,6 +30,34 @@ Start this through `ahelpa launch dsh`; `dsh --profile ahelpa` alone has only th
 
 The adapter disables the session-log contributor and OTel upload for these helper sessions. Provider model requests still occur normally. Other shared home-level DSH configuration continues to apply.
 
+## Magpie route
+
+The worker and reviewer presets select the local Magpie gateway. Start that gateway at `http://127.0.0.1:3425/v1`, then merge this minimal route into `$DSH_HOME/profiles/ahelpa/cordis.patch.yml` (preserve any existing entries). The base bundle already mounts `llm-pi-ai`, so these entries configure its provider and the profile's default selection:
+
+```yaml
+- id: llm-pi-ai
+  config:
+    providers:
+      magpie:
+        apiKeyEnv: MAGPIE_API_KEY
+        api: openai-completions
+        baseURL: http://127.0.0.1:3425/v1
+        models:
+          - id: deepseek/deepseek-flash
+            reasoningEfforts:
+              "off": none
+              low: low
+              high: high
+              max: max
+- id: agent-default-model
+  config:
+    provider: magpie
+    model: deepseek/deepseek-flash
+    reasoningEffort: high
+```
+
+Set `MAGPIE_API_KEY` in `$DSH_HOME/.env` using the gateway's key; the patch contains only the variable name. Adjust the model list to the gateway's configured catalog. Map `off` to an explicit wire value such as `none`: an empty `off` sends no effort field, and DeepSeek then thinks at its default level. A newly generated empty profile needs this configuration before the default launch can work; ahelpa does not provision the gateway or its key.
+
 ## Typical workflow
 
 ```bash
@@ -42,16 +70,18 @@ cat "/path/to/project/.ahelpa/$session_id/summary.md"
 
 Use `--file ./task.md` for long instructions. `task`, `send`, `wait`, `check`, `capture`, and `kill` follow the normal ahelpa workflow; `capture` is for debugging. In a linked worktree, use the main checkout's result directory as described in `SKILL.md`.
 
-The default role is `worker`, with `deepseek-flash` and `high` effort. `--role reviewer` uses the same model/effort with ahelpa's review-only task contract; `advisor` is rejected. Explicit overrides are independent:
+The default role is `worker`, with `magpie:deepseek/deepseek-flash` and `high` effort. `--role reviewer` uses the same model/effort with ahelpa's review-only task contract; `advisor` is rejected. Explicit overrides are independent:
 
 ```bash
 ahelpa models dsh
-ahelpa launch dsh --model deepseek-flash --effort high --file ./task.md --project /path/to/project
+ahelpa launch dsh --model magpie:deepseek/deepseek-flash --effort high --file ./task.md --project /path/to/project
 ```
 
-`--model` takes native DeepSeek model IDs, whose availability depends on the account. The adapter currently requires DSH's `deepseek-official` provider. `--effort` accepts `off`, `low`, `high`, and `max`; Codex/Claude aliases and effort spellings are not translated.
+`--model <model>` keeps the profile's default provider; `--model <provider>:<model>` selects a provider. Only the first colon is a separator, so later colons remain part of the model ID; neither part of a qualified value may be empty. Model IDs are provider-specific: use `magpie:deepseek/deepseek-v4-pro` for that configured Magpie model or `deepseek-official:deepseek-flash` for the official route. Availability depends on the configured provider and account. `--effort` accepts `off`, `low`, `high`, and `max`; Codex/Claude aliases and effort spellings are not translated.
 
 ## Working with Flash
+
+These observations were gathered on the `deepseek-official` route; the Magpie route has not been re-evaluated.
 
 The 2026-10-22 onboarding used `deepseek-flash` / `high` through this adapter. Try bounded implementation with an independent acceptance check, semantic review against an explicit contract, and source-grounded discussion of a few options. Use `worker` for discussion; DSH has no `advisor` role. Use a fresh `reviewer` for independent review, rather than continuing the author's conversation. See [profiles.md](profiles.md#dsh) for the observed sample and the [repository onboarding record](https://github.com/alterxyz/ahelpa/blob/main/docs/dsh-onboarding.md) for evidence and limits.
 
@@ -84,15 +114,15 @@ ahelpa records DSH's native `session-...` ID and flushes native session persiste
 ahelpa resume "$session_id" --token "$token"
 ```
 
-The returned helper has a new ahelpa session ID and owner token. Use them to send the next `task` or `send`, then `wait`. DSH reloads the original native session from the same `DSH_HOME`, preserving context and recorded model/effort. The original project directory must still match; subagent, forked, and agent-preset sessions are not adopted by this adapter.
+The returned helper has a new ahelpa session ID and owner token. Use them to send the next `task` or `send`, then `wait`. DSH reloads the original native session from the same `DSH_HOME`, preserving context and recorded model/effort, including a provider qualified in `<provider>:<model>`. An unqualified recorded model continues to use the profile's default provider. The original project directory must still match; subagent, forked, and agent-preset sessions are not adopted by this adapter.
 
 Resume is rejected while the old terminal is draining. Wait until `check` reports `idle` and the terminal is gone, or explicitly `kill` it before resuming. `clean` removes the ahelpa record and resume metadata, so keep that record while it is still useful. Persistence reconnects the native conversation in a new process; it does not keep the original tmux process alive indefinitely.
 
 ## Troubleshooting
 
-- Missing CLI or credentials: run `ahelpa doctor dsh`, then configure DSH Web authentication or the API-key environment variable. `unknown` is not proof of valid authentication.
+- Missing CLI, route, or credentials: run `ahelpa doctor dsh`, configure the Magpie provider in the profile patch and its key in `$DSH_HOME/.env`, and start the gateway. DSH Web authentication or `DEEPSEEK_API_KEY` applies to the corresponding provider. `unknown` is not proof of valid authentication.
 - Startup or native-tool failure: inspect `logs` or use `capture` once for the last screen, then compare the installed DSH/native dependencies with the official installation guide.
 - A native turn that ends without a completion signal becomes `needs_attention`; read its summary and evidence before deciding how to continue.
-- For ahelpa development, `AHELPA_GATE_DSH=1 bun run closure:gate` opts into DSH launch/wait/check/kill and native resume-context checks.
+- For ahelpa development, `AHELPA_GATE_DSH=1 bun run closure:gate` opts into DSH launch/wait/check/kill and native resume-context checks. The configured local Magpie gateway must be running, with its provider key available to DSH.
 
 Upstream references: [repository and installation](https://github.com/deepseek-ai/deepseek-harness), [CLI profiles and patch layering](https://github.com/deepseek-ai/deepseek-harness/tree/master/apps/cli).

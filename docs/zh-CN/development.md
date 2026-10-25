@@ -178,7 +178,7 @@ DSH（`AHELPA_GATE_DSH=1`）和 Kimi（`AHELPA_GATE_KIMI=1`）还会在 `kill` �
 AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 ```
 
-**前置条件**：本轮选中的 helper CLI 需要在本机完成登录，默认是 `claude` 和 `codex`，启用对应开关后还包括 `dsh` 或 `kimi`。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
+**前置条件**：启用 DSH 时，本地 Magpie 网关必须已启动，`$DSH_HOME/profiles/ahelpa/cordis.patch.yml` 必须配置其 provider／模型，provider 密钥通过 `$DSH_HOME/.env` 提供；见 [Magpie 路由配置](../../skill/references/dsh.md#magpie-route)。本轮选中的 helper CLI 需要在本机完成登录，默认是 `claude` 和 `codex`，启用对应开关后还包括 `dsh` 或 `kimi`。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
 
 ## 添加 driver
 

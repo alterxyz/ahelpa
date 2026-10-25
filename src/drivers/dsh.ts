@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 import { shellEscape } from "../shell";
 import { dshTerminalSource } from "./dsh-terminal-source";
-import { addReadiness, executableReadiness, findReadinessExecutable, readPackageVersion, readinessRuntime } from "./readiness";
+import { addReadiness, executableReadiness, findReadinessExecutable, readLocalConfig, readPackageVersion, readinessRuntime } from "./readiness";
 import type { AgentDriver, DriverRuntime, LaunchOptions, ReadinessRuntime, ResumeOptions } from "./types";
 
 const EFFORTS = ["off", "low", "high", "max"] as const;
@@ -33,6 +33,10 @@ function files(opts: LaunchOptions) {
 }
 
 function validate(opts: LaunchOptions): void {
+  const separator = opts.model?.indexOf(":") ?? -1;
+  if (separator !== -1 && (!opts.model?.slice(0, separator).trim() || !opts.model?.slice(separator + 1).trim())) {
+    throw new Error("DSH --model must be <model> or <provider>:<model>, with nonempty provider and model");
+  }
   if (opts.safe) throw new Error("DSH --safe is not supported by the terminal profile yet; its approval UI requires DSH Web");
   if (opts.effort !== undefined && !EFFORTS.includes(opts.effort as typeof EFFORTS[number])) {
     throw new Error(`DSH --effort must be one of: ${EFFORTS.join(", ")}`);
@@ -65,10 +69,13 @@ export function prepareDshFiles(opts: LaunchOptions): void {
 
 function command(opts: LaunchOptions, resumeId?: string): string {
   validate(opts);
+  const model = opts.model ?? "";
+  const separator = model.indexOf(":");
   const env = ["DSH_PERMISSION_MODE=danger-full-access", "DSH_TELEMETRY_DISABLED=1"];
   // Always clear inherited adapter options: a helper can launch another helper.
   for (const [key, value] of Object.entries({
-    AHELPA_DSH_MODEL: opts.model ?? "", AHELPA_DSH_EFFORT: opts.effort ?? "", AHELPA_DSH_RESUME_ID: resumeId ?? "",
+    AHELPA_DSH_PROVIDER: separator === -1 ? "" : model.slice(0, separator),
+    AHELPA_DSH_MODEL: separator === -1 ? model : model.slice(separator + 1), AHELPA_DSH_EFFORT: opts.effort ?? "", AHELPA_DSH_RESUME_ID: resumeId ?? "",
   })) env.push(`${key}=${shellEscape(value)}`);
   return `cd ${shellEscape(opts.cwd)} && ${env.join(" ")} dsh --profile ahelpa --patch ${shellEscape(files(opts).patch)}`;
 }
@@ -88,9 +95,15 @@ export function checkDshReadiness(cwd: string, runtime: ReadinessRuntime = readi
   const result = executableReadiness(executable, executable ? readPackageVersion(executable, "@deepseek-ai/dsh") : null);
   if (!executable) return result;
   // Never parse or display an account grant. The runtime owns its validation.
-  const stored = existsSync(join(dshHome(cwd, runtime), ".credentials.yaml"));
+  const home = dshHome(cwd, runtime);
+  const stored = existsSync(join(home, ".credentials.yaml")) || existsSync(join(home, ".env"));
   addReadiness(result, "unknown", stored || runtime.env.DEEPSEEK_API_KEY?.trim()
-    ? "credentials are validated by DSH at launch" : "configure credentials in DSH Web or set DEEPSEEK_API_KEY");
+    ? "credentials are validated by DSH at launch" : "configure credentials with a provider key in $DSH_HOME/.env, DSH Web, or DEEPSEEK_API_KEY");
+  // ponytail: bounded text sniff, not a YAML parse; provider configuration is validated by DSH at launch.
+  const patch = readLocalConfig(join(home, "profiles", "ahelpa", "cordis.patch.yml"));
+  if (!patch || !/^[ \t]*(?:magpie|"magpie"|'magpie')[ \t]*:/m.test(patch)) {
+    addReadiness(result, "unknown", "default route needs a magpie provider in $DSH_HOME/profiles/ahelpa/cordis.patch.yml");
+  }
   return result;
 }
 
@@ -99,11 +112,11 @@ export const dshDriver: AgentDriver = {
   checkReadiness: checkDshReadiness,
   prepareLaunchFiles: prepareDshFiles,
   launchProfiles: { defaultRole: "worker", profiles: {
-    worker: { model: "deepseek-flash", effort: "high" },
-    reviewer: { model: "deepseek-flash", effort: "high" },
+    worker: { model: "magpie:deepseek/deepseek-flash", effort: "high" },
+    reviewer: { model: "magpie:deepseek/deepseek-flash", effort: "high" },
   } },
-  modelCatalog: { models: [{ name: "deepseek-flash", efforts: EFFORTS, defaultEffort: "high" }],
-    effortNote: "DSH native DeepSeek model IDs; availability is account-dependent. Runtime model switching and --safe are not supported yet." },
+  modelCatalog: { models: [{ name: "magpie:deepseek/deepseek-flash", efforts: EFFORTS, defaultEffort: "high" }],
+    effortNote: "DSH --model <model> keeps the profile default provider; <provider>:<model> selects a provider (split on the first colon). Model IDs are provider-specific: magpie uses deepseek/deepseek-v4-pro, deepseek-official uses deepseek-flash; availability is provider-dependent. Runtime model switching and --safe are not supported yet." },
   buildLaunchCommand: command,
   buildResumeCommand(opts: ResumeOptions) { return command(opts, opts.resumeId); },
   extractResumeToken(output) { return lastMatch(output, SESSION)?.[1] ?? null; },

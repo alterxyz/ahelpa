@@ -81,6 +81,9 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 ## dsh
 
 **Observation status**
+
+These observations were gathered on the `deepseek-official` route; the Magpie route has not been re-evaluated.
+
 - Small controlled onboarding sample, 2026-10-22: DSH `0.2.1-rc.2`, `deepseek-flash` / `high`, through the ahelpa profile. Prompts, task contracts, and profile affect the observed behavior. These trials are not an archive, reliability estimate, or comparison with other helpers.
 - Bounded parser repair: 44 helper tests and 132 independent host cases passed; the final file inventory and source diff stayed within the allowed source/test files, and the README remained unchanged.
 - A native-resume follow-up changed the parser's upper bound from 86400 to 3600. It made a one-line implementation change, disclosed the old-test updates required by the new rule, and passed 51 helper tests plus 132 new-bound host cases; the final inventory and diff remained within scope.
@@ -104,11 +107,11 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 **Give it**
 - The ordinary worker or reviewer brief, plus only the task-specific response guidance needed from [the Flash working card](dsh.md#working-with-flash). Avoid making every small task produce a report or a fact/inference table.
 - Explicit replacement wording when a new condition supersedes an old one; require verification to follow the new rule and disclose changed assertions.
-- `--role reviewer` for the review-only contract; the preset uses the same `deepseek-flash`/`high` settings as the default worker. Source-grounded discussion uses `worker`, since DSH has no `advisor` role.
+- `--role reviewer` for the review-only contract; the preset uses the same `magpie:deepseek/deepseek-flash`/`high` settings as the default worker. Source-grounded discussion uses `worker`, since DSH has no `advisor` role.
 
 **Runtime quirks**
 - Uses a separate `ahelpa` profile and a session-local terminal app; native DSH session persistence supports resume.
-- `--model` takes native DeepSeek model IDs; effort is `off|low|high|max`.
+- Defaults to the local Magpie gateway. `--model <model>` keeps the profile provider; `<provider>:<model>` selects it, splitting at the first colon. Model IDs are provider-specific; effort is `off|low|high|max`.
 - No `--safe` or runtime model switching. See `dsh.md` for prerequisites, authentication, and profile behavior.
 
 ## Task type to helper

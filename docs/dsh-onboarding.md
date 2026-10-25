@@ -4,6 +4,8 @@
 
 Observed on 2026-10-22. DSH passed the bounded implementation and review exercises below and can enter small real-work pilots. This is an onboarding record, not a model ranking, a reliability estimate, or a replacement for the historical helper-routing table.
 
+This evidence was gathered on the `deepseek-official` route; the Magpie route has not been re-evaluated.
+
 Use the [Flash working card](../skill/references/dsh.md#working-with-flash) when preparing a task and the [helper profiles](../skill/references/profiles.md#dsh) when choosing a role.
 
 Reusable skill references remain in English, following the existing distributed skill package; this record provides the matching Chinese explanation.

@@ -43,7 +43,7 @@ switch (command) {
     const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : ["codex", "dsh"].includes(args[0]) ? "worker" : null)
       : args[roleIndex + 1];
     const model = args[0] === "claude-code" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
-      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "deepseek-flash" : null;
+      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "magpie:deepseek/deepseek-flash" : null;
     const effort = args[0] === "claude-code" && role === "advisor" ? "xhigh" : args[0] === "kimi" ? null : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];

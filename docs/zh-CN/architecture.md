@@ -168,7 +168,7 @@ DSH `0.2.1-rc.2` 提供 Web、headless、SDK 和 ACP 入口 profile，没有内�
 
 该 app 直接使用公开 Agent/Session API，在同一 DSH 进程中保留多轮原生会话上下文。它输出适配器状态与回合标记，供 driver 确认 readiness、任务提交和结算，并记录原生 session ID，以便在新进程中恢复。这不会引入 ACP／SDK 传输或第三方 TUI；owner token、文件交接、wait/check 和清理仍由现有路径管理。
 
-适配器使用共享的 `DSH_HOME`（默认 `~/.dsh`）与已有 Web 凭据或 `DEEPSEEK_API_KEY`。启动 overlay 关闭 session-log contributor，环境变量关闭 OTel 上传；provider 模型请求仍照常发送。DSH 以完整本地权限运行，明确拒绝 `--safe` 和运行时模型切换。`worker` 与 `reviewer` 均默认使用 `deepseek-flash`／`high`；launch 接受原生 model ID 和 `off|low|high|max` effort。此接入仍待观察，未来 CLI 版本未验证。详见 [DSH 接入说明](../../skill/references/dsh.md)。
+适配器使用共享的 `DSH_HOME`（默认 `~/.dsh`）与 DSH 从 `$DSH_HOME/.env` 加载的 provider 密钥，或对应 provider 的已有 Web 凭据、`DEEPSEEK_API_KEY`。启动 overlay 关闭 session-log contributor，环境变量关闭 OTel 上传；provider 模型请求仍照常发送。DSH 以完整本地权限运行，明确拒绝 `--safe` 和运行时模型切换。`worker` 与 `reviewer` 均默认使用本地 Magpie 路由 `magpie:deepseek/deepseek-flash`／`high`。Launch 的 `<model>` 保留 profile 的 provider，`<provider>:<model>` 覆盖 provider，仅按第一个冒号拆分；model ID 因 provider 而异。Driver 始终设置 `AHELPA_DSH_PROVIDER`、`AHELPA_DSH_MODEL` 和 `AHELPA_DSH_EFFORT`，未指定的覆盖值清空，防止继承父 helper 的设置。Resume 复用已记录的模型，包括其中限定的 provider。Effort 为 `off|low|high|max`。此接入仍待观察，未来 CLI 版本未验证。详见 [DSH 接入说明](../../skill/references/dsh.md)。
 
 ## Nesting
 

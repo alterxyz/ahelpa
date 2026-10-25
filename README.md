@@ -91,7 +91,7 @@ For longer tasks, use `ahelpa launch codex --file ./task.md`. Choose exactly one
 
 Verify prerequisites with `command -v claude`, `command -v codex`, `command -v kimi`, or `command -v dsh` — the Claude helper type name is not its binary name.
 
-DSH support targets `@deepseek-ai/dsh@0.2.1-rc.2`. ahelpa creates a separate `ahelpa` profile and a session-local terminal app; existing Desktop/Web profiles and credentials are preserved. Start with `ahelpa launch dsh --task "Review the parser" --project /path/to/project`. See [DSH setup and limitations](skill/references/dsh.md) for installation, authentication, and native resume. This is a new integration under observation; `--safe` and runtime model switching are not supported.
+DSH defaults to the local Magpie gateway route (`magpie:deepseek/deepseek-flash`). DSH support targets `@deepseek-ai/dsh@0.2.1-rc.2`. ahelpa creates a separate `ahelpa` profile and a session-local terminal app; existing Desktop/Web profiles and credentials are preserved. Start with `ahelpa launch dsh --task "Review the parser" --project /path/to/project`. See [DSH setup and limitations](skill/references/dsh.md) for installation, authentication, and native resume. This is a new integration under observation; `--safe` and runtime model switching are not supported.
 
 The [DSH onboarding record](docs/dsh-onboarding.md) separates observed behavior, independently checked fixture results, task guidance, and further observation.
 
@@ -104,8 +104,8 @@ The [DSH onboarding record](docs/dsh-onboarding.md) separates observed behavior,
 | `claude-code` | `advisor` (default) | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |
-| `dsh` | `worker` (default) | `deepseek-flash` | `high` |
-| `dsh` | `reviewer` | `deepseek-flash` | `high` |
+| `dsh` | `worker` (default) | `magpie:deepseek/deepseek-flash` | `high` |
+| `dsh` | `reviewer` | `magpie:deepseek/deepseek-flash` | `high` |
 
 Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Use `reviewer` for read-only adversarial review; its task contract forbids modifying files outside the result directory. Codex and DSH reject `advisor`. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
 

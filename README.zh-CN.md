@@ -91,7 +91,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 检查依赖时请用 `command -v claude`、`command -v codex`、`command -v kimi` 或 `command -v dsh`。Claude 的 helper type 不是它的二进制名称。
 
-DSH 接入面向 `@deepseek-ai/dsh@0.2.1-rc.2`。ahelpa 会创建独立的 `ahelpa` profile 和会话内的终端 app，保留已有 Desktop/Web profile 与凭据。可用 `ahelpa launch dsh --task "Review the parser" --project /path/to/project` 启动。安装、认证与原生恢复见 [DSH 接入说明](skill/references/dsh.md)。该接入仍待观察，目前不支持 `--safe` 和运行时模型切换。
+DSH 默认使用本地 Magpie 网关路由（`magpie:deepseek/deepseek-flash`）。DSH 接入面向 `@deepseek-ai/dsh@0.2.1-rc.2`。ahelpa 会创建独立的 `ahelpa` profile 和会话内的终端 app，保留已有 Desktop/Web profile 与凭据。可用 `ahelpa launch dsh --task "Review the parser" --project /path/to/project` 启动。安装、认证与原生恢复见 [DSH 接入说明](skill/references/dsh.md)。该接入仍待观察，目前不支持 `--safe` 和运行时模型切换。
 
 [DSH onboarding 记录](docs/zh-CN/dsh-onboarding.md)分别列出交流观察、独立验收结果、派工方式和后续观察计划。
 
@@ -104,8 +104,8 @@ DSH 接入面向 `@deepseek-ai/dsh@0.2.1-rc.2`。ahelpa 会创建独立的 `ahel
 | `claude-code` | `advisor`（默认） | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |
-| `dsh` | `worker`（默认） | `deepseek-flash` | `high` |
-| `dsh` | `reviewer` | `deepseek-flash` | `high` |
+| `dsh` | `worker`（默认） | `magpie:deepseek/deepseek-flash` | `high` |
+| `dsh` | `reviewer` | `magpie:deepseek/deepseek-flash` | `high` |
 
 Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `ahelpa launch claude-code --role worker --file ./task.md` 会选择 Sonnet。显式 `--model`、`--effort` 分别覆盖对应默认值。`reviewer` 用于只读的对抗式审阅，其任务合同禁止修改结果目录之外的文件；Codex 和 DSH 拒绝 `advisor`。角色只选择启动设置，不改变权限或任务范围。Kimi 保持原生模型默认值，不接受 `--role`。`models` 展示预设，`check` 展示已记录的角色、模型和 effort；resume 保留已记录设置，旧会话没有角色时也不会套用新默认。
 
