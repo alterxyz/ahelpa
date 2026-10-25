@@ -102,7 +102,7 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 | Rework after review | codex | worker | Map each finding to a change; no new tests that only mirror the fix; full-suite rerun after the last edit |
 | Focused re-review | same choice as the adversarial review | reviewer | Built-in reviewer contract; check only the delta plus regressions; do not assume the rework's own claims |
 | Read-only investigation | claude-code | advisor | Question, scope limits, `file:line` evidence, "not examined" section |
-| Mutation testing | codex | worker | Report mutants tried, killed, survived; survivors become tests |
+| Mutation testing | codex | worker | Report mutants tried, killed, survived; survivors become tests. Mutant copies go under `$AHELPA_SCRATCH`; `artifacts/` gets each mutant's patch and the test log, never a tree copy |
 | Docs and prose | claude-code | worker (or advisor if judgment-heavy) | Source files to cite, no code changes |
 
 ## What the host must do regardless

@@ -1,5 +1,5 @@
 import { $ } from "bun";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from "fs";
 import { dirname, join, relative, resolve, sep } from "path";
 import { createHash } from "crypto";
 import { planSessionHandoff } from "./file-handoff";
@@ -11,6 +11,9 @@ import type { HelperRole } from "./drivers/types";
 export interface Evidence {
   peerMail?: { sent: number; received: number };
   summaryBytes: number;
+  // Entries under artifacts/, when any: a tree copy or cache left there shows
+  // up as tens of thousands before anyone commits or backs it up.
+  artifactsEntries?: number;
   baseCommit?: string;
   // The launch baseline no longer resolves (rebased or gc'd), so committed
   // helper work could not be listed. An empty changedFiles is not "nothing".
@@ -202,10 +205,14 @@ export async function computeTargetFingerprint(projectPath: string, resultDirs: 
 }
 
 export async function collectEvidence(subject: EvidenceSubject, options: EvidenceOptions = {}): Promise<Evidence> {
-  const { summaryPath, sessionDeliveryDir } = planSessionHandoff(subject);
+  const { summaryPath, sessionDeliveryDir, artifactsDir } = planSessionHandoff(subject);
   let summaryBytes = 0;
   try { summaryBytes = statSync(summaryPath).size; } catch {}
   const evidence: Evidence = { summaryBytes };
+  try {
+    const entries = readdirSync(artifactsDir, { recursive: true }).length;
+    if (entries > 0) evidence.artifactsEntries = entries;
+  } catch {}
   if (options.peerMail && (options.peerMail.sent > 0 || options.peerMail.received > 0)) {
     evidence.peerMail = options.peerMail;
   }

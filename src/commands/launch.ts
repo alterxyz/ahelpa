@@ -197,12 +197,17 @@ export function findWriterConflicts(db: StateDB, projectPath: string, role: Help
 }
 
 function helperEnvironmentPrefix(sessionId: string, maxDepth: number, jobId: string | null = null): string {
+  const scratch = shellEscape(defaultRuntimeLayout.scratchDir(sessionId));
   const assignments = [
     `AHELPA_PARENT_ID=${sessionId}`,
     `AHELPA_MAX_NESTING_DEPTH=${maxDepth}`,
     `AHELPA_MAX_ACTIVE_PER_TREE=${getMaxActivePerTree()}`,
     `AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`,
     `AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`,
+    // Tools that honor TMPDIR (mktemp, pytest, Python tempfile, go test) land
+    // in scratch by default instead of beside the helper's summary.
+    `AHELPA_SCRATCH=${scratch}`,
+    `TMPDIR=${scratch}`,
   ];
   // Always set, empty when there is no job: an inherited value would silently
   // put the helper in the job of whoever started the tmux server. An empty
@@ -487,6 +492,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }, plan.callerId, plan.maxDepth);
     dbCreated = true;
     if (!existsSync(plan.tmpDir)) mkdirSync(plan.tmpDir, { recursive: true });
+    mkdirSync(plan.fileHandoff.scratchDir, { recursive: true });
     assertFileHandoffAvailable(plan.fileHandoff);
     if (plan.worktreeSource) {
       await createWorktree(plan.worktreeSource, plan.input.projectPath, plan.sessionId);
@@ -722,6 +728,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     }, callerId, maxDepth);
     dbCreated = true;
     if (!existsSync(defaultRuntimeLayout.tmpDir)) mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+    mkdirSync(fileHandoff.scratchDir, { recursive: true });
     if (driver.turnHooks || driver.prepareLaunchFiles) {
       assertFileHandoffAvailable(fileHandoff);
       mkdirSync(fileHandoff.projectDeliveryDir, { recursive: true });

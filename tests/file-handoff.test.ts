@@ -80,6 +80,8 @@ describe("file handoff", () => {
     expect(content).toContain("\n\n## ahelpa signals\n\n");
     expect(existsSync(plan.sessionDeliveryDir)).toBe(true);
     expect(existsSync(plan.artifactsDir)).toBe(true);
+    expect(existsSync(plan.scratchDir)).toBe(true);
+    expect(plan.scratchDir.startsWith(TEST_PROJECT)).toBe(false);
     prepareFileHandoff(plan, task);
     expect(readFileSync(plan.taskFilePath, "utf-8")).toBe(content);
   });
@@ -134,6 +136,8 @@ describe("file handoff", () => {
 
     expect(contract).toContain(plan.summaryPath);
     expect(contract).toContain(plan.artifactsDir);
+    expect(contract).toContain(`Scratch: ${plan.scratchDir} (TMPDIR points there)`);
+    expect(contract).toMatch(/Never copy the project tree or a dependency cache/);
     expect(contract).toMatch(/exit code/);
     expect(contract).toMatch(/final diff/);
     expect(contract).toMatch(/-count=1/);
@@ -151,7 +155,7 @@ describe("file handoff", () => {
     const content = readFileSync(plan.taskFilePath, "utf-8");
     const contract = content.slice(content.indexOf("## ahelpa contract"), content.indexOf("## ahelpa signals"));
 
-    expect(contract).toContain(`Do not modify, create, stash, or check out any file outside ${plan.sessionDeliveryDir}`);
+    expect(contract).toContain(`Do not modify, create, stash, or check out any file outside ${plan.sessionDeliveryDir} or ${plan.scratchDir}`);
     expect(contract).toMatch(/Verdict first/);
     expect(contract).toMatch(/at least 3 temporary mutations/);
     expect(contract).toMatch(/The author's summary is a claim, not evidence/);
@@ -275,7 +279,7 @@ describe("file handoff", () => {
 
 describe("scope discipline in the contract", () => {
   // Pure: the contract is built from three paths, so no scratch directory is needed.
-  const paths = { summaryPath: "/p/.ahelpa/x/summary.md", artifactsDir: "/p/.ahelpa/x/artifacts", sessionDeliveryDir: "/p/.ahelpa/x" };
+  const paths = { summaryPath: "/p/.ahelpa/x/summary.md", artifactsDir: "/p/.ahelpa/x/artifacts", sessionDeliveryDir: "/p/.ahelpa/x", scratchDir: "/tmp/ahelpa/scratch/x" };
   const DISCIPLINE = "Scope discipline: change only what the objective needs. No unrequested refactors, renames, abstractions, flags, dependencies, or doc rewrites.";
   const SUGGESTIONS = 'goes under "## Suggestions (not done)" in summary.md, not into the diff.';
 

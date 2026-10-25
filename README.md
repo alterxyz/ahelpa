@@ -145,6 +145,7 @@ Completed sessions keep their status, logs, and resume metadata after the helper
 | `~/.ahelpa/archive/<id>/` | Final session snapshots |
 | `/tmp/ahelpa/<id>.pipe` | FIFO wakeup pipes |
 | `/tmp/ahelpa/ahelpa-task-<id>.md` | Task files |
+| `/tmp/ahelpa/scratch/<id>/` | Helper scratch (`$AHELPA_SCRATCH`, its `TMPDIR`): working copies, caches, test temp; reclaimable, never evidence |
 | `<project>/.ahelpa/<id>/summary.md` | Helper-written summary |
 | `<project>/.ahelpa/<id>/artifacts/` | Helper-written supporting files |
 | `<recipient-project>/.ahelpa/<id>/inbox/` | Peer message files |

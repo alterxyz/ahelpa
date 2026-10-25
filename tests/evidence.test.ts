@@ -10,6 +10,16 @@ const REPO = "/tmp/ahelpa-evidence-test-repo";
 describe("evidence", () => {
   afterEach(() => rmSync(REPO, { recursive: true, force: true }));
 
+  test("counts what a helper left under artifacts/, directories included", async () => {
+    mkdirSync(`${REPO}/.ahelpa/codex-art/artifacts/mutation-copy/src`, { recursive: true });
+    writeFileSync(`${REPO}/.ahelpa/codex-art/artifacts/mutation-copy/src/a.ts`, "x");
+    writeFileSync(`${REPO}/.ahelpa/codex-art/artifacts/report.md`, "r");
+
+    const evidence = await collectEvidence({ id: "codex-art", projectPath: REPO });
+
+    expect(evidence.artifactsEntries).toBe(4);
+  });
+
   test("reports summary size, changed files, and which of them are tests", async () => {
     mkdirSync(`${REPO}/tests`, { recursive: true });
     mkdirSync(`${REPO}/.ahelpa/codex-ev1`, { recursive: true });
@@ -21,6 +31,7 @@ describe("evidence", () => {
     const evidence = await collectEvidence({ id: "codex-ev1", projectPath: REPO });
 
     expect(evidence.summaryBytes).toBe(7);
+    expect(evidence.artifactsEntries).toBeUndefined();
     expect(evidence.changedFiles).toContain("src.ts");
     expect(evidence.changedFiles).toContain("tests/src.test.ts");
     expect(evidence.testFilesChanged).toEqual(["tests/src.test.ts"]);

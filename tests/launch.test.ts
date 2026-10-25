@@ -458,6 +458,9 @@ describe("launch", () => {
 
     expect(plan.launchCmd).toContain(`AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`);
     expect(plan.launchCmd).toContain(`AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`);
+    const scratch = shellEscape(defaultRuntimeLayout.scratchDir(plan.sessionId));
+    expect(plan.launchCmd).toContain(`AHELPA_SCRATCH=${scratch}`);
+    expect(plan.launchCmd).toContain(`TMPDIR=${scratch}`);
   });
 
   test.each(["missing", "file"])("rejects a %s project before creating a terminal or handoff files", async (kind) => {

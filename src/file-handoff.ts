@@ -17,6 +17,8 @@ export interface FileHandoffPlan {
   compatLink: string | null;
   summaryPath: string;
   artifactsDir: string;
+  // Reclaimable working space (TMPDIR for the helper); never under the project.
+  scratchDir: string;
   // Durable copy of what the helper was asked, beside its summary. The tmp
   // task file is reclaimed with the session; this one survives for the record.
   taskCopyPath: string;
@@ -53,6 +55,7 @@ export function planFileHandoff(
   const artifactsDir = join(sessionDeliveryDir, "artifacts");
   const taskCopyPath = join(sessionDeliveryDir, "task.md");
   const taskFilePath = layout.taskFilePath(sessionId);
+  const scratchDir = layout.scratchDir(sessionId);
 
   return {
     taskFilePath,
@@ -61,6 +64,7 @@ export function planFileHandoff(
     compatLink: compatLink === sessionDeliveryDir ? null : compatLink,
     summaryPath,
     artifactsDir,
+    scratchDir,
     taskCopyPath,
     askPath: join(sessionDeliveryDir, "ask.md"),
     taskInstruction: buildTaskInstruction({ taskFilePath, sessionDeliveryDir, summaryPath, artifactsDir }),
@@ -109,11 +113,12 @@ function reviewTargetLine(target: TargetFingerprint): string {
 // from the author's summary instead of their own run. The scope rule answers
 // over-building (issue #22), not an archive count.
 export function buildContractSection(
-  plan: Pick<FileHandoffPlan, "summaryPath" | "artifactsDir" | "sessionDeliveryDir">,
+  plan: Pick<FileHandoffPlan, "summaryPath" | "artifactsDir" | "sessionDeliveryDir" | "scratchDir">,
   context: HandoffContext = {},
 ): string {
   const lines = [
     `Result: write ${plan.summaryPath}; put supporting files under ${plan.artifactsDir}.`,
+    `Scratch: ${plan.scratchDir} (TMPDIR points there) for working copies, mutation copies, build and test temp, and caches; it is reclaimed, never kept. ${plan.artifactsDir} holds only what a reader needs to check your claims: patches, logs, reports. Never copy the project tree or a dependency cache into it.`,
   ];
   if (context.jobId && context.role !== "reviewer") {
     const job = context.jobId;
@@ -124,7 +129,7 @@ export function buildContractSection(
   }
   if (context.role === "reviewer") {
     lines.push(
-      `You are reviewing, not fixing. Do not modify, create, stash, or check out any file outside ${plan.sessionDeliveryDir}; temporary mutations for testing must be restored byte-for-byte before you finish.`,
+      `You are reviewing, not fixing. Do not modify, create, stash, or check out any file outside ${plan.sessionDeliveryDir} or ${plan.scratchDir}; temporary mutations for testing must be restored byte-for-byte before you finish, or made in a copy under ${plan.scratchDir}.`,
       `summary.md must state:`,
       `- Verdict first: ship, or needs rework.`,
       `- State the HEAD and fingerprint you reviewed.`,
@@ -170,6 +175,7 @@ export function buildTaskFileContent(plan: FileHandoffPlan, task: string, contex
 export function prepareFileHandoff(plan: FileHandoffPlan, task: string, context: HandoffContext = {}): void {
   mkdirSync(dirname(plan.taskFilePath), { recursive: true });
   mkdirSync(plan.artifactsDir, { recursive: true });
+  mkdirSync(plan.scratchDir, { recursive: true });
   const content = buildTaskFileContent(plan, task, context);
   const existingTask = existsSync(plan.taskCopyPath);
   writeFileSync(plan.taskFilePath, content);

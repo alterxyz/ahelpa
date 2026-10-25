@@ -111,6 +111,13 @@ export class RuntimeLayout {
     return join(this.tmpDir, `ahelpa-task-${sessionId}.md`);
   }
 
+  // One helper's working copies, caches and test temp, outside every project
+  // tree. Inside a project they are committed and backed up as if they were
+  // evidence: one managed project's .ahelpa/ reached 660k entries that way.
+  scratchDir(sessionId: string): string {
+    return join(this.tmpDir, "scratch", sessionId);
+  }
+
   fifoPath(sessionId: string): string {
     return join(this.tmpDir, `${sessionId}.pipe`);
   }

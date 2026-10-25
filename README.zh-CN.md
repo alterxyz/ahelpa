@@ -146,7 +146,8 @@ Helper 终端回收后，已完成会话仍保留状态、日志和恢复信息�
 | `/tmp/ahelpa/<id>.pipe` | FIFO 唤醒管道 |
 | `/tmp/ahelpa/ahelpa-task-<id>.md` | 任务文件 |
 | `<project>/.ahelpa/<id>/summary.md` | helper 写入的总结 |
-| `<project>/.ahelpa/<id>/artifacts/` | helper 写入的支撑文件 |
+| `<project>/.ahelpa/<id>/artifacts/` | helper 写入的支撑文件（patch、日志、报告；不放整树副本与缓存） |
+| `/tmp/ahelpa/scratch/<id>/` | helper 的 scratch（`$AHELPA_SCRATCH`，同时是它的 `TMPDIR`）：工作副本、缓存、测试临时目录；可回收，不是证据 |
 | `<recipient-project>/.ahelpa/<id>/inbox/` | Peer 消息文件 |
 | `<sender-project>/.ahelpa/jobs/<job>/mail.jsonl` | Peer 投递 ledger |
 
