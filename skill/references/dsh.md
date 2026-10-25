@@ -1,6 +1,6 @@
 # ahelpa on DeepSeek Harness
 
-DSH is a new helper integration under observation. This adapter targets the official `@deepseek-ai/dsh@0.2.1-rc.2`; future CLI releases are unverified. There is no archive-based capability ranking or preferred task type yet.
+DSH is a new helper integration under observation. This adapter targets the official `@deepseek-ai/dsh@0.2.1-rc.2`; future CLI releases are unverified. Small controlled onboarding trials inform the working card below; they do not establish a capability ranking or replace host verification.
 
 ## Installation and authentication
 
@@ -50,6 +50,27 @@ ahelpa launch dsh --model deepseek-flash --effort high --file ./task.md --projec
 ```
 
 `--model` takes native DeepSeek model IDs, whose availability depends on the account. The adapter currently requires DSH's `deepseek-official` provider. `--effort` accepts `off`, `low`, `high`, and `max`; Codex/Claude aliases and effort spellings are not translated.
+
+## Working with Flash
+
+The 2026-10-22 onboarding used `deepseek-flash` / `high` through this adapter. Try bounded implementation with an independent acceptance check, semantic review against an explicit contract, and source-grounded discussion of a few options. Use `worker` for discussion; DSH has no `advisor` role. Use a fresh `reviewer` for independent review, rather than continuing the author's conversation. See [profiles.md](profiles.md#dsh) for the observed sample and the [repository onboarding record](https://github.com/alterxyz/ahelpa/blob/main/docs/dsh-onboarding.md) for evidence and limits.
+
+In the conversation sample, Flash turned open questions into polished, extended explanations; a later read-only discussion also generated an unnecessary format checker. Give it a summary budget and stopping point when useful. Fluency and checks of headings or line references do not establish semantic correctness. Do not ask for a report or build a prose-format checker by habit. Ask for evidence behind consequential claims and keep explicit allowed/forbidden paths in the brief for the host to check. Distinguish exploration from delivery only when needed. These adjustments reflect the prompts and profile, not fixed personality traits or general reliability.
+
+Add only the useful lines to the task brief; the ordinary ahelpa contract still applies:
+
+```text
+For this task, focus on <the decision or result>.
+Aim for <three bullets / a short paragraph / about 120 words>.
+Use the normal ahelpa delivery contract; do not add a general essay.
+Support claims that affect the decision. Mention unresolved assumptions
+only when they could change the result.
+Do not add a prose-format checker unless this task requires one.
+```
+
+The response budget is a target: do not omit a failed check or important limitation to meet it. No separate fact/inference/unknown table is needed. For an unsettled choice, ask for the next cheap observation that would distinguish the options. For a changed requirement, say `<new condition> replaces <old condition>` and ask for verification to follow the new rule, with any changed old assertions disclosed. One native-resume trial handled that update correctly; it is not evidence for arbitrary long conversations. Save reusable detail under `artifacts/` only when needed; a simple result needs only `summary.md`.
+
+The Web/Desktop `1017` badge is a presentation marker, not an immutable backend version or a suffix to add to `deepseek-flash`. [Upstream badge documentation](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/ui-deepseek-model-label-1017/README.md) explains the distinction. Official [model release notes](https://api-docs.deepseek.com/news/news261017/) and [thinking-mode guidance](https://api-docs.deepseek.com/guides/thinking_mode/) describe provider behavior; their claims do not establish this helper's local task performance.
 
 ## Permissions and limits
 

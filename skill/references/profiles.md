@@ -81,12 +81,30 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 ## dsh
 
 **Observation status**
-- New integration targeting DeepSeek Harness `0.2.1-rc.2`; no archived task sample supports a capability ranking or task preference yet.
-- Start with bounded, independently checkable tasks and inspect the result and evidence before expanding its use.
+- Small controlled onboarding sample, 2026-10-22: DSH `0.2.1-rc.2`, `deepseek-flash` / `high`, through the ahelpa profile. Prompts, task contracts, and profile affect the observed behavior. These trials are not an archive, reliability estimate, or comparison with other helpers.
+- Bounded parser repair: 44 helper tests and 132 independent host cases passed; the final file inventory and source diff stayed within the allowed source/test files, and the README remained unchanged.
+- A native-resume follow-up changed the parser's upper bound from 86400 to 3600. It made a one-line implementation change, disclosed the old-test updates required by the new rule, and passed 51 helper tests plus 132 new-bound host cases; the final inventory and diff remained within scope.
+- A seeded permission review found all three planted fault groups: public access bypassing identity/active/tenant checks, owner access before tenant isolation, and treating a share list as truthy authorization. The host reran its 15 regression checks on the faulty target: 8 passed and 7 reproduced failures.
+- A separate fresh review of the correct control returned `ship` with no code findings. The host reran 13 regression checks and a 288-case combination oracle, all passing; three host-written mutants were caught by the reviewer's regression suite and the original source hash was restored.
+- These are distinct fixture results, not one combined success rate. Large implementations, broad repository review, and long-running work remain unverified. See the [onboarding record](https://github.com/alterxyz/ahelpa/blob/main/docs/dsh-onboarding.md) for evidence and limits.
+
+**Candidate assignments**
+- Bounded implementation where the host has an independent oracle or acceptance check.
+- Independent semantic review of a frozen target against explicit rules; keep a correct control and permit zero findings.
+- Source-grounded discussion of a small set of options, with decision-bearing claims tied to supplied sources. This is a tentative assignment, not a demonstrated advantage over another helper.
+- It suggested gradually trying real tasks in isolation rather than freezing historical assignments. That is a proposal for further evaluation, not an observed capability.
+
+**Watch for**
+- In the initial five Chinese conversation turns, open questions produced long, polished answers; direct response-length feedback shortened them. It partly revised disputed views while retaining reasoned disagreement.
+- A precise-looking percentage was acknowledged as rhetoric when challenged. Ask for evidence behind consequential claims instead of inferring accuracy from fluency.
+- A later read-only onboarding discussion produced a 22,300-byte summary and created a script checking headings and line references. Such format checks are not evidence that the prose's meaning is correct; do not mechanically add verification scripts to prose tasks.
+- That discussion self-reported writing and then deleting a temporary log outside its allowed paths. The host confirmed final absence, but the final tree could not independently establish the transient write. Scope compliance in the parser fixtures is a local result, not evidence of general scope reliability; keep explicit path constraints and host checks.
+- Under an explicit short brief, a simulated page/unsupported-speedup discussion returned a 176-character reply (146 Han characters), one question, two directions, and a screenshot next step without claiming screen access or speed data. Its summary was 1,265 bytes; artifacts contained only `reply.md`, with no new checker. Inline length counting was required acceptance. This different task and prompt are not a controlled A/B comparison or evidence of lasting scope compliance.
 
 **Give it**
-- A clear objective, narrow scope, acceptance command, and explicit forbidden paths, as for other workers.
-- `--role reviewer` when testing the review-only contract; the preset uses the same `deepseek-flash`/`high` settings as the default worker.
+- The ordinary worker or reviewer brief, plus only the task-specific response guidance needed from [the Flash working card](dsh.md#working-with-flash). Avoid making every small task produce a report or a fact/inference table.
+- Explicit replacement wording when a new condition supersedes an old one; require verification to follow the new rule and disclose changed assertions.
+- `--role reviewer` for the review-only contract; the preset uses the same `deepseek-flash`/`high` settings as the default worker. Source-grounded discussion uses `worker`, since DSH has no `advisor` role.
 
 **Runtime quirks**
 - Uses a separate `ahelpa` profile and a session-local terminal app; native DSH session persistence supports resume.
@@ -113,6 +131,6 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 - Brief the helper like a peer: state the goal and why, keep the scope narrow, include acceptance checks, a forbidden list, and `file:line` for claims. Ask the question, not your answer; for investigations, list what you already ruled out instead of what you suspect. Give pointers to files and docs worth reading, not pasted copies; the brief is the helper's only task context.
 - Continue with `task` or `resume` when the session's context is the asset; launch fresh when blindness is the asset. Never continue a reviewer into a fix. Zero findings is a valid review result; do not invent findings to fill a quota.
 - Pass `--check "<cmd>"` for implementation and rework: ahelpa reruns it on the final state when `wait` returns and puts the result in `evidence.check`. Trust that over the summary's own exit codes.
-- Pass `--after <previous-id>` on review and rework hands so the helper gets the previous `task.md`, `summary.md`, and `artifacts/` paths (as claims to check, not facts).
+- Pass `--after <previous-id>` on review and rework hands. An explicit reviewer gets the previous host-written `ask.md` and diff target by default; the author's full task, summary, and artifacts stay withheld unless `--unblind` is requested. Non-reviewer rework gets those paths as claims to check, not facts.
 - Pass `--worktree` when the helper's edits should not touch your working tree, or when several helpers run in parallel on one repo. It branches from `HEAD`, so uncommitted changes are not included; ahelpa never removes the worktree, and its results go to the source repo's `.ahelpa/<id>/`, so removing the worktree keeps them.
 - Read the diff before committing. Helpers do not commit for you.

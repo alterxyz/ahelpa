@@ -93,6 +93,8 @@ Verify prerequisites with `command -v claude`, `command -v codex`, `command -v k
 
 DSH support targets `@deepseek-ai/dsh@0.2.1-rc.2`. ahelpa creates a separate `ahelpa` profile and a session-local terminal app; existing Desktop/Web profiles and credentials are preserved. Start with `ahelpa launch dsh --task "Review the parser" --project /path/to/project`. See [DSH setup and limitations](skill/references/dsh.md) for installation, authentication, and native resume. This is a new integration under observation; `--safe` and runtime model switching are not supported.
 
+The [DSH onboarding record](docs/dsh-onboarding.md) separates observed behavior, independently checked fixture results, task guidance, and further observation.
+
 ### Roles and defaults
 
 | Helper | Role | Default model | Effort |

@@ -93,6 +93,8 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 DSH 接入面向 `@deepseek-ai/dsh@0.2.1-rc.2`。ahelpa 会创建独立的 `ahelpa` profile 和会话内的终端 app，保留已有 Desktop/Web profile 与凭据。可用 `ahelpa launch dsh --task "Review the parser" --project /path/to/project` 启动。安装、认证与原生恢复见 [DSH 接入说明](skill/references/dsh.md)。该接入仍待观察，目前不支持 `--safe` 和运行时模型切换。
 
+[DSH onboarding 记录](docs/zh-CN/dsh-onboarding.md)分别列出交流观察、独立验收结果、派工方式和后续观察计划。
+
 ### 角色与默认值
 
 | Helper | 角色 | 默认模型 | Effort |

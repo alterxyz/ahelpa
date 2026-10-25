@@ -6,7 +6,7 @@
 
 **Helper** — A persistent coding-agent session launched by another agent. A helper can be a peer reviewer, a parallel worker, or a fresh-context clone.
 
-**Role** — A launch preset and session label. A `worker` executes against a clear objective; an `advisor` handles analysis, plans, and review. Claude defaults to advisor and supports both roles; Codex only supports worker. Roles select model/effort defaults without changing permissions or task scope. Kimi and legacy records may have no role.
+**Role** — A launch preset and session label. A `worker` executes against a clear objective; an `advisor` handles analysis and plans; a `reviewer` uses a review-only contract. Claude defaults to advisor and supports all three roles; Codex and DSH support worker and reviewer, defaulting to worker. Roles select model/effort defaults and the task contract without changing permissions. Kimi and legacy records may have no role.
 
 **Host** — The agent that launches a helper and owns the returned token. A host controls only sessions it created directly. The sole lineage carve-out is `kill --tree`: abort authority follows lineage; control does not.
 
