@@ -354,7 +354,7 @@ describe("codex Folder access screen", () => {
     ["hooks, folder", ["SessionStart hooks\n› 1. Review hooks\nPress t to trust all", folder120, prompt], ["Escape", "Enter"], []],
   ] as const)("%s are handled in either order", async (_name, screens, keys, sent) => {
     const runtime = sequence([...screens]);
-    const skippedHooks = keys.includes("Escape");
+    const skippedHooks = (keys as readonly string[]).includes("Escape");
     expect(await driver.prepareForTask("replay", runtime)).toEqual({ codexTrust: "<repo root>", ...(skippedHooks ? { codexHooksSkipped: true } : {}) });
     expect(runtime.keys).toEqual([...keys]);
     expect(runtime.sent).toEqual([...sent]);
