@@ -186,6 +186,22 @@ describe("codex readiness against live menus and history", () => {
     expect(runtime.sent).toEqual(["2"]);
   });
 
+  test("the 0.16x 'Hooks need review' menu is skipped with Escape and reported", async () => {
+    const menu = "  Hooks need review\n  5 hooks are new or changed.\n  Hooks can run outside the sandbox after you trust them.\n› 1. Review hooks\n  2. Trust all and continue\n  3. Continue without trusting (hooks won't run)\n  enter confirm · esc skip";
+    const runtime = replay([menu, prompt]);
+    const notes = await driver.prepareForTask("replay", runtime);
+    expect(runtime.keys).toEqual(["Escape"]);
+    expect(runtime.sent).toEqual([]);
+    expect(notes).toEqual({ codexHooksSkipped: true });
+  });
+
+  test("an answered 'Hooks need review' menu above the composer is scrollback, not escaped again", async () => {
+    const runtime = replay([`  Hooks need review\n› 1. Review hooks\n  2. Trust all and continue\n\n${prompt}`]);
+    const notes = await driver.prepareForTask("replay", runtime);
+    expect(runtime.keys).toEqual([]);
+    expect(notes).toBeUndefined();
+  });
+
   test("afterTaskSubmitted retains numbered user turns as evidence", async () => {
     const runtime = replay(["› 1. fix the bug\nWorking (1s)"]);
     expect(await driver.afterTaskSubmitted("replay", runtime, { beforeOutput: prompt })).toBe(true);
@@ -338,7 +354,8 @@ describe("codex Folder access screen", () => {
     ["hooks, folder", ["SessionStart hooks\n› 1. Review hooks\nPress t to trust all", folder120, prompt], ["Escape", "Enter"], []],
   ] as const)("%s are handled in either order", async (_name, screens, keys, sent) => {
     const runtime = sequence([...screens]);
-    expect(await driver.prepareForTask("replay", runtime)).toEqual({ codexTrust: "<repo root>" });
+    const skippedHooks = keys.includes("Escape");
+    expect(await driver.prepareForTask("replay", runtime)).toEqual({ codexTrust: "<repo root>", ...(skippedHooks ? { codexHooksSkipped: true } : {}) });
     expect(runtime.keys).toEqual([...keys]);
     expect(runtime.sent).toEqual([...sent]);
   });

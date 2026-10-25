@@ -68,6 +68,8 @@ export interface LaunchResult {
   taskWarning?: string;
   // Set when Codex asked to trust the repository root and the driver accepted: the root Codex now trusts.
   codexTrust?: string;
+  // Set when Codex asked to trust new or changed project hooks and the driver skipped them: the helper runs without them.
+  codexHooksSkipped?: boolean;
   jobId?: string;
   // Active sessions sharing this tree where at least one side may write. The
   // launch proceeds; evidence can no longer say whose change is whose.
@@ -463,6 +465,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   let worktreeCreated = false;
   let submissionUnconfirmed = false;
   let codexTrust: string | undefined;
+  let codexHooksSkipped = false;
   let resultLink: string | null = null;
   try {
     if (plan.input.db.getSession(plan.sessionId)) {
@@ -524,7 +527,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     prepareFileHandoff(plan.fileHandoff, plan.input.task, plan.handoffContext);
     resultLink = linkResultDir(plan.fileHandoff);
     const notes = await plan.driver.prepareForTask(plan.sessionId, driverRuntime);
-    if (notes) codexTrust = notes.codexTrust;
+    if (notes) { codexTrust = notes.codexTrust; codexHooksSkipped = notes.codexHooksSkipped === true; }
     const submissionContext: TaskSubmissionContext = {};
     try {
       submissionContext.beforeOutput = await driverRuntime.capture(plan.sessionId, 80);
@@ -613,6 +616,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   if (plan.jobId) result.jobId = plan.jobId;
   if (plan.writerConflict.length > 0) result.writerConflict = plan.writerConflict;
   if (codexTrust) result.codexTrust = codexTrust;
+  if (codexHooksSkipped) result.codexHooksSkipped = true;
   if (submissionUnconfirmed) {
     result.warning = `${plan.driver.name} received the task but did not confirm a new turn; session marked needs_attention`;
   }
@@ -642,6 +646,8 @@ export interface ResumeResult {
   effort?: string;
   // As on LaunchResult: the root whose Codex "Folder access" prompt the driver accepted.
   codexTrust?: string;
+  // Set when Codex asked to trust new or changed project hooks and the driver skipped them: the helper runs without them.
+  codexHooksSkipped?: boolean;
 }
 
 export async function resume(input: ResumeInput): Promise<ResumeResult> {
@@ -697,6 +703,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   let wakeupOwned = false;
   let handoffOwned = false;
   let codexTrust: string | undefined;
+  let codexHooksSkipped = false;
   let resultLink: string | null = null;
   try {
     reserveSession(input.db, {
@@ -753,7 +760,7 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     // flow has had a chance to reach an input prompt. Otherwise an immediate
     // `send` can be typed into a loading or confirmation screen.
     const notes = await driver.prepareForResume(sessionId, driverRuntime);
-    if (notes) codexTrust = notes.codexTrust;
+    if (notes) { codexTrust = notes.codexTrust; codexHooksSkipped = notes.codexHooksSkipped === true; }
     input.db.updateResumeId(sessionId, oldSession.agentResumeId);
     await defaultWakeup.prepare(sessionId);
     wakeupOwned = true;
@@ -789,5 +796,6 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   if (oldSession.model != null) result.model = oldSession.model;
   if (oldSession.effort != null) result.effort = oldSession.effort;
   if (codexTrust) result.codexTrust = codexTrust;
+  if (codexHooksSkipped) result.codexHooksSkipped = true;
   return result;
 }

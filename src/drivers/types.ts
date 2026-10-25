@@ -65,6 +65,8 @@ export type ActivitySignal = "working" | "booting" | "idle";
 export interface StartupNotes {
   // The repository root whose Codex "Folder access" prompt the driver accepted.
   codexTrust?: string;
+  // Codex asked to trust new or changed project hooks and the driver declined for now: the helper runs without them.
+  codexHooksSkipped?: boolean;
 }
 
 // Codex saves the trust when Enter is pressed, whatever fails next: every error after the answer carries this.

@@ -21,12 +21,18 @@ function codexNeedsPromptNudge(captureOutput: string): boolean {
     || /Do you trust the contents of this directory\?/i.test(captureOutput);
 }
 
-// Codex >=0.141 asks to trust configured plugin hooks before the prompt.
-// Escape declines-for-now and proceeds; Enter would open the hooks review
-// sub-screen and strand the session there.
+// Codex >=0.141 asks to trust configured plugin hooks before the prompt ("Press t to trust all"); >=0.16x draws a
+// numbered menu instead ("Hooks need review … 1. Review hooks / 2. Trust all and continue / 3. Continue without
+// trusting … esc skip"). Escape declines-for-now and proceeds without the hooks: Enter would open the review
+// sub-screen or trust them, and whether a project's hooks may run for helpers is the host's decision, not ahelpa's.
+// The menu is live only while every "›" row after its latest header is one of its own numbered options; a composer
+// below it means the menu is scrollback.
 export function codexNeedsHooksTrustEscape(captureOutput: string): boolean {
-  return /Press t to trust all/i.test(captureOutput)
-    || /Press space or enter to toggle/i.test(captureOutput);
+  if (/Press t to trust all/i.test(captureOutput) || /Press space or enter to toggle/i.test(captureOutput)) return true;
+  const header = [...captureOutput.matchAll(/^[^\S\n]*Hooks need review[^\S\n]*$/gm)].at(-1);
+  if (header?.index === undefined) return false;
+  const rows = [...captureOutput.slice(header.index).matchAll(/^[^\S\n]*›.*$/gm)];
+  return rows.length > 0 && rows.every((row) => /^[^\S\n]*›[^\S\n]*\d+\.\s/.test(row[0]));
 }
 
 // Codex <=0.15x: "Update available! … Press enter to continue"; 0.160: "Update available · … enter continue · esc skip".
@@ -218,6 +224,7 @@ async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Pro
   let nudged = false;
   let updateSkipped = false;
   let trustedRoot: string | undefined;
+  let hooksSkipped = false;
   let startingPolls = 0;
 
   await runtime.sleep(2000);
@@ -246,6 +253,7 @@ async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Pro
     // Not gated on `nudged`: the trust flow can need one Escape per screen.
     if (codexNeedsHooksTrustEscape(recentOutput)) {
       await runtime.sendKey(sessionId, "Escape");
+      hooksSkipped = true;
       continue;
     }
     if (codexNeedsUpdateSkip(recentOutput)) {
@@ -259,7 +267,13 @@ async function waitForCodexInput(sessionId: string, runtime: DriverRuntime): Pro
       nudged = true;
       continue;
     }
-    if (codexHasInputPrompt(recentOutput)) return trustedRoot ? { codexTrust: trustedRoot } : undefined;
+    if (codexHasInputPrompt(recentOutput)) {
+      if (!trustedRoot && !hooksSkipped) return undefined;
+      const notes: StartupNotes = {};
+      if (trustedRoot) notes.codexTrust = trustedRoot;
+      if (hooksSkipped) notes.codexHooksSkipped = true;
+      return notes;
+    }
   }
   const startupNote = startingPolls > 0 ? ` (waited ${startingPolls}s in MCP startup)` : "";
   // Codex saved the trust when Enter was pressed, whatever happens next: say so, the rollback discards the note.
