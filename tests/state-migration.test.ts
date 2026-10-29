@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB } from "../src/state";
 
@@ -9,7 +10,7 @@ describe("state schema migrations", () => {
   let dbPath: string;
 
   beforeEach(() => {
-    root = mkdtempSync("/tmp/ahelpa-state-migration-");
+    root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-state-migration-"));
     dbPath = join(root, "state.db");
   });
 

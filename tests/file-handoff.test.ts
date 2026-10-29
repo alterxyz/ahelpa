@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, rmSync } from "fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { RuntimeLayout } from "../src/runtime-layout";
 import {
   buildContractSection,
@@ -10,9 +12,10 @@ import {
 } from "../src/file-handoff";
 import { SENTINEL, scanSentinels } from "../src/drivers/sentinels";
 
-const TEST_TMP = "/tmp/ahelpa-file-handoff-test-tmp";
-const TEST_HOME = "/tmp/ahelpa-file-handoff-test-home";
-const TEST_PROJECT = "/tmp/ahelpa-file-handoff-test-project";
+let TEST_TMP: string;
+let TEST_HOME: string;
+let TEST_PROJECT: string;
+let scratch: string;
 
 const instructionPaths = {
   taskFilePath: "/tmp/ahelpa/ahelpa-task-abc.md",
@@ -51,10 +54,15 @@ function characterWrap(text: string, width: number): string[] {
 }
 
 describe("file handoff", () => {
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-file-handoff-"));
+    TEST_TMP = join(scratch, "tmp");
+    TEST_HOME = join(scratch, "home");
+    TEST_PROJECT = join(scratch, "project");
+  });
+
   afterEach(() => {
-    rmSync(TEST_TMP, { recursive: true, force: true });
-    rmSync(TEST_HOME, { recursive: true, force: true });
-    rmSync(TEST_PROJECT, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("plans task and result paths from project plus session", () => {

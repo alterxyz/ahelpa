@@ -1,21 +1,29 @@
-import { describe, test, expect, afterEach, spyOn, mock } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach, spyOn, mock } from "bun:test";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
 import { createWorktree, executeLaunch, launch, planLaunch, removeWorktree, resume, tempPointerWarning, worktreePathFor } from "../src/commands/launch";
 import { $ } from "bun";
 import { FIFO } from "../src/fifo";
 import * as daemon from "../src/daemon";
-import { unlinkSync, existsSync, rmSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
+import { unlinkSync, existsSync, mkdtempSync, rmSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
-import { relative, resolve } from "path";
+import { join, relative, resolve } from "path";
 import { shellEscape } from "../src/shell";
 
-const TEST_DB = "/tmp/ahelpa-launch-test.db";
-const TEST_PROJECT = "/tmp/ahelpa-launch-test-project";
+let TEST_DB: string;
+let TEST_PROJECT: string;
+let scratch: string;
 
 describe("launch", () => {
   let sessionId: string | undefined;
   let db: StateDB;
+
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-launch-"));
+    TEST_DB = join(scratch, "state.db");
+    TEST_PROJECT = join(scratch, "project");
+  });
 
   afterEach(async () => {
     mock.restore();
@@ -24,10 +32,7 @@ describe("launch", () => {
       sessionId = undefined;
     }
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
-    rmSync(TEST_PROJECT, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("creates session with correct shape and records in SQLite", async () => {
@@ -236,7 +241,7 @@ describe("launch", () => {
 
       expect(plan.worktreeSource).toBe(TEST_PROJECT);
       expect(plan.input.projectPath).toBe(worktreePathFor(TEST_PROJECT, plan.sessionId));
-      expect(plan.input.projectPath).toBe(`/tmp/ahelpa-launch-test-project-worktrees/${plan.sessionId}`);
+      expect(plan.input.projectPath).toBe(`${TEST_PROJECT}-worktrees/${plan.sessionId}`);
       // The worktree does not exist yet, and `git worktree remove` would take
       // its .ahelpa/ along: the results are planned in the source repository.
       // (realpath: /tmp is /private/tmp on macOS, and the source is reported canonical.)

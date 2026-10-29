@@ -1,14 +1,19 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, unlinkSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { StateDB } from "../src/state";
 import { requireAuthorizedSession, SessionAccessError } from "../src/session-access";
 
-const TEST_DB = "/tmp/ahelpa-session-access-test.db";
+let TEST_DB: string;
+let scratch: string;
 
 describe("session access", () => {
   let db: StateDB;
 
   beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-session-access-"));
+    TEST_DB = join(scratch, "state.db");
     db = new StateDB(TEST_DB);
     db.createSession({
       id: "session-1",
@@ -22,9 +27,7 @@ describe("session access", () => {
 
   afterEach(() => {
     db.close();
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("returns the session for the owner token", () => {

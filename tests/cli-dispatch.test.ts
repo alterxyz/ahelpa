@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { afterAll, afterEach, beforeAll, describe, expect, mock, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { StateDB } from "../src/state";
 import { COMMAND_CONTRACTS, runCli } from "../src/command-contract";
 import { Tmux } from "../src/tmux";
@@ -8,9 +10,17 @@ import { FIFO } from "../src/fifo";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 import { getDriver } from "../src/drivers/registry";
 
-const TEST_DB = "/tmp/ahelpa-dispatch-test.db";
-const TEST_PROJECT = "/tmp/ahelpa-dispatch-project";
-const TEST_TASK_FILE = "/tmp/ahelpa-dispatch-task.md";
+// The invalid-task table is built when the file loads, before any hook runs,
+// so keep only the path strings here. beforeAll creates the directory; a run
+// whose name filter selects nothing creates nothing and leaves nothing behind.
+const scratch = join(realpathSync(tmpdir()), `ahelpa-dispatch-${process.pid}-${crypto.randomUUID()}`);
+const TEST_DB = join(scratch, "state.db");
+const TEST_PROJECT = join(scratch, "project");
+const TEST_TASK_FILE = join(scratch, "task.md");
+
+function stableArgs(args: string[]): string[] {
+  return args.map((arg) => arg.startsWith(scratch) ? arg.replace(scratch, "<scratch>") : arg);
+}
 
 interface Captured {
   out: string[];
@@ -27,18 +37,25 @@ function io(captured: Captured) {
 describe("cli dispatch", () => {
   let db: StateDB;
 
+  beforeAll(() => {
+    mkdirSync(scratch, { recursive: true });
+  });
+
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
+    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm", TEST_TASK_FILE]) {
+      rmSync(path, { force: true });
     }
-    try { if (existsSync(TEST_TASK_FILE)) unlinkSync(TEST_TASK_FILE); } catch {}
+    rmSync(TEST_PROJECT, { recursive: true, force: true });
     try {
       const taskPath = defaultRuntimeLayout.taskFilePath("task-cli-1");
       if (existsSync(taskPath)) unlinkSync(taskPath);
     } catch {}
-    rmSync(TEST_PROJECT, { recursive: true, force: true });
+  });
+
+  afterAll(() => {
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("no command prints help and succeeds", async () => {
@@ -440,7 +457,7 @@ describe("cli dispatch", () => {
     { args: ["--file", TEST_TASK_FILE], error: "Task must not be empty" },
     { args: ["--file", TEST_PROJECT], error: "regular file" },
     { args: ["--file", `${TEST_PROJECT}/missing.md`], error: "ENOENT" },
-  ])("invalid launch task fails before creating a helper: $args", async ({ args, error }) => {
+  ].map(({ args, error }) => ({ args, error, shown: stableArgs(args) })))("invalid launch task fails before creating a helper: $shown", async ({ args, error }) => {
     db = new StateDB(TEST_DB);
     mkdirSync(TEST_PROJECT, { recursive: true });
     writeFileSync(TEST_TASK_FILE, " \n");

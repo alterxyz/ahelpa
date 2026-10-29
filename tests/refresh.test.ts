@@ -1,20 +1,26 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, unlinkSync } from "fs";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { StateDB } from "../src/state";
 import { refreshSessionStatuses } from "../src/daemon";
 import { Tmux } from "../src/tmux";
 
-const TEST_DB = "/tmp/ahelpa-refresh-test.db";
+let TEST_DB: string;
+let scratch: string;
 
 describe("refreshSessionStatuses", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-refresh-"));
+    TEST_DB = join(scratch, "state.db");
+  });
+
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("preserves settled sessions whose tmux session has gone away", async () => {

@@ -1,18 +1,24 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { StateDB } from "../src/state";
 import { clean } from "../src/commands/session-ops";
 import { RuntimeLayout } from "../src/runtime-layout";
 import { Tmux } from "../src/tmux";
 
-const TEST_DB = "/tmp/ahelpa-clean-test.db";
-const TEST_TMP = "/tmp/ahelpa-clean-test-tmp";
+let TEST_DB: string;
+let TEST_TMP: string;
+let scratch: string;
 
 describe("clean", () => {
   let db: StateDB;
   let layout: RuntimeLayout;
 
   beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-clean-"));
+    TEST_DB = join(scratch, "state.db");
+    TEST_TMP = join(scratch, "tmp");
     db = new StateDB(TEST_DB);
     mkdirSync(TEST_TMP, { recursive: true });
     layout = new RuntimeLayout({ tmpDir: TEST_TMP });
@@ -22,10 +28,7 @@ describe("clean", () => {
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    rmSync(TEST_TMP, { recursive: true, force: true });
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("removes dead session records and their files, keeps live ones", async () => {

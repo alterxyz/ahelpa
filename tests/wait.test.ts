@@ -1,21 +1,27 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync } from "fs";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { StateDB } from "../src/state";
 import { wait } from "../src/commands/wait";
 import { Tmux } from "../src/tmux";
 import * as daemon from "../src/daemon";
 
-const TEST_DB = "/tmp/ahelpa-wait-test.db";
+let TEST_DB: string;
+let scratch: string;
 
 describe("wait", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-wait-"));
+    TEST_DB = join(scratch, "state.db");
+  });
+
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("falls back to inline session refresh when the daemon is not running", async () => {
@@ -87,7 +93,7 @@ describe("wait", () => {
   test("identical checks for sessions in one project run once and each session gets its own log", async () => {
     db = new StateDB(TEST_DB);
     spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
-    const project = "/tmp/ahelpa-wait-shared-check";
+    const project = join(scratch, "shared-check");
     rmSync(project, { recursive: true, force: true });
     mkdirSync(project, { recursive: true });
     for (const id of ["twin-a", "twin-b"]) {

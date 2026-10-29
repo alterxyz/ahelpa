@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "fs";
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 describe("tmux existence errors", () => {
   let root: string;
 
   beforeEach(() => {
-    root = mkdtempSync("/tmp/ahelpa-tmux-errors-");
+    root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-tmux-errors-"));
     const executable = join(root, "tmux");
     writeFileSync(executable, '#!/bin/sh\nprintf "%s\\n" "$AHELPA_TEST_TMUX_ERROR" >&2\nexit 1\n');
     chmodSync(executable, 0o755);

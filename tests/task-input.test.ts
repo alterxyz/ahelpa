@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 import { readTaskFile } from "../src/task-input";
 
@@ -7,7 +8,7 @@ describe("task file input", () => {
   let root: string;
 
   beforeEach(() => {
-    root = mkdtempSync("/tmp/ahelpa-task-input-");
+    root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-task-input-"));
   });
 
   afterEach(() => {

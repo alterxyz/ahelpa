@@ -1,18 +1,23 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Archive } from "../src/archive";
-import { rmSync, existsSync, readFileSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync, existsSync, readFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
-const TEST_ARCHIVE = "/tmp/ahelpa-test-archive";
+let TEST_ARCHIVE: string;
+let scratch: string;
 
 describe("Archive", () => {
   let archive: Archive;
 
   beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-archive-"));
+    TEST_ARCHIVE = join(scratch, "archive");
     archive = new Archive(TEST_ARCHIVE);
   });
 
   afterEach(() => {
-    rmSync(TEST_ARCHIVE, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("saves a settled session", () => {

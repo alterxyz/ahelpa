@@ -1,21 +1,27 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, unlinkSync } from "fs";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { refreshSessionStatuses } from "../src/daemon";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
 
-const TEST_DB = "/tmp/ahelpa-kimi-refresh-test.db";
+let TEST_DB: string;
+let scratch: string;
 const TASK = "Please read and complete the task described in /tmp/ahelpa-task-kimi.md.";
 
 describe("Kimi daemon activity", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-kimi-refresh-"));
+    TEST_DB = join(scratch, "state.db");
+  });
+
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, `${TEST_DB}-wal`, `${TEST_DB}-shm`]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("keeps a Kimi session running while its submitted task is active", async () => {

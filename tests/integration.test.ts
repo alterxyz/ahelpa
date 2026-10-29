@@ -1,14 +1,16 @@
-import { describe, test, expect, afterAll } from "bun:test";
+import { describe, test, expect, afterAll, beforeEach } from "bun:test";
 import { StateDB } from "../src/state";
 import { launch } from "../src/commands/launch";
 import { check } from "../src/commands/session-ops";
 import { capture } from "../src/commands/session-ops";
 import { kill } from "../src/commands/session-ops";
 import { Tmux } from "../src/tmux";
-import { realpathSync, rmSync, rmdirSync, unlinkSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync, rmdirSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
-const TEST_DB = "/tmp/ahelpa-integration-test.db";
+let TEST_DB: string;
+let scratch: string;
 // The repository root is a stable Claude workspace. Random temporary projects
 // leave orphaned workspace-trust paths and can stall on the trust menu.
 const TEST_PROJECT = join(import.meta.dir, "..");
@@ -21,14 +23,17 @@ function realOrSelf(path: string): string {
 describe("integration", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-integration-"));
+    TEST_DB = join(scratch, "state.db");
+  });
+
   afterAll(async () => {
     for (const id of createdSessions) {
       try { await Tmux.kill(id); } catch {}
     }
     db?.close();
-    try { unlinkSync(TEST_DB); } catch {}
-    try { unlinkSync(TEST_DB + "-wal"); } catch {}
-    try { unlinkSync(TEST_DB + "-shm"); } catch {}
+    rmSync(scratch, { recursive: true, force: true });
     // In a linked worktree the results are in the main checkout and only a link
     // sits here: remove the real directory too, not just the link.
     for (const id of createdSessions) {

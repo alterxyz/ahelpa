@@ -1,16 +1,19 @@
-import { describe, test, expect, afterEach, spyOn, mock } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach, spyOn, mock } from "bun:test";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
 import { resume } from "../src/commands/launch";
 import { getDriver } from "../src/drivers/registry";
 import { FIFO } from "../src/fifo";
 import * as daemon from "../src/daemon";
-import { unlinkSync, existsSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "fs";
+import { unlinkSync, mkdirSync, mkdtempSync, realpathSync, rmSync, readFileSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 import { shellEscape } from "../src/shell";
 
-const TEST_DB = "/tmp/ahelpa-resume-test.db";
-const TEST_PROJECT = "/tmp/ahelpa-resume-test-project";
+let TEST_DB: string;
+let TEST_PROJECT: string;
+let scratch: string;
 
 describe("extractResumeToken", () => {
   test("claude-code extracts resume ID from exit output", () => {
@@ -101,13 +104,16 @@ describe("buildResumeCommand", () => {
 describe("resume command", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-resume-"));
+    TEST_DB = join(scratch, "state.db");
+    TEST_PROJECT = join(scratch, "project");
+  });
+
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
-    rmSync(TEST_PROJECT, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("resumes a dead session with agent resume token", async () => {
@@ -534,11 +540,14 @@ describe("resume command", () => {
 describe("state: resume fields", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-resume-state-"));
+    TEST_DB = join(scratch, "state.db");
+  });
+
   afterEach(() => {
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("updateResumeId stores and retrieves agent resume ID", () => {

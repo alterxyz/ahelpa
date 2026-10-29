@@ -1,28 +1,31 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, unlinkSync, mkdirSync, readFileSync } from "fs";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { StateDB } from "../src/state";
 import { Archive } from "../src/archive";
 import { Wakeup } from "../src/wakeup";
 import { RuntimeLayout } from "../src/runtime-layout";
 import { settle } from "../src/settle";
 
-const TEST_DB = "/tmp/ahelpa-settle-test.db";
-const TEST_ARCHIVE = "/tmp/ahelpa-settle-test-archive";
-const TEST_TMP = "/tmp/ahelpa-settle-test-tmp";
-
-function cleanup() {
-  for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-    try { if (existsSync(path)) unlinkSync(path); } catch {}
-  }
-  try { Bun.spawnSync(["rm", "-rf", TEST_ARCHIVE, TEST_TMP]); } catch {}
-}
+let TEST_DB: string;
+let TEST_ARCHIVE: string;
+let TEST_TMP: string;
+let scratch: string;
 
 describe("settle", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-settle-"));
+    TEST_DB = join(scratch, "state.db");
+    TEST_ARCHIVE = join(scratch, "archive");
+    TEST_TMP = join(scratch, "tmp");
+  });
+
   afterEach(() => {
     try { db.close(); } catch {}
-    cleanup();
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("atomically updates DB and writes archive", async () => {

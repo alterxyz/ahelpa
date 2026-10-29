@@ -1,20 +1,25 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { StateDB } from "../src/state";
 import { Database } from "bun:sqlite";
-import { unlinkSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
-const TEST_DB = "/tmp/ahelpa-test.db";
+let TEST_DB: string;
+let scratch: string;
 
 describe("StateDB", () => {
   let db: StateDB;
 
   beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-state-"));
+    TEST_DB = join(scratch, "state.db");
     db = new StateDB(TEST_DB);
   });
 
   afterEach(() => {
     db.close();
-    try { unlinkSync(TEST_DB); } catch {}
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("creates session and retrieves it", () => {
@@ -107,9 +112,9 @@ describe("StateDB", () => {
 
   test("drops the legacy tmux_session column from existing databases", () => {
     db.close();
-    for (const suffix of ["", "-wal", "-shm"]) {
-      try { unlinkSync(TEST_DB + suffix); } catch {}
-    }
+    rmSync(TEST_DB, { force: true });
+    rmSync(TEST_DB + "-wal", { force: true });
+    rmSync(TEST_DB + "-shm", { force: true });
 
     const legacy = new Database(TEST_DB);
     legacy.exec(`

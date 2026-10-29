@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
 import { join } from "path";
 
 const workflow = readFileSync(join(import.meta.dir, "../.github/workflows/release.yml"), "utf8");
@@ -12,7 +13,7 @@ describe("release workflow publication", () => {
   let fakeBin: string;
 
   beforeEach(() => {
-    root = mkdtempSync("/tmp/ahelpa-release-workflow-");
+    root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-release-workflow-"));
     fakeBin = join(root, "bin");
     mkdirSync(fakeBin);
     mkdirSync(join(root, "assets"));

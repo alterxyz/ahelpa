@@ -1,13 +1,16 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from "fs";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
 import { COMPLETION_NUDGE, refreshSessionStatuses } from "../src/daemon";
 import { getDriver } from "../src/drivers/registry";
 import { scanSentinels } from "../src/drivers/sentinels";
 
-const TEST_DB = "/tmp/ahelpa-nudge-test.db";
-const PROJECT = "/tmp/ahelpa-nudge-test-project";
+let TEST_DB: string;
+let PROJECT: string;
+let scratch: string;
 // Codex at rest after a turn: composer visible, no turn evidence after it.
 const READY_PANE = "I wrote the summary to .ahelpa/codex-quiet/summary.md.\n\n› \n\n  GPT-6.1-Sol xhigh · ~/proj\n  ? for shortcuts";
 // Idle to detectActivity, but the thing on screen is a numbered menu.
@@ -24,13 +27,16 @@ function seed(db: StateDB, id: string, summary = true) {
 describe("completion nudge", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-nudge-"));
+    TEST_DB = join(scratch, "state.db");
+    PROJECT = join(scratch, "project");
+  });
+
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
-    rmSync(PROJECT, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("the nudge text never contains a sentinel", () => {

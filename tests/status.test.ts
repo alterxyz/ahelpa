@@ -1,22 +1,25 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { StateDB } from "../src/state";
 import { status } from "../src/commands/session-ops";
-import { unlinkSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
-const TEST_DB = "/tmp/ahelpa-status-test.db";
+let TEST_DB: string;
+let scratch: string;
 
 describe("status", () => {
   let db: StateDB;
 
   beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-status-"));
+    TEST_DB = join(scratch, "state.db");
     db = new StateDB(TEST_DB);
   });
 
   afterEach(() => {
     db.close();
-    try { unlinkSync(TEST_DB); } catch {}
-    try { unlinkSync(TEST_DB + "-wal"); } catch {}
-    try { unlinkSync(TEST_DB + "-shm"); } catch {}
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("shows nesting depth and parent session in the status view", () => {

@@ -1,24 +1,30 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, rmSync, unlinkSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { StateDB } from "../src/state";
 import { findWriterConflicts, planLaunch, resolveJobId } from "../src/commands/launch";
 import { check, status } from "../src/commands/session-ops";
 import { resolveWaitTargets, runCli } from "../src/command-contract";
 
-const TEST_DB = "/tmp/ahelpa-job-test.db";
-const TEST_PROJECT = "/tmp/ahelpa-job-test-project";
+let TEST_DB: string;
+let TEST_PROJECT: string;
+let scratch: string;
 
 describe("jobs and writer conflicts", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-job-"));
+    TEST_DB = join(scratch, "state.db");
+    TEST_PROJECT = join(scratch, "project");
+  });
+
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
-    rmSync(TEST_PROJECT, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   function session(id: string, extra: Partial<Parameters<StateDB["createSession"]>[0]> = {}) {

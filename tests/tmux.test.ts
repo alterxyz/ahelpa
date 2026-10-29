@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { isMissingTmuxSessionError, Tmux } from "../src/tmux";
 
-const TEST_SESSION = "ahelpa-test-tmux";
+const TEST_SESSION = `ahelpa-test-tmux-${process.pid}`;
 
 describe("Tmux", () => {
   afterEach(async () => {

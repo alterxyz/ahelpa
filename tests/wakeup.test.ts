@@ -1,28 +1,31 @@
 import { afterEach, beforeEach, describe, expect, spyOn, mock, test } from "bun:test";
-import { existsSync, mkdirSync, rmSync, unlinkSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { Wakeup } from "../src/wakeup";
 import { RuntimeLayout } from "../src/runtime-layout";
 import { StateDB } from "../src/state";
 import { wait } from "../src/commands/wait";
 import * as daemon from "../src/daemon";
 
-const TEST_TMP = "/tmp/ahelpa-wakeup-test";
-const TEST_DB = "/tmp/ahelpa-wakeup-test.db";
+let TEST_TMP: string;
+let TEST_DB: string;
+let scratch: string;
 
 describe("wakeup protocol", () => {
   let wakeup: Wakeup;
 
   beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-wakeup-"));
+    TEST_TMP = join(scratch, "tmp");
+    TEST_DB = join(scratch, "state.db");
     mkdirSync(TEST_TMP, { recursive: true });
     wakeup = new Wakeup(new RuntimeLayout({ tmpDir: TEST_TMP }));
   });
 
   afterEach(() => {
     mock.restore();
-    rmSync(TEST_TMP, { recursive: true, force: true });
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("notify wakes a blocked awaitWakeup with the event payload", async () => {

@@ -1,5 +1,7 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, unlinkSync } from "fs";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync, unlinkSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 import { send, sendTask, kill } from "../src/commands/session-ops";
 import { StateDB } from "../src/state";
 import { Tmux } from "../src/tmux";
@@ -9,21 +11,25 @@ import { getDriver } from "../src/drivers/registry";
 import { defaultWakeup } from "../src/wakeup";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 
-const TEST_DB = "/tmp/ahelpa-session-ops-test.db";
-const TEST_TASK = "/tmp/ahelpa-session-ops-task.md";
-const TEST_PROJECT = "/tmp/ahelpa-session-ops-project";
+let TEST_DB: string;
+let TEST_TASK: string;
+let TEST_PROJECT: string;
+let scratch: string;
 
 describe("session operations", () => {
   let db: StateDB;
 
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-session-ops-"));
+    TEST_DB = join(scratch, "state.db");
+    TEST_TASK = join(scratch, "task.md");
+    TEST_PROJECT = join(scratch, "project");
+  });
+
   afterEach(() => {
     mock.restore();
     try { db.close(); } catch {}
-    for (const path of [TEST_DB, TEST_DB + "-wal", TEST_DB + "-shm"]) {
-      try { if (existsSync(path)) unlinkSync(path); } catch {}
-    }
-    try { if (existsSync(TEST_TASK)) unlinkSync(TEST_TASK); } catch {}
-    rmSync(TEST_PROJECT, { recursive: true, force: true });
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   test("sending a follow-up resumes daemon monitoring", async () => {

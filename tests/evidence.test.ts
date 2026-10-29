@@ -5,10 +5,16 @@ import { tmpdir } from "os";
 import { dirname, join } from "path";
 import { collectEvidence, parseScope, type OutOfScopeChange } from "../src/evidence";
 
-const REPO = "/tmp/ahelpa-evidence-test-repo";
+let REPO: string;
+let scratch: string;
 
 describe("evidence", () => {
-  afterEach(() => rmSync(REPO, { recursive: true, force: true }));
+  beforeEach(() => {
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-evidence-"));
+    REPO = join(scratch, "repo");
+  });
+
+  afterEach(() => rmSync(scratch, { recursive: true, force: true }));
 
   test("counts what a helper left under artifacts/, directories included", async () => {
     mkdirSync(`${REPO}/.ahelpa/codex-art/artifacts/mutation-copy/src`, { recursive: true });
