@@ -76,6 +76,12 @@ export class RuntimeLayout {
     return join(this.ahelpaHomeDir(), "daemon.log");
   }
 
+  // ponytail: unbounded crash output only; keep the daemon's open stderr fd
+  // separate from daemon.log so rotation cannot unlink later crash traces.
+  daemonStderrLogPath(): string {
+    return join(this.ahelpaHomeDir(), "daemon.stderr.log");
+  }
+
   needHelpLedgerPath(): string {
     return join(this.ahelpaHomeDir(), "need-help.jsonl");
   }

@@ -16,6 +16,7 @@ describe("runtime layout", () => {
     expect(layout.stateDbPath()).toBe("/tmp/ahelpa-home/.ahelpa/state.db");
     expect(layout.daemonPidPath()).toBe("/tmp/ahelpa-home/.ahelpa/daemon.pid");
     expect(layout.daemonLogPath()).toBe("/tmp/ahelpa-home/.ahelpa/daemon.log");
+    expect(layout.daemonStderrLogPath()).toBe("/tmp/ahelpa-home/.ahelpa/daemon.stderr.log");
     expect(layout.archiveDir()).toBe("/tmp/ahelpa-home/.ahelpa/archive");
     expect(layout.needHelpLedgerPath()).toBe("/tmp/ahelpa-home/.ahelpa/need-help.jsonl");
     expect(layout.projectDeliveryDir("/tmp/project")).toBe("/tmp/project/.ahelpa");
@@ -31,6 +32,7 @@ describe("runtime layout", () => {
 
     expect(layout.ahelpaHomeDir()).toBe("/tmp/ahelpa-isolated/state");
     expect(layout.stateDbPath()).toBe("/tmp/ahelpa-isolated/state/state.db");
+    expect(layout.daemonStderrLogPath()).toBe("/tmp/ahelpa-isolated/state/daemon.stderr.log");
     expect(layout.needHelpLedgerPath()).toBe("/tmp/ahelpa-isolated/state/need-help.jsonl");
     expect(layout.tmpDir).toBe("/tmp/ahelpa-isolated/runtime");
   });

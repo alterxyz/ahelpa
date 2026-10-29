@@ -117,6 +117,10 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 5. 某个 session 的 capture 或 kill 失败会记录到日志。如果终端已消失，则补齐终态；否则留待之后重试。其他 session 的刷新继续执行。
 6. 没有 running、draining 或 attention session 后，daemon 退出。
 
+**刷新失败退避**：连续刷新失败时，在第 1、2、4、8……次调用重试，两次尝试之间最多跳过 99 次调用（daemon 每三秒轮询时约五分钟）。计数依据是针对该 session 的刷新调用次数，包括 inline refresh，不是经过的时间。一次刷新成功或开始新回合时重置失败次数；其他 session 仍正常刷新。跳过完整刷新时仍探测 tmux 是否存活：终端消失则立即结算，存活探测失败则静默忽略，等待下一次重试。每次完整刷新失败后也立即检查终端是否消失。退避状态只保存在当前进程，结算时清除；每次刷新还会清除已不在非 dead 会话列表中的 session 的退避状态和消息键。
+
+**诊断日志限额**：每次追加前检查 `daemon.log`，达到 10,000,000 字节时同步轮转：`.2` 移到 `.3`、`.1` 移到 `.2`、当前日志移到 `.1`，覆盖最旧备份。保留当前文件及三个备份；因在追加前检查，文件可能超出阈值一行。文件操作错误会被忽略，大小检查或轮转失败也仍会尝试追加。同一进程内，完全相同的消息文本（含 session ID）首次直接写入，之后抑制重复，每个键最多每 60 秒写一次汇总：`<text> (repeated N times since <ISO first>)`。只有追加成功后才标记首次消息已写入或重置汇总计数：首次写入失败时下次立即重试，汇总写入失败时保留累计次数。映射最多保留 1,000 个键，超出时淘汰最早的键；session 结算时清除其键。这些限制按进程生效，并发 monitor 之间不协调。
+
 **回合结束时机信号**：Claude 的 launch 和 resume 通过 `--settings` 加载会话目录内的 `claude-settings.json`，注册 `UserPromptSubmit`、`Stop`、`StopFailure` command hooks。Codex 的 launch 和 resume 使用仅本次调用生效的 `notify` override，不配置 native hooks。两者通过隐藏命令 `__turn-hook`（和 daemon 循环一样，是 `src/cli.ts` 在命令契约之前直接处理的进程入口）再次调用正在运行的 ahelpa runtime，把元数据追加到 `.ahelpa/<id>/turns.log`。Codex 用首个包含任务投递指令的通知绑定主 thread，忽略其他 thread，包括后台标题生成。原生 resume 直接绑定已记录的 thread token，普通 follow-up 无需重复任务投递指令也能通知。
 
 首次绑定 Codex thread 前，writer 在 `CODEX_HOME`（默认 `~/.codex`）下有限查找 `session_meta.source`，拒绝已确认的子代理通知。它按 UUIDv7 创建时间及其后四秒的本地时间尝试五个精确 rollout 文件名，不扫描目录，最多解析首行的 64 KiB。元数据缺失或格式不支持时保留首个通知绑定的原有行为；原生 resume 使用显式 thread token。
@@ -125,7 +129,7 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 
 **Inline refresh**：daemon 未运行时，`wait`、`check`、`status`、`mail` 会在返回或投递邮件前执行同样的刷新逻辑。短任务不依赖常驻 daemon。tmux 的权限或连接错误不代表会话死亡，monitor 会保留状态并重试。`clean` 会保留已预留的启动记录，并在清理孤立运行文件前检查终端是否存活。
 
-**进程管理**：PID 文件为 `~/.ahelpa/daemon.pid`，日志为 `~/.ahelpa/daemon.log`。没有 supervisor 在 daemon 崩溃后立即重启它。下一次 launch 或 resume 在 PID 存活检查认定 daemon 已停止时启动它；未检测到 daemon 时，`wait`、`check`、`status`、`mail` 使用 inline refresh。
+**进程管理**：PID 文件为 `~/.ahelpa/daemon.pid`，轮转诊断日志为 `~/.ahelpa/daemon.log`。分离运行的 daemon 把 stdout/stderr 写到独立的 `~/.ahelpa/daemon.stderr.log`，避免诊断日志轮转后，仍打开的崩溃输出文件被删除。该文件暂不设大小上限，只接收崩溃输出。没有 supervisor 在 daemon 崩溃后立即重启它。下一次 launch 或 resume 在 PID 存活检查认定 daemon 已停止时启动它；未检测到 daemon 时，`wait`、`check`、`status`、`mail` 使用 inline refresh。
 
 ## Drivers
 

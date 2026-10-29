@@ -1,4 +1,4 @@
-import { existsSync, appendFileSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";
+import { existsSync, appendFileSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, statSync, renameSync } from "fs";
 import { getSelfCommand } from "./self-command";
 import { readTurnEvents } from "./turn-hooks";
 import { StateDB, type SessionRecord } from "./state";
@@ -16,7 +16,6 @@ import { planSessionHandoff } from "./file-handoff";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
 const PID_FILE = defaultRuntimeLayout.daemonPidPath();
-const LOG_FILE = defaultRuntimeLayout.daemonLogPath();
 export const DAEMON_SUBCOMMAND = "__daemon";
 
 // Runtime files are disposable; the session record retains the result,
@@ -39,6 +38,24 @@ const drainingAt = new Map<string, number>();
 // prepareForTask, so the daemon only polls once the agent should be working.
 const idleCount = new Map<string, number>();
 const IDLE_DEBOUNCE = 4;
+const LOG_MAX_BYTES = 10_000_000;
+const LOG_BACKUP_COUNT = 3;
+const LOG_REPEAT_INTERVAL_MS = 60_000;
+// ponytail: per-process dedupe keeps only the oldest-first 1000 message keys;
+// pending counts are discarded on eviction, settlement, or process exit.
+const LOG_MAX_KEYS = 1000;
+const repeatedLogs = new Map<string, { firstMs: number; lastMs: number; count: number }>();
+// ponytail: 99 skipped calls caps retry intervals at 300s with 3s polling.
+// Inline refresh counts calls too; short-lived CLI processes start fresh.
+const REFRESH_MAX_SKIP = 99;
+const refreshFailures = new Map<string, { version: number; skip: number; nextSkip: number }>();
+
+function clearSessionFailures(sessionId: string): void {
+  refreshFailures.delete(sessionId);
+  for (const message of repeatedLogs.keys()) {
+    if (message.startsWith(`${sessionId}:`)) repeatedLogs.delete(message);
+  }
+}
 // A draft/new user row can briefly look like the old error's idle composer.
 // Require the driver attention outcome on two polls of the same row version.
 const pendingAttention = new Map<string, { version: number; reason?: string }>();
@@ -68,9 +85,36 @@ const driverRuntime: DriverRuntime = {
 };
 
 function log(message: string): void {
-  const line = `[${new Date().toISOString()}] ${message}\n`;
   try {
-    appendFileSync(defaultRuntimeLayout.daemonLogPath(), line);
+    const now = Date.now();
+    const previous = repeatedLogs.get(message);
+    let text = message;
+    if (previous) {
+      previous.count++;
+      if (now - previous.lastMs < LOG_REPEAT_INTERVAL_MS) return;
+      text += ` (repeated ${previous.count} times since ${new Date(previous.firstMs).toISOString()})`;
+    }
+    const path = defaultRuntimeLayout.daemonLogPath();
+    // ponytail: best-effort rotation, no cross-process lock; the last append
+    // can exceed 10 MB by one line. Raw subprocess stderr is not managed here.
+    try {
+      if (statSync(path).size >= LOG_MAX_BYTES) {
+        for (let suffix = LOG_BACKUP_COUNT; suffix >= 1; suffix--) {
+          try { renameSync(suffix === 1 ? path : `${path}.${suffix - 1}`, `${path}.${suffix}`); } catch {}
+        }
+      }
+    } catch {}
+    appendFileSync(path, `[${new Date(now).toISOString()}] ${text}\n`);
+    // Failed appends must remain eligible on the next call, retaining any
+    // pending repeats instead of claiming a line was successfully written.
+    if (previous) {
+      previous.count = 0;
+      previous.firstMs = now;
+      previous.lastMs = now;
+    } else {
+      if (repeatedLogs.size >= LOG_MAX_KEYS) repeatedLogs.delete(repeatedLogs.keys().next().value!);
+      repeatedLogs.set(message, { firstMs: now, lastMs: now, count: 0 });
+    }
   } catch {
     // ignore log errors
   }
@@ -91,6 +135,7 @@ async function finishMissingSession(db: StateDB, archive: Archive, session: Sess
   drainingAt.delete(session.id);
   idleCount.delete(session.id);
   pendingAttention.delete(session.id);
+  clearSessionFailures(session.id);
   cleanupSessionFiles(session.id);
 }
 
@@ -101,15 +146,46 @@ export async function refreshSessionStatuses(
 ): Promise<void> {
   const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const targetIds = sessionIds ? new Set(sessionIds) : null;
-  const sessions = db.listSessions()
-    .filter((session) => session.status !== SESSION_STATUS.Dead)
-    .filter((session) => !targetIds || targetIds.has(session.id));
+  const nonDeadSessions = db.listSessions().filter((session) => session.status !== SESSION_STATUS.Dead);
+  const nonDeadIds = new Set(nonDeadSessions.map(session => session.id));
+  // Host-side kill/clean can settle or remove rows without this monitor's
+  // cleanup paths. Reconcile against the full list, even for targeted refresh.
+  for (const id of refreshFailures.keys()) {
+    if (!nonDeadIds.has(id)) refreshFailures.delete(id);
+  }
+  for (const message of repeatedLogs.keys()) {
+    if (!nonDeadIds.has(message.slice(0, message.indexOf(":")))) repeatedLogs.delete(message);
+  }
+  const sessions = nonDeadSessions.filter((session) => !targetIds || targetIds.has(session.id));
   const runningIds = new Set(sessions.filter(session => session.status === SESSION_STATUS.Running).map(session => session.id));
   for (const id of pendingAttention.keys()) {
     if ((!targetIds || targetIds.has(id)) && !runningIds.has(id)) pendingAttention.delete(id);
   }
 
   for (let session of sessions) {
+    let retry = refreshFailures.get(session.id);
+    if (retry && retry.version !== session.version) {
+      clearSessionFailures(session.id);
+      retry = undefined;
+    }
+    if (retry && retry.skip > 0) {
+      retry.skip--;
+      // Back off capture/diagnostics, never recognition of a vanished tmux.
+      // A failing liveness probe stays silent until the next scheduled retry.
+      let alive: boolean;
+      try {
+        alive = await Tmux.hasSession(session.id);
+      } catch { continue; }
+      if (!alive) {
+        try {
+          await finishMissingSession(db, archive, session);
+        } catch (recoveryError) {
+          log(`${session.id}: recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
+        }
+      }
+      continue;
+    }
+    let failed = false;
     try {
       if (session.status !== SESSION_STATUS.Running || session.launchPid) pendingAttention.delete(session.id);
       if (session.launchPid) {
@@ -159,6 +235,7 @@ export async function refreshSessionStatuses(
           await Tmux.kill(session.id);
           await finishMissingSession(db, archive, session);
           log(`${session.id}: drain complete, runtime cleaned up`);
+          clearSessionFailures(session.id);
         }
         continue;
       }
@@ -198,6 +275,7 @@ export async function refreshSessionStatuses(
           reason: outcome.reason,
         }, SESSION_STATUS.Running, session.version);
         if (!settled) continue;
+        clearSessionFailures(session.id);
         if (newStatus === SESSION_STATUS.Error && outcome.needHelpTags !== null) {
           try {
             mkdirSync(defaultRuntimeLayout.ahelpaHomeDir(), { recursive: true });
@@ -264,7 +342,10 @@ export async function refreshSessionStatuses(
           lastOutput: output.slice(-500),
           reason: failure ? `turn hook stop_failure: ${turn.event.error}` : "turn ended without signal",
         }, SESSION_STATUS.Running, session.version + 1);
-        if (settled) log(`${session.id}: needs attention (turn hook ${turn.event.event}${failure ? `: ${turn.event.error}` : ""})`);
+        if (settled) {
+          clearSessionFailures(session.id);
+          log(`${session.id}: needs attention (turn hook ${turn.event.event}${failure ? `: ${turn.event.error}` : ""})`);
+        }
       } else if (driver.detectActivity(output) !== "idle") {
         idleCount.delete(session.id);
       } else {
@@ -285,14 +366,20 @@ export async function refreshSessionStatuses(
             status: SESSION_STATUS.NeedsAttention,
             lastOutput: output.slice(-500),
           }, SESSION_STATUS.Running, session.version);
-          if (settled) log(`${session.id}: needs attention (idle ${count} polls)`);
+          if (settled) {
+            clearSessionFailures(session.id);
+            log(`${session.id}: needs attention (idle ${count} polls)`);
+          }
         }
       }
     } catch (error) {
+      failed = true;
+      const skip = retry?.nextSkip ?? 0;
+      refreshFailures.set(session.id, { version: session.version, skip, nextSkip: Math.min(2 * skip + 1, REFRESH_MAX_SKIP) });
       pendingAttention.delete(session.id);
       log(`${session.id}: refresh failed: ${error instanceof Error ? error.message : String(error)}`);
       // tmux can disappear between has-session and capture/kill. Reconcile
-      // that race immediately; other failures stay eligible for the next poll.
+      // that race immediately, before any backoff can delay recovery.
       try {
         if (!await Tmux.hasSession(session.id)) {
           const current = db.getSession(session.id);
@@ -301,6 +388,8 @@ export async function refreshSessionStatuses(
       } catch (recoveryError) {
         log(`${session.id}: recovery failed: ${recoveryError instanceof Error ? recoveryError.message : String(recoveryError)}`);
       }
+    } finally {
+      if (!failed) refreshFailures.delete(session.id);
     }
   }
 }
@@ -385,7 +474,9 @@ export function startDaemon(): void {
   mkdirSync(AHELPA_DIR, { recursive: true });
 
   try {
-    const pid = spawnDetached(getDaemonLaunchCommand(), LOG_FILE, daemonSpawnOptions());
+    // ponytail: daemon.stderr.log is unbounded, but only receives crash output;
+    // keeping its descriptor separate preserves traces across log() rotation.
+    const pid = spawnDetached(getDaemonLaunchCommand(), defaultRuntimeLayout.daemonStderrLogPath(), daemonSpawnOptions());
     writeFileSync(PID_FILE, String(pid));
   } catch {
     // ignore startup errors; caller will observe daemon as stopped

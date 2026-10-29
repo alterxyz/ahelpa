@@ -1,11 +1,37 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import * as fs from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { daemonSpawnOptions, getDaemonLaunchCommand, DAEMON_SUBCOMMAND, spawnDetached } from "../src/daemon";
-import { RuntimeLayout } from "../src/runtime-layout";
+import { daemonSpawnOptions, getDaemonLaunchCommand, DAEMON_SUBCOMMAND, spawnDetached, startDaemon } from "../src/daemon";
+import { defaultRuntimeLayout, RuntimeLayout } from "../src/runtime-layout";
+import { shellEscape } from "../src/shell";
 
 describe("daemon launch command", () => {
+  test("startDaemon redirects crash output to daemon.stderr.log instead of the rotating log", () => {
+    const root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-daemon-stderr-"));
+    const path = join(root, "daemon.stderr.log");
+    const originalExists = fs.existsSync;
+    const exists = spyOn(fs, "existsSync").mockImplementation(file =>
+      file === defaultRuntimeLayout.daemonPidPath() ? false : originalExists(file));
+    const stderrPath = spyOn(defaultRuntimeLayout, "daemonStderrLogPath").mockReturnValue(path);
+    // Stop before creating any child or writing a PID, but observe the actual
+    // detached launch command built by startDaemon and spawnDetached.
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => { throw new Error("stubbed spawn"); });
+    try {
+      startDaemon();
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(spawn.mock.calls[0]?.[0]).toEqual([
+        "/bin/sh", "-c", expect.stringContaining(`>>${shellEscape(path)} 2>&1 & echo $!`),
+      ]);
+    } finally {
+      spawn.mockRestore();
+      stderrPath.mockRestore();
+      exists.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("uses bun plus cli.ts when source files are present", () => {
     const root = mkdtempSync(join(tmpdir(), "ahelpa-daemon-launch-"));
     mkdirSync(root, { recursive: true });
