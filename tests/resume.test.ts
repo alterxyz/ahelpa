@@ -79,7 +79,7 @@ describe("buildResumeCommand", () => {
     });
 
     expect(cmd).toContain("kimi --session 'session_bce9aed7-8ee0-42ba-8ee8-5326e673db72'");
-    expect(cmd).toContain("--yolo");
+    expect(cmd).toContain("--auto");
     expect(cmd).toContain("--model 'review-model'");
   });
 
@@ -243,8 +243,8 @@ describe("resume command", () => {
     const result = await resume({ db, sessionId: "kimi-safe1", ownerToken: "tok-safe" });
 
     const cmd = tmuxSpy.mock.calls[0]?.[1];
-    expect(cmd).toContain("kimi --session 'session_safe123'");
-    expect(cmd).not.toContain("--yolo");
+    expect(cmd).toContain("kimi --session 'session_safe123' --yolo");
+    expect(cmd).not.toContain("--auto");
     expect(db.getSession(result.sessionId)?.safe).toBe(true);
   });
 

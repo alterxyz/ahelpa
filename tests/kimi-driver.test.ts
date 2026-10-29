@@ -50,7 +50,34 @@ const workingWithComposer = [
   "context: 4% (30.2k/977k)",
 ].join("\n");
 
+// Minimized from a real Kimi Code 2.3.2 pane: `❯` marks the user turn, the
+// spinner says `thinking…` with a Unicode ellipsis, and the composer stays visible.
+const v2Turn = [
+  "│  Session:   session_6020140a-3f26-47de-a661-ccc616971d61   │",
+  " ❯ Please read and complete the task described in /tmp/task.md.",
+  " ● Read 2 files · 20 lines",
+].join("\n");
+const v2Composer = [
+  "╭──────────────────────────────────╮",
+  "│ >                                │",
+  "╰──────────────────────────────────╯",
+  " Never Ask  kimi-k3 thinking: high",
+].join("\n");
+
 describe("Kimi driver", () => {
+  test("reads Kimi Code 2.x generation and settled turns", () => {
+    const driver = getDriver("kimi");
+    const working = `${v2Turn}\n ⠇ thinking…\n  ⠇ Working…\n${v2Composer}`;
+    const settled = `${v2Turn}\n ● Used Write (/tmp/summary.md) · 1 line\n ● [AHELPA:DONE]\n${v2Composer}`;
+
+    expect(driver.detectActivity(working)).toBe("working");
+    expect(driver.acceptsInput?.(working)).toBe(false);
+    expect(driver.detectStatus(working)).toBe("running");
+    expect(driver.detectStatus(settled)).toBe("idle");
+    expect(driver.acceptsInput?.(settled)).toBe(true);
+    expect(driver.extractResumeToken(settled)).toBe("session_6020140a-3f26-47de-a661-ccc616971d61");
+  });
+
   test.each(["prepareForTask", "prepareForResume"] as const)("%s ignores activity and attention text inside help payloads", async (method) => {
     const output = "│ Session: session_payload │\n✨ Task\n● [AHELPA:NEED_HELP:review,working...,Review your answer before submit,Trust this folder?,Don't trust]\n│ > │";
     const runtime = runtimeProbe([output]);
@@ -77,17 +104,17 @@ describe("Kimi driver", () => {
     expect(driver.sessionPrefix).toBe("kimi");
   });
 
-  test("launches persistent Kimi Code with yolo by default", () => {
+  test("launches persistent Kimi Code in Never Ask mode by default", () => {
     const driver = getDriver("kimi");
     const command = driver.buildLaunchCommand({ cwd: "/tmp/project with spaces/it's ok" });
 
     expect(command).toContain("cd '/tmp/project with spaces/it'\\''s ok'");
-    expect(command).toContain("&& KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo");
+    expect(command).toContain("&& KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto");
     expect(command).not.toContain("KIMI_CLI_NO_AUTO_UPDATE");
     expect(command).not.toContain("--prompt");
   });
 
-  test("safe launch and resume restore Kimi Code native approvals", () => {
+  test("safe launch and resume use Ask When Needed, not the config default", () => {
     const driver = getDriver("kimi");
     const launch = driver.buildLaunchCommand({ cwd: "/tmp/project", safe: true });
     const resume = driver.buildResumeCommand({
@@ -96,13 +123,23 @@ describe("Kimi driver", () => {
       safe: true,
     });
 
-    expect(launch).toContain("KIMI_CODE_NO_AUTO_UPDATE=1 kimi");
-    expect(launch).not.toContain("--yolo");
+    expect(launch).toContain("KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo");
+    expect(launch).not.toContain("--auto");
     expect(resume).toContain(
       "kimi --session 'session_bce9aed7-8ee0-42ba-8ee8-5326e673db72'",
     );
-    expect(resume).toContain("KIMI_CODE_NO_AUTO_UPDATE=1 kimi");
-    expect(resume).not.toContain("--yolo");
+    expect(resume).toContain("--yolo");
+    expect(resume).not.toContain("--auto");
+  });
+
+  test("safe mode grants a result directory outside the project", () => {
+    const driver = getDriver("kimi");
+    const outside = { cwd: "/tmp/wt", sessionId: "kimi-x", deliveryDir: "/tmp/main/.ahelpa/kimi-x" };
+
+    expect(driver.buildLaunchCommand({ ...outside, safe: true })).toContain("--add-dir '/tmp/main/.ahelpa/kimi-x'");
+    expect(driver.buildResumeCommand({ ...outside, resumeId: "session_1", safe: true })).toContain("--add-dir");
+    expect(driver.buildLaunchCommand(outside)).not.toContain("--add-dir");
+    expect(driver.buildLaunchCommand({ cwd: "/tmp/wt", sessionId: "kimi-x", safe: true })).not.toContain("--add-dir");
   });
 
   test("passes a configured model alias and rejects unsupported effort", () => {
@@ -135,9 +172,10 @@ describe("Kimi driver", () => {
     const driver = getDriver("kimi");
     const runtime = runtimeProbe([
       [
-        "Trust this folder?",
-        "   Trust this folder",
-        " ❯ Don't trust",
+        "  Trust this folder?",
+        "  ↑↓ navigate · Enter select · Esc exit",
+        "   ❯ Trust and continue",
+        "     Exit",
       ].join("\n"),
       [
         "Welcome to Kimi Code!",
@@ -153,20 +191,20 @@ describe("Kimi driver", () => {
       { sessionId: "kimi-test", lines: 60 },
       { sessionId: "kimi-test", lines: 60 },
     ]);
-    expect(runtime.keys).toEqual(["Up"]);
+    expect(runtime.keys).toEqual([]);
     expect(runtime.sent).toEqual([""]);
   });
 
   test("fails readiness when trust never reaches the input prompt", async () => {
     const driver = getDriver("kimi");
     const runtime = runtimeProbe([
-      "Trust this folder?\n   Trust this folder\n ❯ Don't trust",
+      "  Trust this folder?\n   ❯ Trust and continue\n     Exit",
     ]);
 
     await expect(driver.prepareForTask("kimi-stuck", runtime))
       .rejects.toThrow("did not reach its input prompt");
     expect(runtime.captures).toHaveLength(30);
-    expect(runtime.keys).toEqual(["Up"]);
+    expect(runtime.sent).toEqual([""]);
   });
 
   test("resume readiness ignores old generation signals before a newer prompt", async () => {
@@ -478,7 +516,7 @@ describe("Kimi driver", () => {
     expect(driver.detectActivity("Ready to submit your answers?"))
       .toBe("idle");
     expect(driver.detectActivity(`${prompt}\ncontext: 42%`)).toBe("idle");
-    expect(driver.detectActivity("Trust this folder?\n❯ Don't trust")).toBe("booting");
+    expect(driver.detectActivity("  Trust this folder?\n   ❯ Trust and continue\n     Exit")).toBe("booting");
     expect(driver.detectActivity("Welcome to Kimi Code!\n│  Session:   │")).toBe("booting");
   });
 

@@ -60,7 +60,7 @@ const MUST_REFUSE: Record<string, Record<string, string>> = {
       "● I'll clean the build output.", "▶ Run this command?", "1. Approve once", "2. Approve for this session", "↵ confirm",
       "╭──────────────────────────────────╮", "│ >                                │", "╰──────────────────────────────────╯",
     ].join("\n"),
-    "folder trust": "Trust this folder?\n› Trust\n  Don't trust\n│ > │",
+    "folder trust": "  Trust this folder?\n   ❯ Trust and continue\n     Exit\n│ > │",
   },
 };
 

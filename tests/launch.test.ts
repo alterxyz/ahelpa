@@ -597,7 +597,7 @@ describe("launch", () => {
 
     spyOn(Tmux, "create").mockResolvedValue();
     spyOn(Tmux, "capture").mockResolvedValue(
-      "Trust this folder?\n   Trust this folder\n ❯ Don't trust",
+      "  Trust this folder?\n   ❯ Trust and continue\n     Exit",
     );
     spyOn(Tmux, "sendKey").mockResolvedValue();
     spyOn(Tmux, "sendKeys").mockResolvedValue();

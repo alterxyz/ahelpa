@@ -7,12 +7,17 @@ import type {
   ResumeOptions,
   TaskSubmissionContext,
 } from "./types";
+import { join } from "path";
+import { defaultRuntimeLayout } from "../runtime-layout";
 import { shellEscape } from "../shell";
 import { checkKimiReadiness } from "./kimi-readiness";
 import { detectSentinelStatus, maskSentinels, scanSentinels } from "./sentinels";
 
 const KIMI_BOXED_PROMPT = /^[^\S\r\n]*│\s*>\s*│\s*$/gmu;
 const KIMI_SESSION = /^[^\S\r\n]*│\s*Session:\s+(session_[A-Za-z0-9._-]+)\s*│\s*$/m;
+// A submitted user turn: `✨` before 2.x, `❯` at column 0-1 since. Menu
+// cursors (`   ❯ Trust and continue`) are indented further.
+const USER_TURN = /^(?:[^\S\r\n]*✨|[^\S\r\n]?❯)\s+.*$/gmu;
 const KIMI_RESUME_HINT = /To resume this session:\s+kimi\s+-r\s+(session_[A-Za-z0-9._-]+)/m;
 // Kimi defers model-alias resolution until it creates the session on the first
 // message, then reports the real cause on the pane. Without this the host only
@@ -24,11 +29,18 @@ function sessionStartError(captureOutput: string): string | null {
   return maskSentinels(captureOutput).match(KIMI_SESSION_START_ERROR)?.[1] ?? null;
 }
 
-// ponytail: unlike Claude and Codex, no --add-dir for a result directory outside the
-// cwd (a linked worktree's), so a --safe Kimi helper there needs a native approval to
-// write its summary. Kimi is shelved; add the flag if it comes back.
+// Kimi Code 2.x: --auto never asks; --yolo still asks before risky actions. Safe mode
+// names --yolo explicitly because config.toml's default_permission_mode may be "auto".
 function postureArgs(safe?: boolean): string[] {
-  return safe ? [] : ["--yolo"];
+  return safe ? ["--yolo"] : ["--auto"];
+}
+
+// A linked worktree's results live in the main checkout, outside the workspace;
+// without this a safe helper must ask before writing its summary.
+function resultDirArgs(opts: LaunchOptions): string[] {
+  if (!opts.safe || !opts.sessionId) return [];
+  const dir = opts.deliveryDir ?? defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId);
+  return dir === join(opts.cwd, ".ahelpa", opts.sessionId) ? [] : ["--add-dir", shellEscape(dir)];
 }
 
 function modelArgs(opts: { model?: string; effort?: string }): string[] {
@@ -63,7 +75,7 @@ interface PositionedSentinel extends PositionedSignal {
 
 function generationSignals(captureOutput: string): Array<{ index: number; text: string }> {
   return [...maskSentinels(captureOutput).matchAll(
-    /\b(?:thinking|working)\.\.\.|\bRetrying\s*\(\d+\/\d+\)|^[^\S\r\n]*[🌑🌒🌓🌔🌕🌖🌗🌘](?:\s|$)/gimu,
+    /\b(?:thinking|working)(?:\.\.\.|…)|\bRetrying\s*\(\d+\/\d+\)|^[^\S\r\n]*[🌑🌒🌓🌔🌕🌖🌗🌘](?:\s|$)/gimu,
   )].map((match) => ({ index: match.index, text: match[0].trim() }));
 }
 
@@ -93,7 +105,7 @@ function lastApprovalPromptIndex(captureOutput: string): number {
 function kimiNeedsFolderTrust(captureOutput: string): boolean {
   const masked = maskSentinels(captureOutput);
   return masked.includes("Trust this folder?")
-    && masked.includes("Don't trust");
+    && masked.includes("Trust and continue");
 }
 
 function lastQuestionPromptIndex(captureOutput: string): number {
@@ -188,13 +200,13 @@ function extractSessionId(captureOutput: string): string | null {
 }
 
 function currentTurnOutput(captureOutput: string): string {
-  const turns = [...maskSentinels(captureOutput).matchAll(/^[^\S\r\n]*✨\s/gmu)];
+  const turns = [...maskSentinels(captureOutput).matchAll(USER_TURN)];
   const latest = turns.at(-1);
   return latest?.index === undefined ? captureOutput : captureOutput.slice(latest.index);
 }
 
 function userTurns(captureOutput: string): string[] {
-  return [...maskSentinels(captureOutput).matchAll(/^[^\S\r\n]*✨\s+.*$/gmu)]
+  return [...maskSentinels(captureOutput).matchAll(USER_TURN)]
     .map((match) => match[0].trim());
 }
 
@@ -243,7 +255,7 @@ async function waitForKimiInput(sessionId: string, runtime: DriverRuntime): Prom
     const recentOutput = await runtime.capture(sessionId, 60);
     if (kimiIsReady(recentOutput)) return;
     if (!handledTrust && kimiNeedsFolderTrust(recentOutput)) {
-      await runtime.sendKey(sessionId, "Up");
+      // "Trust and continue" is already highlighted; Up would wrap to "Exit".
       await runtime.sendKeys(sessionId, "");
       handledTrust = true;
     }
@@ -262,13 +274,12 @@ export const kimiDriver: AgentDriver = {
   },
 
   buildLaunchCommand(opts: LaunchOptions): string {
-    const args = [...postureArgs(opts.safe), ...modelArgs(opts)];
-    const suffix = args.length ? ` ${args.join(" ")}` : "";
-    return `cd ${shellEscape(opts.cwd)} && KIMI_CODE_NO_AUTO_UPDATE=1 kimi${suffix}`;
+    const args = [...postureArgs(opts.safe), ...resultDirArgs(opts), ...modelArgs(opts)];
+    return `cd ${shellEscape(opts.cwd)} && KIMI_CODE_NO_AUTO_UPDATE=1 kimi ${args.join(" ")}`;
   },
 
   buildResumeCommand(opts: ResumeOptions): string {
-    const args = ["--session", shellEscape(opts.resumeId), ...postureArgs(opts.safe), ...modelArgs(opts)];
+    const args = ["--session", shellEscape(opts.resumeId), ...postureArgs(opts.safe), ...resultDirArgs(opts), ...modelArgs(opts)];
     return `cd ${shellEscape(opts.cwd)} && KIMI_CODE_NO_AUTO_UPDATE=1 kimi ${args.join(" ")}`;
   },
 
