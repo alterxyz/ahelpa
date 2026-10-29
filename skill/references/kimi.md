@@ -15,12 +15,12 @@ Verify with `command -v kimi`, `command -v claude`, or `command -v codex`.
 By default, ahelpa starts Kimi with:
 
 ```bash
-KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo
+KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto
 ```
 
-`KIMI_CODE_NO_AUTO_UPDATE=1` is Kimi Code's canonical update flag; it prevents a CLI self-update from interrupting the persistent tmux helper. `--yolo` bypasses Kimi's native approval flow. On the first launch in a directory, ahelpa also selects **Trust this folder** automatically. Kimi persists that trust and may start project MCP servers supplied by the directory.
+`KIMI_CODE_NO_AUTO_UPDATE=1` is Kimi Code's canonical update flag; it prevents a CLI self-update from interrupting the persistent tmux helper. `--auto` is Kimi Code 2.x's Never Ask mode; older CLIs lack it, so the driver needs Kimi Code 2.x. On the first launch in a directory, ahelpa also selects **Trust and continue** automatically. Kimi persists that trust and may start project MCP servers supplied by the directory.
 
-Use `ahelpa launch kimi --safe ...` to omit `--yolo`. This restores Kimi's native approvals, but the driver still automatically trusts the project directory. ahelpa records the safe posture and preserves it across resume; `resume --safe` can upgrade a default-posture record, while omission cannot downgrade a safe one. Safe mode is not a sandbox or another hard security boundary. Always use `--project` to choose the smallest useful working directory.
+Use `ahelpa launch kimi --safe ...` to launch with `--yolo` (Ask When Needed: routine edits and commands run, risky actions, questions, and plans still ask). It is passed explicitly because `default_permission_mode` in `config.toml` may be `auto`. In a linked worktree, safe mode also grants the result directory with `--add-dir`. The driver still automatically trusts the project directory. ahelpa records the safe posture and preserves it across resume; `resume --safe` can upgrade a default-posture record, while omission cannot downgrade a safe one. Safe mode is not a sandbox or another hard security boundary. Always use `--project` to choose the smallest useful working directory.
 
 ## Typical Workflow
 
@@ -38,7 +38,7 @@ Kimi helpers support the normal `launch`, `wait`, `capture`, `kill`, and `resume
 
 ## Models
 
-Do not pass `--model` by default. Kimi then uses the default from its `config.toml`. If you do pass `--model`, the value must exactly match a complete alias already configured in that file; a display name alone may fail. Kimi does not support ahelpa's `--effort` flag or runtime switching through `ahelpa model`.
+Do not pass `--model` by default. Kimi then uses the default from its `config.toml`, where its providers live too (for example an OpenAI-compatible gateway); ahelpa does not configure providers. If you do pass `--model`, the value must exactly match a complete alias already configured in that file; a display name alone may fail. Kimi does not support ahelpa's `--effort` flag or runtime switching through `ahelpa model`.
 
 ## Resume
 
@@ -58,7 +58,7 @@ The driver reconnects through `kimi --session <id>` in a new tmux session. It re
 ## Troubleshooting
 
 - If the binary is missing, check `command -v kimi`.
-- A cycling moon (`🌑` through `🌘`) or `Retrying (n/3) ... in 120s` means Kimi is still working or applying provider backoff. Keep waiting; do not treat it as an idle prompt merely because the boxed input remains visible.
+- A `thinking…`/`Working…` spinner, a cycling moon (`🌑` through `🌘`), or `Retrying (n/3) ... in 120s` means Kimi is still working or applying provider backoff. Keep waiting; do not treat it as an idle prompt merely because the boxed input remains visible.
 - If Kimi requests approval in safe mode, handle the native prompt in the tmux session; this is expected.
 - If a resumed helper cannot start, use `ahelpa check` to confirm the original session has an `agentResumeId`.
 - Use `ahelpa capture <id> --token <tok>` or attach with `tmux attach -t <id>` only when debugging an unexpected prompt.

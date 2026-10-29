@@ -292,7 +292,7 @@ run_integration_gate() (
   else
     echo "skip > dsh (set AHELPA_GATE_DSH=1 to include)"
   fi
-  # ponytail: Kimi is shelved; its driver and unit tests stay, its live run is opt-in.
+  # Like DSH, Kimi bills a metered provider, so its live run is opt-in.
   if [ "${AHELPA_GATE_KIMI:-}" = 1 ]; then
     run_gate kimi
   else

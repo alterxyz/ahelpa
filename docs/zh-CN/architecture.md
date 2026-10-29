@@ -149,14 +149,14 @@ Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration �
 | 职责 | 示例 |
 | --- | --- |
 | Session prefix | `claude`、`codex`、`kimi`、`dsh` |
-| Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` |
+| Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
 | 提交后处理 | 必要时补 Enter；捕获新创建的原生 session ID |
 | 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 DSH 适配器状态标记 |
 
-当前支持 `claude-code`、`codex`、`kimi` 和 `dsh`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust this folder**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
+当前支持 `claude-code`、`codex`、`kimi` 和 `dsh`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
 
-`launch --safe` 会把 safe-mode hint 传给选定 driver，并把它写入 session 状态。原生 resume 会继承该姿态；`resume --safe` 可以升级默认姿态记录，但省略参数不会把 safe 记录降级。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`；Kimi 会省略 `--yolo`，从而恢复自身原生审批流程。Kimi 在 safe mode 下仍会自动信任项目目录，因此它的 safe mode 不是 sandbox；Codex 的 "Folder access" 提示在 safe mode 下同样会被应答（见[安全说明](security.md)）。
+`launch --safe` 会把 safe-mode hint 传给选定 driver，并把它写入 session 状态。原生 resume 会继承该姿态；`resume --safe` 可以升级默认姿态记录，但省略参数不会把 safe 记录降级。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`；Kimi 会用 `--yolo`（Ask When Needed）代替 `--auto`（Never Ask）。Kimi 在 safe mode 下仍会自动信任项目目录，因此它的 safe mode 不是 sandbox；Codex 的 "Folder access" 提示在 safe mode 下同样会被应答（见[安全说明](security.md)）。
 
 Kimi 会设置 canonical `KIMI_CODE_NO_AUTO_UPDATE=1`，避免 CLI 自更新中断持久 tmux session。它默认不带模型参数启动，使用其 `config.toml` 中的默认模型。launch 时传入的 `--model` 必须与该文件中已配置的完整 alias 精确匹配；如果存在，resume 会沿用它。Kimi 不支持 `--effort`，也不支持运行中的 `ahelpa model` 切换。
 

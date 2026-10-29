@@ -8,9 +8,9 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 这是本地开发场景下的刻意取舍：最大化 helper 能力，同时要求使用者认真收窄任务范围。
 
-`ahelpa launch --safe` 会省略或收窄默认 danger flags。Claude Code 会以 `claude --verbose` 启动；Codex 会以 `codex -s workspace-write -a never` 启动；Kimi 会省略 `--yolo`，恢复 Kimi 原生审批流程。ahelpa 会持久记录该姿态并带入每个 resume 记录，因此省略 resume 参数不会悄悄恢复 danger flags；`resume --safe` 可以升级默认姿态记录。这是更低权限的姿态，但不是独立 OS user、VM 或强安全边界。尤其要注意，Kimi 的原生审批不是 sandbox。
+`ahelpa launch --safe` 会省略或收窄默认 danger flags。Claude Code 会以 `claude --verbose` 启动；Codex 会以 `codex -s workspace-write -a never` 启动；Kimi 会改用 `--yolo` 而非 `--auto` 启动，风险操作、提问和计划仍会询问（Kimi Code 2.x 的 Ask When Needed 模式；显式传入是因为 `config.toml` 的 `default_permission_mode` 可能是 `auto`）。ahelpa 会持久记录该姿态并带入每个 resume 记录，因此省略 resume 参数不会悄悄恢复 danger flags；`resume --safe` 可以升级默认姿态记录。这是更低权限的姿态，但不是独立 OS user、VM 或强安全边界。尤其要注意，Kimi 的原生审批不是 sandbox。
 
-默认情况下，Kimi 以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --yolo` 启动。这个 canonical 更新开关用于避免 CLI 自更新中断持久 tmux session。首次在某个目录启动时，ahelpa 会自动选择 **Trust this folder**，让任务能够无人值守地继续投递。Kimi 会持久保存该目录信任；可信项目可以提供 Kimi 随后可能启动的 MCP server。默认模式和 `--safe` 模式都会自动信任目录。因此，`--safe` 只是通过省略 `--yolo` 恢复逐项原生审批，并不能让不可信项目变得安全。
+默认情况下，Kimi 以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` 启动（Kimi Code 2.x 的 Never Ask 模式）。这个 canonical 更新开关用于避免 CLI 自更新中断持久 tmux session。首次在某个目录启动时，ahelpa 会自动选择 **Trust and continue**，让任务能够无人值守地继续投递。Kimi 会持久保存该目录信任；可信项目可以提供 Kimi 随后可能启动的 MCP server。默认模式和 `--safe` 模式都会自动信任目录。因此，`--safe` 只是切换到 Ask When Needed（`--yolo`），并不能让不可信项目变得安全。
 
 Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未被信任时，会在输入提示符之前询问一次（"Folder access"）。ahelpa 通过按一次 Enter 应答，但只在高亮的第一项是 **Trust and continue** 时才会这样做；任何其他选项，或根目录被标为 `untrusted` 时出现的受限目录界面，都不会被应答，launch 随之失败。随后 Codex 把 `[projects."<root>"]` 及 `trust_level = "trusted"` 持久写入 `CODEX_HOME/config.toml`。这个根目录是仓库根目录（linked worktree 对应主 checkout），可能比 `--project` 范围更大；该信任在 helper 结束后仍然有效，也适用于你自己在那里运行的 `codex`。受信任的目录允许 Codex 加载项目配置、hooks 和 exec 策略，项目配置还可以声明 MCP server 和模型 provider。该步骤在默认模式和 `--safe` 模式下都会执行，所以 `--safe` 不会让不可信仓库变得安全。launch 结果以 `codexTrust` 报告被信任的根目录；之后若 launch 失败，错误信息会写出 "Folder access was accepted for <root>"，因为该信任已经保存；`ahelpa doctor codex` 会提前提示，而在项目中先运行一次 `codex`（或自己把该表加入配置）也能不经过 ahelpa 完成应答。
 
@@ -27,7 +27,7 @@ Hook 对日志文件提供 symlink 和 hardlink 防护，但不能防止已拥�
 ## 实用防护
 
 - **用 `--project` 收窄范围。** 把 helper 指向最小可用工作目录。它设置 cwd 和任务意图边界，但不是 filesystem sandbox。做 review 时，应在 prompt 中明确禁止读取无关 home 目录、全局 `~/.ahelpa/archive` 和其他项目，除非任务确实需要。
-- **使用 git worktree。** 风险任务或实验任务放进临时 worktree，降低误改主工作区的影响（Codex 首次从某个 checkout 做 `--worktree` launch 时，会永久信任该主 checkout，见上文）。linked worktree 的结果写在它之外，即主 checkout 的 `.ahelpa/<session-id>/`（那里的 `.ahelpa/` 同样要保持 git-ignored）；`--safe` 下 Codex 和 Claude 恰好获得这一个目录的写权限，Kimi 没有额外授权。
+- **使用 git worktree。** 风险任务或实验任务放进临时 worktree，降低误改主工作区的影响（Codex 首次从某个 checkout 做 `--worktree` launch 时，会永久信任该主 checkout，见上文）。linked worktree 的结果写在它之外，即主 checkout 的 `.ahelpa/<session-id>/`（那里的 `.ahelpa/` 同样要保持 git-ignored）；`--safe` 下 Codex、Claude 和 Kimi 恰好获得这一个目录的写权限。
 - **不要把 secret 放进任务 prompt。** 任务文件会写到 `/tmp/ahelpa/`，本地用户可读。不要在任务描述中嵌入 credential、API key 或敏感数据。
 - **不要把 secret 留在结果 artifact。** Helper 会把结果写到项目内 `.ahelpa/<session-id>/`；项目是 linked worktree 时写到主 checkout 内。commit 或分享前先检查。
 - **不要提交运行时 artifact。** `.ahelpa/`、本地数据库、日志、构建输出都应保持 git-ignored。

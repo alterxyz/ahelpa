@@ -67,7 +67,7 @@ Before closing local runtime work:
 bun run closure:gate
 ```
 
-The gate runs tests, typechecks, builds, and launches Claude Code and Codex; DSH runs with `AHELPA_GATE_DSH=1`, and shelved Kimi runs only with `AHELPA_GATE_KIMI=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. DSH also verifies native resume and context continuity. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
+The gate runs tests, typechecks, builds, and launches Claude Code and Codex; DSH runs with `AHELPA_GATE_DSH=1`, and Kimi runs with `AHELPA_GATE_KIMI=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. DSH and Kimi also verify native resume and context continuity. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
 
 ## Open Work
 

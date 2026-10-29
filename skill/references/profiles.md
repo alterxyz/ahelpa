@@ -70,10 +70,10 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 - No claim. Only 12 archived sessions.
 
 **Watch for**
-- About 8 of 12 ended `needs_attention`. Too small a sample to generalize, but enough to avoid it for important work.
+- About 8 of 12 ended `needs_attention`, but those sessions predate Kimi Code 2.x and the current driver. Too small a sample either way.
 
 **Give it**
-- Low-stakes, easily checked probes only. Omit `--model`, `--role`, `--effort`.
+- Well-scoped, checkable coding tasks, ideally with `--check`, when Claude or Codex quota is tight. Keep important or ambiguous work elsewhere until it has a track record. Omit `--model`, `--role`, `--effort`.
 
 **Runtime quirks**
 - Auto-trusts the project folder; `--safe` is not a sandbox. See `kimi.md`.
