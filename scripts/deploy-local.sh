@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Build the runtime, refresh the skill bundle, and install both on this
 # machine: the runtime binary into ~/.ahelpa/bin and hard-copy global skills
-# for Codex, Claude Code, and Kimi Code. Safe to re-run; a running daemon keeps its old
-# inode and picks up the new binary on next start.
+# for Codex, Claude Code, and Kimi Code. Safe to re-run; a running daemon is
+# restarted on the new binary.
 
 set -euo pipefail
 
@@ -23,6 +23,12 @@ if [ -x "$BIN_DST/ahelpa" ]; then
   ls -t "$BIN_DST"/ahelpa.pre-* | tail -n +3 | xargs rm -f --
 fi
 install -m 755 dist/ahelpa "$BIN_DST/ahelpa"
+# The old daemon keeps running the replaced binary and cannot monitor sessions
+# of drivers it does not know. Helpers keep running; only monitoring restarts.
+if "$BIN_DST/ahelpa" status 2>/dev/null | grep -q '^ahelpa daemon: running'; then
+  "$BIN_DST/ahelpa" daemon stop >/dev/null
+  "$BIN_DST/ahelpa" daemon start >/dev/null
+fi
 if [ -d "$HOME/.local/bin" ]; then
   ln -sf "$BIN_DST/ahelpa" "$HOME/.local/bin/ahelpa"
 fi
