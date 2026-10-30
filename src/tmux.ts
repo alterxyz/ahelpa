@@ -1,6 +1,15 @@
 import { $ } from "bun";
 import { shellEscape } from "./shell";
 
+// Host identity must not become the tmux server's global environment.
+const HOST_SESSION_ENV = /^(?:CLAUDECODE|CLAUDE_CODE_(?:SESSION_.*|HOST_SESSION_.*|MESSAGING_.*|ACCOUNT_UUID|USER_EMAIL|PARENT_SESSION_ID|CHILD_SESSION|ENTRYPOINT|EXECPATH|DESKTOP_APP_VERSION|ORGANIZATION_UUID|OAUTH_SCOPES|SDK_HAS_HOST_AUTH_REFRESH|TERMINAL_MCP_TOOLS|REPORT_FINDINGS)|CLAUDE_(?:PID|EFFORT|PLUGIN_DATA|AGENT_SDK_VERSION|AGENT_SDK_MCP_NO_PREFIX)|CODEX_(?:THREAD_ID|SESSION_ID|TOOL_CALL_ID|COMPANION_.*|SANDBOX.*|CI|VERSION)|AI_AGENT|BAGGAGE|__CFBundleIdentifier)$/;
+
+export function tmuxClientEnv(env: Record<string, string | undefined> = process.env): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter(
+    (entry): entry is [string, string] => entry[1] !== undefined && !HOST_SESSION_ENV.test(entry[0]),
+  ));
+}
+
 function stderrText(error: unknown): string {
   if (typeof error !== "object" || error === null || !("stderr" in error)) return "";
   const stderr = error.stderr;
@@ -21,7 +30,7 @@ export class Tmux {
   static async create(name: string, command: string): Promise<void> {
     // Wrap command so the session persists after the command exits
     const wrapped = `bash -lc ${shellEscape(`${command}; exec bash`)}`;
-    await $`tmux new-session -d -s ${name} ${wrapped}`.quiet();
+    await $`tmux new-session -d -s ${name} ${wrapped}`.env(tmuxClientEnv()).quiet();
   }
 
   static async hasSession(name: string): Promise<boolean> {
