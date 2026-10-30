@@ -99,8 +99,8 @@ The [DSH onboarding record](docs/dsh-onboarding.md) separates observed behavior,
 
 | Helper | Role | Default model | Effort |
 | --- | --- | --- | --- |
-| `codex` | `worker` (default) | `gpt-6-astra` | `high` |
-| `codex` | `reviewer` | `gpt-6-astra` | `xhigh` |
+| `codex` | `worker` (default) | `gpt-6-astra` | `medium` |
+| `codex` | `reviewer` | `gpt-6-astra` | `medium` |
 | `claude-code` | `advisor` (default) | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |

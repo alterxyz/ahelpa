@@ -99,8 +99,8 @@ DSH 默认使用本地 Magpie 网关路由（`magpie:deepseek/deepseek-flash`）
 
 | Helper | 角色 | 默认模型 | Effort |
 | --- | --- | --- | --- |
-| `codex` | `worker`（默认） | `gpt-6-astra` | `high` |
-| `codex` | `reviewer` | `gpt-6-astra` | `xhigh` |
+| `codex` | `worker`（默认） | `gpt-6-astra` | `medium` |
+| `codex` | `reviewer` | `gpt-6-astra` | `medium` |
 | `claude-code` | `advisor`（默认） | `claude-opus-5-5` | `xhigh` |
 | `claude-code` | `worker` | `claude-sonnet-5-5` | `high` |
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |

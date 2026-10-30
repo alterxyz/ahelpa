@@ -196,11 +196,11 @@ Choose the role first. Claude defaults to `advisor` for analysis, planning, and 
 
 | Launch | Effective defaults |
 | --- | --- |
-| `launch codex` | `worker`, `gpt-6-astra`, `high` |
+| `launch codex` | `worker`, `gpt-6-astra`, `medium` |
 | `launch claude-code` | `advisor`, `claude-opus-5-5`, `xhigh` |
 | `launch claude-code --role worker` | `worker`, `claude-sonnet-5-5`, `high` |
 | `launch claude-code --role reviewer` | `reviewer`, `claude-opus-5-5`, `xhigh` |
-| `launch codex --role reviewer` | `reviewer`, `gpt-6-astra`, `xhigh` |
+| `launch codex --role reviewer` | `reviewer`, `gpt-6-astra`, `medium` |
 | `launch dsh` | `worker`, `magpie:deepseek/deepseek-flash`, `high` |
 | `launch dsh --role reviewer` | `reviewer`, `magpie:deepseek/deepseek-flash`, `high` |
 

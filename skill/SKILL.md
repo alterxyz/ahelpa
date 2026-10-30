@@ -113,8 +113,8 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 
 | Helper / role | Default model | Effort |
 | --- | --- | --- |
-| Codex `worker` (default) | `gpt-6-astra` | `high` |
-| Codex `reviewer` | `gpt-6-astra` | `xhigh` |
+| Codex `worker` (default) | `gpt-6-astra` | `medium` |
+| Codex `reviewer` | `gpt-6-astra` | `medium` |
 | Claude `advisor` (default) | `claude-opus-5-5` | `xhigh` |
 | Claude `worker` | `claude-sonnet-5-5` | `high` |
 | Claude `reviewer` | `claude-opus-5-5` | `xhigh` |

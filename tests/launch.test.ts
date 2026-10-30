@@ -395,7 +395,7 @@ describe("launch", () => {
   });
 
   test.each([
-    { agentType: "codex", role: undefined, expectedRole: "worker", model: "gpt-6-astra", effort: "high" },
+    { agentType: "codex", role: undefined, expectedRole: "worker", model: "gpt-6-astra", effort: "medium" },
     { agentType: "claude-code", role: undefined, expectedRole: "advisor", model: "claude-opus-5-5", effort: "xhigh" },
     { agentType: "claude-code", role: "worker" as const, expectedRole: "worker", model: "claude-sonnet-5-5", effort: "high" },
     { agentType: "kimi", role: undefined, expectedRole: undefined, model: undefined, effort: undefined },

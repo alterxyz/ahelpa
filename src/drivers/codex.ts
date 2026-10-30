@@ -384,8 +384,8 @@ export const codexDriver: AgentDriver = {
   launchProfiles: {
     defaultRole: "worker",
     profiles: {
-      worker: { model: "gpt-6-astra", effort: "high" },
-      reviewer: { model: "gpt-6-astra", effort: "xhigh" },
+      worker: { model: "gpt-6-astra", effort: "medium" },
+      reviewer: { model: "gpt-6-astra", effort: "medium" },
     },
   },
   resumeTokenAvailableAfterSubmit: false,

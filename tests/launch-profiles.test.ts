@@ -16,9 +16,9 @@ describe("helper role parsing", () => {
 });
 
 describe("launch profiles", () => {
-  test("Codex defaults to a GPT-6 Astra worker at high effort", () => {
+  test("Codex defaults to a GPT-6 Astra worker at medium effort", () => {
     expect(resolveLaunchProfile(getDriver("codex"), {})).toEqual({
-      role: "worker", model: "gpt-6-astra", effort: "high",
+      role: "worker", model: "gpt-6-astra", effort: "medium",
     });
   });
 
@@ -57,12 +57,12 @@ describe("launch profiles", () => {
     });
   });
 
-  test("reviewers get the strongest preset of each driver", () => {
+  test("reviewers get each driver's review preset", () => {
     expect(resolveLaunchProfile(getDriver("claude-code"), { role: "reviewer" })).toEqual({
       role: "reviewer", model: "claude-opus-5-5", effort: "xhigh",
     });
     expect(resolveLaunchProfile(getDriver("codex"), { role: "reviewer" })).toEqual({
-      role: "reviewer", model: "gpt-6-astra", effort: "xhigh",
+      role: "reviewer", model: "gpt-6-astra", effort: "medium",
     });
   });
 
@@ -111,7 +111,7 @@ describe("launch profiles", () => {
       expect(claude.modelCatalog.models.find((model) => model.name === name))
         .toMatchObject({ efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" });
     }
-    expect(resolveLaunchProfile(codex, {}).effort).toBe("high");
+    expect(resolveLaunchProfile(codex, {}).effort).toBe("medium");
     expect(resolveLaunchProfile(claude, {}).effort).toBe("xhigh");
   });
 });

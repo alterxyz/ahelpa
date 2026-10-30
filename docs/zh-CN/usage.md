@@ -195,11 +195,11 @@ Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未�
 
 | 启动方式 | 实际默认值 |
 | --- | --- |
-| `launch codex` | `worker`、`gpt-6-astra`、`high` |
+| `launch codex` | `worker`、`gpt-6-astra`、`medium` |
 | `launch claude-code` | `advisor`、`claude-opus-5-5`、`xhigh` |
 | `launch claude-code --role worker` | `worker`、`claude-sonnet-5-5`、`high` |
 | `launch claude-code --role reviewer` | `reviewer`、`claude-opus-5-5`、`xhigh` |
-| `launch codex --role reviewer` | `reviewer`、`gpt-6-astra`、`xhigh` |
+| `launch codex --role reviewer` | `reviewer`、`gpt-6-astra`、`medium` |
 | `launch dsh` | `worker`、`magpie:deepseek/deepseek-flash`、`high` |
 | `launch dsh --role reviewer` | `reviewer`、`magpie:deepseek/deepseek-flash`、`high` |
 
