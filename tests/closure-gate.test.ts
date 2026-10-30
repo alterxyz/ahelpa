@@ -44,7 +44,7 @@ switch (command) {
       : args[roleIndex + 1];
     const model = args[0] === "claude-code" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
       : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "magpie:deepseek/deepseek-flash" : null;
-    const effort = args[0] === "claude-code" && role === "advisor" ? "xhigh" : args[0] === "kimi" ? null : "high";
+    const effort = args[0] === "claude-code" && role === "advisor" ? "xhigh" : args[0] === "kimi" ? null : args[0] === "codex" ? "medium" : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
     const task = args[args.indexOf("--task") + 1];
@@ -315,7 +315,7 @@ describe("closure gate", () => {
     for (const [label, role, model, effort] of [
       ["claude-code-advisor", "advisor", "claude-opus-5-5", "xhigh"],
       ["claude-code-worker", "worker", "claude-sonnet-5-5", "high"],
-      ["codex-worker", "worker", "gpt-6-astra", "high"],
+      ["codex-worker", "worker", "gpt-6-astra", "medium"],
     ]) {
       expect(readFileSync(join(result.evidenceDir, `result-${label}`, "summary.md"), "utf8"))
         .toBe(`gate-${label}\n`);
