@@ -64,7 +64,7 @@ check_session_profile() {
       const session = Array.isArray(result)
         ? result.find((entry) => entry.id === id)
         : result.sessionId === id ? result : undefined;
-      if (!session || session.role !== role || session.model !== model || session.effort !== effort) {
+      if (!session || session.role !== role || (session.model ?? "") !== model || (session.effort ?? "") !== effort) {
         process.exit(1);
       }
     } catch { process.exit(1); }
@@ -79,6 +79,7 @@ run_gate() (
   agent_name="$agent"
   if [ "$agent" = "kimi" ]; then agent_name="Kimi"; fi
   if [ "$agent" = "dsh" ]; then agent_name="DSH"; fi
+  if [ "$agent" = "pi" ]; then agent_name="Pi"; fi
   requested_role="${2:-}"
   expected_role=""
   expected_model=""
@@ -104,6 +105,11 @@ run_gate() (
       expected_model="magpie:deepseek/deepseek-flash"
       expected_effort="high"
       ;;
+    pi: | pi:worker)
+      expected_role="worker"
+      expected_model="${AHELPA_GATE_PI_MODEL:-}"
+      expected_effort="${AHELPA_GATE_PI_EFFORT:-}"
+      ;;
     kimi:) ;;
     *) fail "Unsupported gate scenario: $agent $requested_role" ;;
   esac
@@ -121,8 +127,11 @@ run_gate() (
   delivery=""
   real_delivery=""
   cleaned=0
+  pi_native_id=""
+  pi_lock=""
+  pi_pids=""
   wait_seconds=180
-  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ]; then
+  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ]; then
     context_marker="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
     task="Remember this context marker for our next turn: $context_marker. $task"
     wait_seconds=500
@@ -205,7 +214,90 @@ run_gate() (
     fi
   }
 
+  snapshot_pi_processes() {
+    [ "$agent" = "pi" ] || return 0
+    local pane_pids pi_snapshot
+    pane_pids="$(tmux list-panes -t "$session_id" -F '#{pane_pid}')" || return 1
+    pi_snapshot="$(ps -axo pid=,ppid= | bun -e '
+      try {
+        const fs = require("fs");
+        const [panes, metadata, id, project] = process.argv.slice(1);
+        const info = JSON.parse(fs.readFileSync(metadata, "utf8"));
+        const path = require("path"), os = require("os");
+        // Derive the native session directory independently (Pi 1.4 rules), never from metadata.
+        const expand = value => value === "~" ? os.homedir() : value.startsWith("~/") ? path.join(os.homedir(), value.slice(2))
+          : /^file:\/\//.test(value) ? require("url").fileURLToPath(value) : value;
+        const cwd = fs.realpathSync(project);
+        const agent = path.resolve(cwd, expand(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent")));
+        const directory = path.join(agent, "sessions", "--" + cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-") + "--");
+        if (info.lockPath !== path.join(directory, ".ahelpa-" + id + ".lock")) process.exit(1);
+        const transcripts = fs.readdirSync(directory).filter(name => name.endsWith("_" + id + ".jsonl"));
+        if (transcripts.length !== 1) process.exit(1);
+        const fd = fs.openSync(path.join(directory, transcripts[0]), "r");
+        let header;
+        try {
+          const buffer = Buffer.alloc(65536), size = fs.readSync(fd, buffer, 0, buffer.length, 0);
+          const newline = buffer.indexOf(10);
+          if (newline < 0 || newline >= size) throw new Error("Invalid session header");
+          header = JSON.parse(buffer.subarray(0, newline).toString("utf8"));
+        } finally { fs.closeSync(fd); }
+        if (header.type !== "session" || header.id !== id) process.exit(1);
+        const roots = panes.trim().split(/\s+/).map(Number);
+        if (!roots.length || roots.some(pid => !Number.isSafeInteger(pid) || pid <= 0)) process.exit(1);
+        const rows = fs.readFileSync(0, "utf8").trim().split("\n").map(line => line.trim().split(/\s+/).map(Number));
+        if (roots.some(pid => !rows.some(row => row[0] === pid))) process.exit(1);
+        const pids = new Set(roots);
+        let prior;
+        do {
+          prior = pids.size;
+          for (const [pid, parent] of rows) if (pids.has(parent)) pids.add(pid);
+        } while (pids.size !== prior);
+        if (![info.bridgePid, info.childPid].every(pid => Number.isSafeInteger(pid) && pids.has(pid))) process.exit(1);
+        process.stdout.write(JSON.stringify({ pids: [...pids].join("\n"), lockPath: info.lockPath }));
+      } catch { process.exit(1); }
+    ' "$pane_pids" "$delivery/pi-process.json" "$pi_native_id" "$project")" || return 1
+    pi_pids="$(json_field "$pi_snapshot" pids)" || return 1
+    pi_lock="$(json_field "$pi_snapshot" lockPath)" || return 1
+    printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
+  }
+
+  verify_pi_reclaimed() {
+    [ "$agent" = "pi" ] || return 0
+    [ -n "$pi_pids" ] && [ -n "$pi_lock" ] || return 1
+    local attempt
+    for attempt in {1..20}; do
+      # Process titles may hide RPC arguments; compare only the recorded PIDs.
+      if [ ! -e "$pi_lock" ] && ps -axo pid=,ppid= | bun -e '
+        const rows = require("fs").readFileSync(0, "utf8").trim().split("\n");
+        const remaining = new Set(rows.map(line => Number(line.trim().split(/\s+/)[0])));
+        const recorded = process.argv[1].trim().split(/\s+/).map(Number);
+        process.exit(recorded.some(pid => remaining.has(pid)) ? 1 : 0);
+      ' "$pi_pids"; then
+        return 0
+      fi
+      sleep 0.5
+    done
+    return 1
+  }
+
+  retain_pi_identity() {
+    pi_observed_id="$(printf '%s' "$1" | bun -e '
+      try {
+        const sessions = JSON.parse(require("fs").readFileSync(0, "utf8"));
+        const id = sessions.find(entry => entry.id === process.argv[1])?.agentResumeId;
+        if (typeof id !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id)) process.exit(1);
+        process.stdout.write(id);
+      } catch { process.exit(1); }
+    ' "$session_id")" || fail "Pi did not retain a native session UUID"
+    if [ -n "$pi_native_id" ] && [ "$pi_native_id" != "$pi_observed_id" ]; then
+      fail "Pi resume changed the native session UUID"
+    fi
+    pi_native_id="$pi_observed_id"
+
+  }
+
   reclaim_session() {
+    if ! snapshot_pi_processes; then fail "Cannot snapshot Pi process tree and lock before kill"; fi
     if ! "$CLI" kill "$session_id" --token "$owner_token" >"$GATE_DIR/kill-$label.txt" 2>&1; then
       fail "kill failed for $agent session $session_id"
     fi
@@ -215,6 +307,7 @@ run_gate() (
     if ! check_session_status "$("$CLI" check)" "$session_id" killed; then
       fail "check still reports an active $agent session after kill"
     fi
+    if ! verify_pi_reclaimed; then fail "Pi child or session lock remains after kill"; fi
     cleaned=1
     preserve_delivery
   }
@@ -224,6 +317,10 @@ run_gate() (
   mkdir -p "$project"
   launch_args=(launch "$agent" --task "$task" --project "$project")
   if [ -n "$requested_role" ]; then launch_args+=(--role "$requested_role"); fi
+  if [ "$agent" = "pi" ]; then
+    if [ -n "$expected_model" ]; then launch_args+=(--model "$expected_model"); fi
+    if [ -n "$expected_effort" ]; then launch_args+=(--effort "$expected_effort"); fi
+  fi
   launch_output="$("$CLI" "${launch_args[@]}")"
   take_session "$launch_output"
   if [ -n "$expected_role" ] && ! check_session_profile "$launch_output" "$session_id" \
@@ -234,15 +331,18 @@ run_gate() (
   if [ "$agent" = "kimi" ] && ! check_kimi_resume_id "$check_output" "$session_id"; then
     fail "Kimi did not retain a native session resume ID"
   fi
+  if [ "$agent" = "pi" ]; then retain_pi_identity "$check_output"; fi
   reclaim_session
 
-  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ]; then
+  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ]; then
     prior_session="$session_id"
     resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
     label="$agent-resumed"
     take_session "$resume_output"
     if [ "$session_id" = "$prior_session" ]; then fail "$agent_name resume reused the old helper ID"; fi
-    if ! check_session_status "$("$CLI" check)" "$session_id" ready; then
+    resume_check="$("$CLI" check)"
+    if [ "$agent" = "pi" ]; then retain_pi_identity "$resume_check"; fi
+    if ! check_session_status "$resume_check" "$session_id" ready; then
       fail "$agent_name resume did not reach needs_attention for a follow-up task"
     fi
     if [ -e "$delivery/summary.md" ]; then fail "$agent_name resumed summary already exists before its new task"; fi
@@ -250,10 +350,8 @@ run_gate() (
     cat >"$GATE_DIR/$agent-resume-task.md" <<'TASK'
 Recall the exact context marker from our prior conversation without reading prior task files, result files, other projects, home directories, or global ahelpa state. Write one line to summary.md in your assigned result directory. Construct it by concatenating the literal prefix `gate-kimi-resumed:` and the remembered UUID, then one newline. There must be NO SPACE after the colon or anywhere in the line. Do not include backticks, quotes, placeholders, or commentary. Before declaring completion, check only the new summary.md for this exact format. Then output [AHELPA:DONE] on its own line. Only write within that assigned result directory.
 TASK
-    if [ "$agent" = "dsh" ]; then
-      sed 's/gate-kimi-resumed:/gate-dsh-resumed:/' "$GATE_DIR/$agent-resume-task.md" >"$GATE_DIR/dsh-task.md"
-      mv "$GATE_DIR/dsh-task.md" "$GATE_DIR/$agent-resume-task.md"
-    fi
+    sed "s/gate-kimi-resumed:/gate-$agent-resumed:/" "$GATE_DIR/$agent-resume-task.md" >"$GATE_DIR/$agent-task.md"
+    mv "$GATE_DIR/$agent-task.md" "$GATE_DIR/$agent-resume-task.md"
     "$CLI" task "$session_id" --file "$GATE_DIR/$agent-resume-task.md" --token "$owner_token" >"$GATE_DIR/task-$agent-resumed.txt"
     verify_completion
     reclaim_session
@@ -291,6 +389,11 @@ run_integration_gate() (
     run_gate dsh
   else
     echo "skip > dsh (set AHELPA_GATE_DSH=1 to include)"
+  fi
+  if [ "${AHELPA_GATE_PI:-}" = 1 ]; then
+    run_gate pi
+  else
+    echo "skip > pi (set AHELPA_GATE_PI=1 to include)"
   fi
   # Like DSH, Kimi bills a metered provider, so its live run is opt-in.
   if [ "${AHELPA_GATE_KIMI:-}" = 1 ]; then

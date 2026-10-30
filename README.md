@@ -88,12 +88,15 @@ For longer tasks, use `ahelpa launch codex --file ./task.md`. Choose exactly one
 | `codex` | `codex` |
 | `kimi` | `kimi` |
 | `dsh` | `dsh` (DeepSeek Harness) |
+| `pi` | `pi` ≥ 1.4.0 + Node.js |
 
-Verify prerequisites with `command -v claude`, `command -v codex`, `command -v kimi`, or `command -v dsh` — the Claude helper type name is not its binary name.
+Verify prerequisites with `command -v claude`, `command -v codex`, `command -v kimi`, `command -v dsh`, or `command -v pi` — the Claude helper type name is not its binary name.
 
 DSH defaults to the local Magpie gateway route (`magpie:deepseek/deepseek-flash`). DSH support targets `@deepseek-ai/dsh@0.2.1-rc.2`. ahelpa creates a separate `ahelpa` profile and a session-local terminal app; existing Desktop/Web profiles and credentials are preserved. Start with `ahelpa launch dsh --task "Review the parser" --project /path/to/project`. See [DSH setup and limitations](skill/references/dsh.md) for installation, authentication, and native resume. This is a new integration under observation; `--safe` and runtime model switching are not supported.
 
 The [DSH onboarding record](docs/dsh-onboarding.md) separates observed behavior, independently checked fixture results, task guidance, and further observation.
+
+Pi is an explicit opt-in backend alongside DSH. It requires `@earendil-works/pi-coding-agent` ≥ 1.4.0 (tested baseline: 1.4.0) and Node.js. Run `ahelpa launch pi --file ./task.md` to use Pi’s configured model and thinking defaults; override them with `--model provider/id` and `--effort <level>`, whose effective values are verified at startup. Pi’s `worker`/`reviewer` roles have no model or effort presets; `advisor`, `--safe`, and runtime model switching are unsupported. Resume requires the matching native UUID history; after the helper exits, use `pi -r` in the same project for native takeover. See [Pi setup and limitations](skill/references/pi.md).
 
 ### Roles and defaults
 
@@ -106,14 +109,15 @@ The [DSH onboarding record](docs/dsh-onboarding.md) separates observed behavior,
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |
 | `dsh` | `worker` (default) | `magpie:deepseek/deepseek-flash` | `high` |
 | `dsh` | `reviewer` | `magpie:deepseek/deepseek-flash` | `high` |
+| `pi` | `worker` (default), `reviewer` | native default | native default |
 
-Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Use `reviewer` for read-only adversarial review; its task contract forbids modifying files outside the result directory. Codex and DSH reject `advisor`. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
+Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Use `reviewer` for read-only adversarial review; its task contract forbids modifying files outside the result directory. Codex, DSH, and Pi reject `advisor`. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, `kimi`, or `dsh`); `--after` chains hands, and explicit `--role reviewer` adds blind review and target evidence; `--scope` reports changes outside the given globs in `wait` evidence |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude-code`, `codex`, `kimi`, `dsh`, or `pi`); `--after` chains hands, and explicit `--role reviewer` adds blind review and target evidence; `--scope` reports changes outside the given globs in `wait` evidence |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh and caller relationship |
 | `models [agent]` | List launch-time model options |
@@ -159,7 +163,7 @@ For isolated tests or automation, set `AHELPA_HOME` to override the state/archiv
 
 ## Security Posture
 
-Helpers run with the same local user permissions as the host process by default. Use `--project` to constrain working directories, `--safe` where supported to omit or bound default danger flags, git worktrees for risky tasks, and keep secrets out of task prompts and result artifacts. DSH currently rejects `--safe`; its terminal profile runs with full local permissions. On Kimi's first launch in a directory, ahelpa automatically selects **Trust and continue**; that trust persists in Kimi and allows the directory's project MCP servers. This happens with or without `--safe`. For Kimi, `--safe` only omits `--yolo` and restores native approvals; it is not a sandbox. On Codex 0.163+, ahelpa also accepts the one-time "Folder access" prompt for the git repository root, with or without `--safe`, and Codex keeps that trust. See [docs/security.md](docs/security.md) for details.
+Helpers run with the same local user permissions as the host process by default. Use `--project` to constrain working directories, `--safe` where supported to omit or bound default danger flags, git worktrees for risky tasks, and keep secrets out of task prompts and result artifacts. DSH and Pi reject `--safe`; both run with full local permissions. On Kimi's first launch in a directory, ahelpa automatically selects **Trust and continue**; that trust persists in Kimi and allows the directory's project MCP servers. This happens with or without `--safe`. For Kimi, `--safe` only omits `--yolo` and restores native approvals; it is not a sandbox. On Codex 0.163+, ahelpa also accepts the one-time "Folder access" prompt for the git repository root, with or without `--safe`, and Codex keeps that trust. See [docs/security.md](docs/security.md) for details.
 
 ## Development
 
@@ -170,7 +174,7 @@ bun test                       # Unit tests
 bun run build                  # Compile binary to dist/
 bun run package:skill          # Build skill package with runtime bundle
 bash scripts/deploy-local.sh   # Install runtime + global hard-copy skills
-bun run closure:gate           # End-to-end gate (Claude Code + Codex; AHELPA_GATE_KIMI=1 / AHELPA_GATE_DSH=1 opt in)
+bun run closure:gate           # End-to-end gate (Claude Code + Codex; AHELPA_GATE_KIMI=1 / AHELPA_GATE_DSH=1 / AHELPA_GATE_PI=1 opt in)
 ```
 
 The repository does not track compiled bundles — they are generated artifacts ignored by git.

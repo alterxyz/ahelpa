@@ -153,7 +153,7 @@ Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 
 
 ## Closure gate
 
-影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证三个 supported driver。场景依次为 Claude 默认 advisor、Claude 显式 worker、Codex 默认 worker。和 DSH 一样，Kimi 真机场景走计费 provider，只在设置 `AHELPA_GATE_KIMI=1` 时运行；前三项同时校验 launch 返回和 check 保存的准确角色/模型/effort，使用各自独立的结果标记与证据目录。Codex 和 Kimi 使用稳定的 `tests/fixtures/closure` 工作区，Claude Code 使用仓库根目录；任务只允许访问指定任务文件和结果目录。
+影响已安装 runtime 行为的改动，需要跑端到端 gate。它先运行测试、类型检查和构建，再用编译后的 `dist/ahelpa` 验证选中的 driver。场景依次为 Claude 默认 advisor、Claude 显式 worker、Codex 默认 worker。和 DSH 一样，Kimi 真机场景走计费 provider，只在设置 `AHELPA_GATE_KIMI=1` 时运行；前三项同时校验 launch 返回和 check 保存的准确角色/模型/effort，使用各自独立的结果标记与证据目录。Codex 和 Kimi 使用稳定的 `tests/fixtures/closure` 工作区，Claude Code 使用仓库根目录；任务只允许访问指定任务文件和结果目录。
 
 脚本为 gate 单独设置 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，因此它的 SQLite 状态、daemon、archive、FIFO 和任务文件不会干扰用户正在运行的 ahelpa session。helper CLI 仍使用正常的 OS home 和既有认证状态。
 
@@ -179,6 +179,8 @@ AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 ```
 
 **前置条件**：启用 DSH 时，本地 Magpie 网关必须已启动，`$DSH_HOME/profiles/ahelpa/cordis.patch.yml` 必须配置其 provider／模型，provider 密钥通过 `$DSH_HOME/.env` 提供；见 [Magpie 路由配置](../../skill/references/dsh.md#magpie-route)。本轮选中的 helper CLI 需要在本机完成登录，默认是 `claude` 和 `codex`，启用对应开关后还包括 `dsh` 或 `kimi`。如果 helper CLI 在认证阶段失败，先修复该 CLI 的登录状态，再把 gate 结果当真。
+
+Pi 的真机 gate 通过 `AHELPA_GATE_PI=1` 启用，需要 Node.js、Pi ≥ 1.4.0（测试基线 1.4.0）及已经配置好的 provider。默认不指定模型或 effort；可通过 `AHELPA_GATE_PI_MODEL=provider/id` 和 `AHELPA_GATE_PI_EFFORT=<level>` 覆盖。Gate 核对 launch／check 的角色与设置，验证原生 UUID 在 resume 后不变、第二轮能记住上下文，并在每次 kill 后检查 Pi 子进程与 UUID 锁均已消失。它会校验原生会话头以核对锁目录，不读取凭据，也不输出原生会话内容。Pi 原生会话保存在其按 cwd 编码的目录中，不属于 gate 的 ahelpa 临时状态。
 
 ## 添加 driver
 

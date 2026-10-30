@@ -26,7 +26,7 @@ Instructions for agents working on the ahelpa codebase.
 - `src/cli.ts` — process entry point
 - `src/command-contract.ts` — command registry (single source of truth for CLI surface)
 - `src/commands/` — launch, wait, session-ops
-- `src/drivers/` — agent-specific adapters (claude-code, codex, kimi, dsh)
+- `src/drivers/` — agent-specific adapters (claude-code, codex, kimi, dsh, pi)
 - `tests/` — Bun test suite
 - `scripts/` — build, deploy, packaging, closure gate
 - `skill/` — skill package source (docs + generated bundle during local packaging)
@@ -67,7 +67,7 @@ Before closing local runtime work:
 bun run closure:gate
 ```
 
-The gate runs tests, typechecks, builds, and launches Claude Code and Codex; DSH runs with `AHELPA_GATE_DSH=1`, and Kimi runs with `AHELPA_GATE_KIMI=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. DSH and Kimi also verify native resume and context continuity. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
+The gate runs tests, typechecks, builds, and launches Claude Code and Codex; DSH runs with `AHELPA_GATE_DSH=1`, Kimi runs with `AHELPA_GATE_KIMI=1`, and Pi runs with `AHELPA_GATE_PI=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. DSH, Kimi, and Pi also verify native resume and context continuity. Pi additionally checks child exit and session-lock release; it requires Node.js and Pi >= 1.4.0, using native model/effort defaults unless gate overrides are set. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
 
 ## Open Work
 

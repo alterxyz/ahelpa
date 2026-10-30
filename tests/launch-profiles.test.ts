@@ -115,3 +115,15 @@ describe("launch profiles", () => {
     expect(resolveLaunchProfile(claude, {}).effort).toBe("xhigh");
   });
 });
+
+test("Pi worker/reviewer preserve native defaults with explicit overrides", () => {
+  const driver = getDriver("pi");
+  for (const role of ["worker", "reviewer"] as const) {
+    expect(resolveLaunchProfile(driver, { role })).toEqual({ role, model: undefined, effort: undefined });
+    const command = driver.buildLaunchCommand({ cwd: "/tmp/project", ...resolveLaunchProfile(driver, { role }) });
+    expect(command).not.toContain("--model");
+    expect(command).not.toContain("--effort");
+  }
+  expect(resolveLaunchProfile(driver, { model: "provider/model", effort: "high" })).toEqual({ role: "worker", model: "provider/model", effort: "high" });
+  expect(() => resolveLaunchProfile(driver, { role: "advisor" })).toThrow("does not support role");
+});

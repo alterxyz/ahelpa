@@ -102,3 +102,11 @@ describe("command contract", () => {
     expect(() => renderModelsText("")).toThrow('Unknown driver: ""');
   });
 });
+
+test("Pi catalog renders native defaults without inventing a model preset", () => {
+  const catalog = renderModelsText("pi");
+  expect(catalog).toContain("worker (default): native default; effort: native default");
+  expect(catalog).toContain("reviewer: native default; effort: native default");
+  expect(catalog).toContain("--model <provider>/<model>");
+  expect(catalog).not.toContain("undefined");
+});

@@ -1,6 +1,6 @@
 # Helper Profiles
 
-Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. DSH is newly integrated and is not represented in that sample. Defaults (model, effort, roles) are in `SKILL.md`; this file only says which to pick and what to put in the task.
+Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. DSH and Pi are newly integrated and are not represented in that sample. Defaults (model, effort, roles) are in `SKILL.md`; this file only says which to pick and what to put in the task.
 
 Every profile assumes the task file ends with the `## ahelpa contract` and `## ahelpa signals` sections ahelpa appends. Do not weaken them.
 
@@ -113,6 +113,12 @@ These observations were gathered on the `deepseek-official` route; the Magpie ro
 - Uses a separate `ahelpa` profile and a session-local terminal app; native DSH session persistence supports resume.
 - Defaults to the local Magpie gateway. `--model <model>` keeps the profile provider; `<provider>:<model>` selects it, splitting at the first colon. Model IDs are provider-specific; effort is `off|low|high|max`.
 - No `--safe` or runtime model switching. See `dsh.md` for prerequisites, authentication, and profile behavior.
+
+## pi
+
+Pi is an opt-in backend alongside DSH, without an archive-based capability ranking or established task preference. Use `worker` (default) or `reviewer` with a bounded task and explicit acceptance checks. Neither role presets a model or effort: Pi’s native configuration applies unless the host selects `--model provider/id` or `--effort <level>`. `advisor`, `--safe`, and runtime model switching are unsupported.
+
+See [Pi setup and limits](pi.md) for version requirements, interrupt controls, session locking, and native takeover. Check delivered files and verification evidence before considering migration from an established backend.
 
 ## Task type to helper
 

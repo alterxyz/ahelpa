@@ -152,7 +152,7 @@ The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots 
 
 ## Closure Gate
 
-The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary across all three supported drivers. It exercises Claude's default advisor and explicit worker separately, followed by Codex's default worker. Like DSH, the live Kimi scenario bills a metered provider and runs only with `AHELPA_GATE_KIMI=1`. The first three scenarios verify the exact role/model/effort returned by launch and persisted in check, using separate result markers and evidence directories. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
+The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary with the selected drivers. It exercises Claude's default advisor and explicit worker separately, followed by Codex's default worker. Like DSH, the live Kimi scenario bills a metered provider and runs only with `AHELPA_GATE_KIMI=1`. The first three scenarios verify the exact role/model/effort returned by launch and persisted in check, using separate result markers and evidence directories. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
 
 The gate assigns private `AHELPA_HOME` and `AHELPA_TMP_DIR` roots, so its SQLite state, daemon, archives, FIFOs, and task files do not interfere with active ahelpa sessions. Helper CLIs retain their normal OS home and authentication.
 
@@ -178,6 +178,8 @@ AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 ```
 
 **Prerequisite:** With DSH enabled, the local Magpie gateway must be running, and `$DSH_HOME/profiles/ahelpa/cordis.patch.yml` must configure its provider/model with the provider key available through `$DSH_HOME/.env`; see the [Magpie route setup](../skill/references/dsh.md#magpie-route). The helper CLIs selected for the run must be authenticated locally: `claude` and `codex` by default, plus `dsh` or `kimi` when enabled. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
+
+Enable the live Pi gate with `AHELPA_GATE_PI=1`; it requires Node.js, Pi ≥ 1.4.0 (tested baseline: 1.4.0), and a configured provider. No model or effort is preset; optional `AHELPA_GATE_PI_MODEL=provider/id` and `AHELPA_GATE_PI_EFFORT=<level>` override native defaults. The gate checks launch/check settings, the unchanged native UUID after resume, remembered context on a second turn, and disappearance of both Pi child and UUID lock after each kill. It validates the native session header to check the lock directory; it neither reads credentials nor prints native session contents. Pi’s native sessions remain in its cwd-encoded directory, outside the gate’s temporary ahelpa state.
 
 ## Adding a Driver
 

@@ -88,12 +88,15 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `codex` | `codex` |
 | `kimi` | `kimi` |
 | `dsh` | `dsh`（DeepSeek Harness） |
+| `pi` | `pi` ≥ 1.4.0 + Node.js |
 
-检查依赖时请用 `command -v claude`、`command -v codex`、`command -v kimi` 或 `command -v dsh`。Claude 的 helper type 不是它的二进制名称。
+检查依赖时请用 `command -v claude`、`command -v codex`、`command -v kimi`、`command -v dsh` 或 `command -v pi`。Claude 的 helper type 不是它的二进制名称。
 
 DSH 默认使用本地 Magpie 网关路由（`magpie:deepseek/deepseek-flash`）。DSH 接入面向 `@deepseek-ai/dsh@0.2.1-rc.2`。ahelpa 会创建独立的 `ahelpa` profile 和会话内的终端 app，保留已有 Desktop/Web profile 与凭据。可用 `ahelpa launch dsh --task "Review the parser" --project /path/to/project` 启动。安装、认证与原生恢复见 [DSH 接入说明](skill/references/dsh.md)。该接入仍待观察，目前不支持 `--safe` 和运行时模型切换。
 
 [DSH onboarding 记录](docs/zh-CN/dsh-onboarding.md)分别列出交流观察、独立验收结果、派工方式和后续观察计划。
+
+Pi 是显式选择的后端，与 DSH 并存；需要 `@earendil-works/pi-coding-agent` ≥ 1.4.0（测试基线 1.4.0）及 Node.js。运行 `ahelpa launch pi --file ./task.md` 使用 Pi 配置中的默认模型和 thinking；可用 `--model provider/id`、`--effort <level>` 覆盖，启动时会核对实际生效值。Pi 的 `worker`／`reviewer` 不预设模型或 effort，拒绝 `advisor`、`--safe` 及运行时模型切换。`resume` 必须找到 UUID 对应的原生记录；helper 退出后可在同一项目运行 `pi -r` 接管。详见 [Pi 接入说明](skill/references/pi.md)。
 
 ### 角色与默认值
 
@@ -106,14 +109,15 @@ DSH 默认使用本地 Magpie 网关路由（`magpie:deepseek/deepseek-flash`）
 | `claude-code` | `reviewer` | `claude-opus-5-5` | `xhigh` |
 | `dsh` | `worker`（默认） | `magpie:deepseek/deepseek-flash` | `high` |
 | `dsh` | `reviewer` | `magpie:deepseek/deepseek-flash` | `high` |
+| `pi` | `worker`（默认）、`reviewer` | 原生默认值 | 原生默认值 |
 
-Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `ahelpa launch claude-code --role worker --file ./task.md` 会选择 Sonnet。显式 `--model`、`--effort` 分别覆盖对应默认值。`reviewer` 用于只读的对抗式审阅，其任务合同禁止修改结果目录之外的文件；Codex 和 DSH 拒绝 `advisor`。角色只选择启动设置，不改变权限或任务范围。Kimi 保持原生模型默认值，不接受 `--role`。`models` 展示预设，`check` 展示已记录的角色、模型和 effort；resume 保留已记录设置，旧会话没有角色时也不会套用新默认。
+Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `ahelpa launch claude-code --role worker --file ./task.md` 会选择 Sonnet。显式 `--model`、`--effort` 分别覆盖对应默认值。`reviewer` 用于只读的对抗式审阅，其任务合同禁止修改结果目录之外的文件；Codex、DSH 和 Pi 拒绝 `advisor`。角色只选择启动设置，不改变权限或任务范围。Kimi 保持原生模型默认值，不接受 `--role`。`models` 展示预设，`check` 展示已记录的角色、模型和 effort；resume 保留已记录设置，旧会话没有角色时也不会套用新默认。
 
 ## 命令速览
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex`、`kimi` 或 `dsh`）；`--after` 串联前后手，显式 `--role reviewer` 增加盲审和目标证据；`--scope` 把给定 glob 之外的改动记入 `wait` 证据 |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude-code`、`codex`、`kimi`、`dsh` 或 `pi`）；`--after` 串联前后手，显式 `--role reviewer` 增加盲审和目标证据；`--scope` 把给定 glob 之外的改动记入 `wait` 证据 |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>] [--job <id>]` | 非阻塞状态查询，做 inline refresh 并显示与调用方的关系 |
 | `models [agent]` | 列出启动时可选的模型 |
@@ -159,7 +163,7 @@ Helper 终端回收后，已完成会话仍保留状态、日志和恢复信息�
 
 ## 安全姿态
 
-Helper 默认以 host process 相同的本地用户权限运行。请用 `--project` 收窄工作目录，在支持时用 `--safe` 省略或收窄默认 danger flags；风险任务优先放到 git worktree；不要把 secret 放进任务 prompt 或结果 artifact。DSH 目前拒绝 `--safe`，其终端 profile 以完整本地权限运行。Kimi 首次在某个目录启动时，ahelpa 会自动选择 **Trust and continue**；该信任会持久保存在 Kimi 中，并允许项目 MCP server。无论是否使用 `--safe` 都会执行这一步。对于 Kimi，`--safe` 只会省略 `--yolo` 并恢复原生审批，它不是 sandbox。在 Codex 0.163+ 上，ahelpa 同样会应答一次性的 "Folder access" 提示（信任 git 仓库根目录），无论是否使用 `--safe`，Codex 会保留该信任。更多细节见 [安全说明](docs/zh-CN/security.md)。
+Helper 默认以 host process 相同的本地用户权限运行。请用 `--project` 收窄工作目录，在支持时用 `--safe` 省略或收窄默认 danger flags；风险任务优先放到 git worktree；不要把 secret 放进任务 prompt 或结果 artifact。DSH 与 Pi 拒绝 `--safe`，均以完整本地权限运行。Kimi 首次在某个目录启动时，ahelpa 会自动选择 **Trust and continue**；该信任会持久保存在 Kimi 中，并允许项目 MCP server。无论是否使用 `--safe` 都会执行这一步。对于 Kimi，`--safe` 只会省略 `--yolo` 并恢复原生审批，它不是 sandbox。在 Codex 0.163+ 上，ahelpa 同样会应答一次性的 "Folder access" 提示（信任 git 仓库根目录），无论是否使用 `--safe`，Codex 会保留该信任。更多细节见 [安全说明](docs/zh-CN/security.md)。
 
 ## 开发
 
@@ -170,7 +174,7 @@ bun test                       # 单元测试
 bun run build                  # 编译二进制到 dist/
 bun run package:skill          # 构建带 runtime bundle 的 skill package
 bash scripts/deploy-local.sh   # 安装 runtime + 全局 hard-copy skills
-bun run closure:gate           # 端到端 gate（Claude Code + Codex；AHELPA_GATE_KIMI=1 / AHELPA_GATE_DSH=1 按需加入）
+bun run closure:gate           # 端到端 gate（Claude Code + Codex；AHELPA_GATE_KIMI=1 / AHELPA_GATE_DSH=1 / AHELPA_GATE_PI=1 按需加入）
 ```
 
 仓库不跟踪编译后的 bundle；它们是 git-ignored 生成物。

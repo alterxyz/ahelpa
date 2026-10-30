@@ -142,23 +142,23 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 | [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) | 原生恢复前必须确认 `loadSession` 能力，而不能默认所有 agent 均支持。 |
 | [Claude hooks](https://code.claude.com/docs/en/hooks) | `Stop`、`StopFailure` 和 `SessionEnd` 是不同生命周期事件；一轮回复结束本身不能证明任务成功。 |
 
-当前实现保留 tmux 与文件交接。接入这些传输方式需要能独立于调用方存活的受管进程，以及能力协商、审批处理、取消和重连测试。后续应保留现有命令契约，每次接入一个 driver；成为默认实现前，验证启动、中断、重启、原生恢复和结果交付，并保持 owner token 与 safe mode 的保证。这些外部结构化传输仍是后续设计方向；下述 DSH 适配器使用进程内 API。
+当前实现保留 tmux 与文件交接。接入这些传输方式需要能独立于调用方存活的受管进程，以及能力协商、审批处理、取消和重连测试。后续应保留现有命令契约，每次接入一个 driver；成为默认实现前，验证启动、中断、重启、原生恢复和结果交付，并保持 owner token 与 safe mode 的保证。这些外部结构化传输仍是后续设计方向；下述 DSH 适配器使用进程内 API，Pi 则在 tmux 内使用内部 RPC 桥接。
 
 ### 当前终端驱动
 
-Driver 可选的 `launchProfiles` 定义支持的角色及其默认模型/effort。`launch-profiles.ts` 在启动规划时解析一次角色和显式覆盖参数，最终值随 session 存储并返回 host。Claude 支持默认 `advisor`、`worker` 和 `reviewer`；Codex 与 DSH 支持默认 `worker` 和 `reviewer`；Kimi 保持既有配置，不设置角色。角色选择默认值及 reviewer 任务合同，不改变权限。Resume 直接使用记录中的设置，包括旧记录中的未知值，不重新套用当前启动预设。
+Driver 可选的 `launchProfiles` 定义支持的角色及其默认模型/effort。`launch-profiles.ts` 在启动规划时解析一次角色和显式覆盖参数，最终值随 session 存储并返回 host。Claude 支持默认 `advisor`、`worker` 和 `reviewer`；Codex、DSH 与 Pi 支持默认 `worker` 和 `reviewer`；Kimi 保持既有配置，不设置角色。角色选择默认值及 reviewer 任务合同，不改变权限。Resume 直接使用记录中的设置，包括旧记录中的未知值，不重新套用当前启动预设。
 
 Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration 保持通用。
 
 | 职责 | 示例 |
 | --- | --- |
-| Session prefix | `claude`、`codex`、`kimi`、`dsh` |
+| Session prefix | `claude`、`codex`、`kimi`、`dsh`、`pi` |
 | Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
 | 提交后处理 | 必要时补 Enter；捕获新创建的原生 session ID |
-| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 DSH 适配器状态标记 |
+| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 DSH／Pi 适配器状态标记 |
 
-当前支持 `claude-code`、`codex`、`kimi` 和 `dsh`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
+当前支持 `claude-code`、`codex`、`kimi`、`dsh` 和 `pi`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
 
 `launch --safe` 会把 safe-mode hint 传给选定 driver，并把它写入 session 状态。原生 resume 会继承该姿态；`resume --safe` 可以升级默认姿态记录，但省略参数不会把 safe 记录降级。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`；Kimi 会用 `--yolo`（Ask When Needed）代替 `--auto`（Never Ask）。Kimi 在 safe mode 下仍会自动信任项目目录，因此它的 safe mode 不是 sandbox；Codex 的 "Folder access" 提示在 safe mode 下同样会被应答（见[安全说明](security.md)）。
 
@@ -173,6 +173,14 @@ DSH `0.2.1-rc.2` 提供 Web、headless、SDK 和 ACP 入口 profile，没有内�
 该 app 直接使用公开 Agent/Session API，在同一 DSH 进程中保留多轮原生会话上下文。它输出适配器状态与回合标记，供 driver 确认 readiness、任务提交和结算，并记录原生 session ID，以便在新进程中恢复。这不会引入 ACP／SDK 传输或第三方 TUI；owner token、文件交接、wait/check 和清理仍由现有路径管理。
 
 适配器使用共享的 `DSH_HOME`（默认 `~/.dsh`）与 DSH 从 `$DSH_HOME/.env` 加载的 provider 密钥，或对应 provider 的已有 Web 凭据、`DEEPSEEK_API_KEY`。启动 overlay 关闭 session-log contributor，环境变量关闭 OTel 上传；provider 模型请求仍照常发送。DSH 以完整本地权限运行，明确拒绝 `--safe` 和运行时模型切换。`worker` 与 `reviewer` 均默认使用本地 Magpie 路由 `magpie:deepseek/deepseek-flash`／`high`。Launch 的 `<model>` 保留 profile 的 provider，`<provider>:<model>` 覆盖 provider，仅按第一个冒号拆分；model ID 因 provider 而异。Driver 始终设置 `AHELPA_DSH_PROVIDER`、`AHELPA_DSH_MODEL` 和 `AHELPA_DSH_EFFORT`，未指定的覆盖值清空，防止继承父 helper 的设置。Resume 复用已记录的模型，包括其中限定的 provider。Effort 为 `off|low|high|max`。此接入仍待观察，未来 CLI 版本未验证。详见 [DSH 接入说明](../../skill/references/dsh.md)。
+
+### Pi RPC 桥接
+
+`pi.ts` 在交接目录生成 `pi-terminal.mjs`；`pi-terminal-source.ts` 中的 Node 桥接在 tmux 内独占一个 `pi --mode rpc` 子进程。这是 driver 内部协议，公共命令、owner token、文件交接与 daemon 路径不变。`worker`／`reviewer` 的模型和 effort 均为原生默认值。
+
+桥接逐行解析 JSON，串行提交本地 FIFO 任务，跨 retry／compaction 保持 running，只在真正结算后输出带会话和回合身份的状态标记；排队任务之间不暴露 idle。`/abort` 清队列并中止，`/exit` 或终止信号有界关闭子进程。终端挂断时跳过 RPC 取消和终端恢复；清理向 Pi 及记录的后代进程组依次发送 TERM、KILL，包括独立进程组的 bash 工具。协议失败后留在拒收任务的故障输入循环，避免后续任务落到 shell。
+
+原生 JSONL 放在 Pi 按物理 cwd 编码的会话目录（先解析符号链接和 `/tmp` 别名）。`PI_CODING_AGENT_DIR` 遵循 Pi 的绝对／相对路径、`~`、`~/…` 和 `file://` 规则。桥接在交付目录的 `pi-process.json` 记录锁路径及桥接／子进程 PID；gate 在 kill 前记录整个 pane 进程树，再按 PID 检查回收，不依赖进程标题。每个 UUID 在 spawn 前取得排他锁，子进程 close 且记录的后代清理完成后才释放；遗留锁拒绝恢复，不按 PID 自动接管。Resume 要求恰好一个匹配 UUID 且头部有效的记录，并核验 RPC 会话身份。正常完成仍由 daemon 回收终端，后续上下文通过原生 resume 延续。详见 [Pi 说明](../../skill/references/pi.md)。
 
 ## Nesting
 
@@ -223,3 +231,5 @@ Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`�
 | `drivers/claude-code.ts` | Claude Code driver |
 | `drivers/codex.ts` | Codex driver |
 | `drivers/kimi.ts` | Kimi Code driver |
+| `drivers/pi.ts` | Pi driver |
+| `drivers/pi-terminal-source.ts` | Pi RPC 桥接与生命周期 |

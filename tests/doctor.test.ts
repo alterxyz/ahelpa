@@ -85,7 +85,7 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("doctor", () => {
-  test.each(["claude-code", "codex", "kimi", "dsh"])("never executes a writing executable: %s", (agent) => {
+  test.each(["claude-code", "codex", "kimi", "dsh", "pi"])("never executes a writing executable: %s", (agent) => {
     const binary = agent === "claude-code" ? "claude" : agent;
     stub(binary, 'printf "executed" > "$HOME/executed-marker"\nprintf "fixture 1.2.3\\n"');
     const before = snapshot(root);

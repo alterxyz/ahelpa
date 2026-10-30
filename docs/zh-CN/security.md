@@ -16,6 +16,12 @@ Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未�
 
 DSH 以 `DSH_PERMISSION_MODE=danger-full-access` 启动。其终端适配器没有原生审批界面，因此 launch 和 resume 都拒绝 `--safe`。它创建独立的 `ahelpa` profile，不覆盖现有 profile 或凭据。会话 overlay 关闭 session-log 贡献，`DSH_TELEMETRY_DISABLED=1` 关闭 OTel 上传；正常模型请求仍会发送给 provider。共享 home 级 DSH 配置仍然生效。详见 [DSH 接入说明](../../skill/references/dsh.md)。
 
+Pi 以 `--approve --no-extensions --no-mcp --offline` 运行，launch／resume 都拒绝 `--safe`。Skills 和上下文文件仍会加载，工具保留本地用户权限；`--offline` 不会阻止模型请求，也不是沙箱。桥接对扩展 select／confirm／input／editor 请求仅返回 cancelled，再停止工作并标记 needs_attention，不自动同意。
+
+Pi 的 stderr、RPC 错误字段与 retry／compaction／extension 错误不原样输出，只显示固定错误类别。会话内容仍由 Pi 原生持久化。UUID 锁只协调 ahelpa 管理的 Pi 进程；原生 `pi -r` 不遵守该锁，必须等 helper 及其子进程退出后再接管。遗留锁会给出路径并拒绝恢复；确认没有写入者后才可人工删除，不能依靠 PID 自动清锁。详见 [Pi 说明](../../skill/references/pi.md)。
+
+直接 SIGKILL 桥接进程无法执行清理：锁会遗留，Pi 或独立进程组的工具可能继续存活。人工删除锁前必须检查并停止残留进程。正常终端挂断会有界清理进程树；这不约束刻意脱离进程树的程序。
+
 ## 会话回合 Hooks
 
 Claude 通过 `--settings` 加载 `.ahelpa/<id>/claude-settings.json`，该会话设置文件还写入 `promptSuggestionEnabled: false`，关闭 helper 输入框内的建议文字。Codex 使用仅本次调用生效的 `notify` override。ahelpa 在 launch 和 resume 时自己不编辑 `~/.claude/settings.json` 或 `~/.codex/config.toml`。（ahelpa 应答 Codex 的 "Folder access" 界面后，由 Codex 自己写入信任记录，见上文。）Claude 现有 project/user hooks 仍会与会话 hooks 合并运行。Codex 的 notify override 会替换本次调用原有的 notify 命令；native hooks 及其信任设置不变。

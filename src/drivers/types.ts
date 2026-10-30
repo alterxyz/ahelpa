@@ -79,7 +79,7 @@ export interface AgentDriver {
   prepareLaunchFiles?(opts: LaunchOptions): void;
   launchProfiles?: {
     defaultRole: HelperRole;
-    profiles: Partial<Record<HelperRole, { model: string; effort: string }>>;
+    profiles: Partial<Record<HelperRole, { model?: string; effort?: string }>>;
   };
   modelCatalog: AgentModelCatalog;
   resumeTokenAvailableAfterSubmit: boolean;

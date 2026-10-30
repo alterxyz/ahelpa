@@ -16,6 +16,12 @@ Codex 0.163 and later ask once, before the prompt, when the git repository root 
 
 DSH launches with `DSH_PERMISSION_MODE=danger-full-access`. Its terminal adapter rejects `--safe` on launch and resume because it has no native approval UI. It creates a separate `ahelpa` profile without overwriting existing profiles or credentials. The per-session overlay disables session-log contribution, and `DSH_TELEMETRY_DISABLED=1` disables OTel upload; ordinary provider requests still occur. Shared home-level DSH configuration continues to apply. See [DSH setup](../skill/references/dsh.md).
 
+Pi runs with `--approve --no-extensions --no-mcp --offline` and rejects `--safe` on launch and resume. Skills and context files still load, and tools retain local user permissions; `--offline` does not prevent model requests and is not a sandbox. Extension select/confirm/input/editor requests receive only a cancelled response, followed by stopped work and needs_attention; the bridge never auto-consents.
+
+Pi stderr, RPC error fields, and retry/compaction/extension errors are not echoed; the bridge reports fixed error categories. Pi still persists native session contents. UUID locks coordinate only ahelpa-managed Pi processes; native `pi -r` does not honor them, so take over only after the helper and child exit. A leftover lock refuses resume and reports its path; remove it manually only after confirming there is no writer, never through automatic PID takeover. See [Pi reference](../skill/references/pi.md).
+
+A direct SIGKILL of the bridge cannot run cleanup: the lock remains, and Pi or detached tools may survive. Inspect and stop remaining processes before manually removing that lock. Normal pane hangup uses bounded process-tree cleanup; this is not containment for programs that deliberately escape the process tree.
+
 ## Session Turn Hooks
 
 Claude hooks are loaded from `.ahelpa/<id>/claude-settings.json` with `--settings`; that session file also sets `promptSuggestionEnabled: false` to disable ghost text in the helper composer. Codex uses a per-invocation `notify` override. ahelpa itself edits neither `~/.claude/settings.json` nor `~/.codex/config.toml` at launch or resume. (Codex writes its own trust entry when ahelpa answers its "Folder access" screen, described above.) Existing Claude project/user hooks still merge with the session hooks. A Codex notify override replaces the configured notify command for this invocation; native hooks and their trust settings are untouched.

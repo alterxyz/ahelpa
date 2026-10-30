@@ -103,7 +103,7 @@ function renderCatalog(agent: string, driver: AgentDriver): string {
     for (const [role, profile] of Object.entries(launchProfiles.profiles)) {
       if (!profile) continue;
       const defaultLabel = role === launchProfiles.defaultRole ? " (default)" : "";
-      lines.push(`    ${role}${defaultLabel}: ${profile.model}; effort: ${profile.effort}`);
+      lines.push(`    ${role}${defaultLabel}: ${profile.model ?? "native default"}; effort: ${profile.effort ?? "native default"}`);
     }
     lines.push("  Model catalog (model defaults may differ from launch defaults):");
   }
