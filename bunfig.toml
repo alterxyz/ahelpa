@@ -1,3 +1,9 @@
 [test]
 root = "tests"
 preload = ["./tests/setup.ts"]
+
+# Bun hides passing tests from AI agents (CLAUDECODE=1, AGENT=1), so the
+# ~3-minute suite printed nothing until its summary and was killed as hung.
+# Dots stream one mark per test in every environment; failures print in full.
+[test.reporter]
+dots = true

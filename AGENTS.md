@@ -59,6 +59,8 @@ ahelpa install-skill           # refresh global skill from the public repo
 bun run closure:gate           # end-to-end gate
 ```
 
+The full suite takes about 3 minutes and prints one dot per test (`bunfig.toml`). Bun hides passing tests from AI agents, so the dots are the only progress an agent sees; wait for the `Ran N tests` summary before calling it hung.
+
 ## Closure Gate
 
 Before closing local runtime work:
