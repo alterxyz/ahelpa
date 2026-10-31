@@ -110,6 +110,36 @@ describe("completion nudge", () => {
     expect(db.getSession("claude-perm")?.status).toBe("needs_attention");
   });
 
+  test("Claude auto-deny countdown stays running through long thinking and observes DONE", async () => {
+    db = new StateDB(TEST_DB);
+    const id = "claude-auto-deny";
+    db.createSession({ id, parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: PROJECT });
+    mkdirSync(`${PROJECT}/.ahelpa/${id}`, { recursive: true });
+    writeFileSync(`${PROJECT}/.ahelpa/${id}/summary.md`, "# written\n");
+    const dialog = "ch && echo \"repo diff == changes.patch\"); rm -rf $S/$r; cp -R\n │ $R $S/$r; done; ls $S\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ Dangerous rm operation on possibly-empty variable path: $S/$r in `rm -rf\n │ $S/$r` (rewrite it as \"${S:?}\"/\"${r:?}\" or use a literal path)\n ⚠ Claude Code will automatically deny this request in 1:44, to avoid blocking\n progress on an unattended session\n\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend";
+    const composer = "\n\n❯ \n  bypass permissions on";
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    const capture = spyOn(Tmux, "capture").mockResolvedValue(dialog);
+    const sendKeys = spyOn(Tmux, "sendKeys").mockResolvedValue();
+
+    for (let i = 0; i < 6; i++) {
+      await refreshSessionStatuses(db, [id]);
+      expect(db.getSession(id)?.status).toBe("running");
+      expect(sendKeys).not.toHaveBeenCalled();
+    }
+    capture.mockResolvedValue(`· Whirring… (5m 36s · ↓ 18.1k tokens · thinking some more with xhigh effort)${composer}`);
+    for (let i = 0; i < 6; i++) {
+      await refreshSessionStatuses(db, [id]);
+      expect(db.getSession(id)?.status).toBe("running");
+      expect(sendKeys).not.toHaveBeenCalled();
+    }
+    capture.mockResolvedValue(`Review complete.\n[AHELPA:DONE]${composer}`);
+    await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe("draining");
+    expect(sendKeys).toHaveBeenCalledTimes(1);
+    expect(sendKeys).toHaveBeenCalledWith(id, "/exit");
+  });
+
   // The focused review's six synthetic completion oracles. No tool header or
   // submitted user turn remains in view; reply text must not suppress nudging.
   const completedClaudePanes = [

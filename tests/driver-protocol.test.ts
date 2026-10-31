@@ -850,6 +850,45 @@ describe("driver launch protocol", () => {
 });
 
 describe("detectActivity", () => {
+  // Verbatim archived Claude Code 2.1.312 capture tails (tool header scrolled out).
+  const autoDenyT1 = "ch && echo \"repo diff == changes.patch\"); rm -rf $S/$r; cp -R\n │ $R $S/$r; done; ls $S\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ Dangerous rm operation on possibly-empty variable path: $S/$r in `rm -rf\n │ $S/$r` (rewrite it as \"${S:?}\"/\"${r:?}\" or use a literal path)\n ⚠ Claude Code will automatically deny this request in 1:44, to avoid blocking\n progress on an unattended session\n\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend";
+  const autoDenyT5 = "sts/r1-tmp.test.ts; done\n╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌\n │ Dangerous rm operation on possibly-empty variable path:\n │ $S/$x/tests/r1-tmp.test.ts in `rm $S/$x/tests/r1-tmp.test.ts` (rewrite it as\n │ \"${S:?}\"/\"${x:?}\"/tests/r1-tmp.test.ts or use a literal path)\n ⚠ Claude Code will automatically deny this request in 1:26, to avoid blocking\n progress on an unattended session\n\n\n Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend";
+
+  test.each([
+    { name: "archived T1", screen: autoDenyT1 },
+    { name: "archived T5", screen: autoDenyT5 },
+    ...["about 2 minutes", "about 45 seconds", "about 1 minute", "about 1 second", "0:05"].map((time) => ({
+      name: time, screen: autoDenyT1.replace("1:44", time),
+    })),
+    { name: "column-zero menu", screen: autoDenyT1.replace(" ❯ 1.", "❯ 1.") },
+    { name: "wrapped two-row file question", screen: autoDenyT1.replace("Do you want to proceed?", "Do you want to create\n settings-for-production-feature-flags-config.json?") },
+    { name: "three-row question", screen: autoDenyT1.replace("Do you want to proceed?", "Do you want to create\n settings-for-production-\n feature-flags-config.json?") },
+    { name: "cursor on option 2", screen: autoDenyT1.replace(" ❯ 1. Yes\n   2. No", "   1. Yes\n ❯ 2. No") },
+    { name: "latest live countdown", screen: `${autoDenyT1.replace("1:44", "0:00")}\n${autoDenyT5}` },
+  ])("claude-code: auto-deny $name stays working without accepting input", ({ screen }) => {
+    const driver = getDriver("claude-code");
+    expect(driver.detectActivity(screen)).toBe("working");
+    expect(driver.acceptsInput?.(screen)).toBe(false);
+  });
+
+  const ordinaryPermission = " Edit file\n summary.md\n Do you want to make this edit?\n ❯ 1. Yes\n   2. No";
+  test.each([
+    { name: "expired countdown", screen: autoDenyT1.replace("1:44", "0:00") },
+    { name: "no countdown", screen: autoDenyT1.split("\n").filter((row) => !/automatically deny|progress on an unattended session/.test(row)).join("\n") },
+    { name: "later composer", screen: `${autoDenyT1}\n\n❯ \n  bypass permissions on` },
+    { name: "later permission menu", screen: `${autoDenyT1}\n${ordinaryPermission}` },
+    { name: "quoted countdown above permission dialog", screen: `grep: Claude Code will automatically deny this request in 1:44, to avoid blocking progress on an unattended session\n${ordinaryPermission}` },
+    { name: "grep-prefixed sentence above ordinary question", screen: "tests/fixture.txt:17: Claude Code will automatically deny this request in 1:44, to avoid blocking progress on an unattended session\n\n Do you want to make this edit?\n ❯ 1. Yes\n   2. No" },
+    { name: "prose-prefixed sentence above ordinary question", screen: "The fixture contains: Claude Code will automatically deny this request in 1:44, to avoid blocking progress on an unattended session\n\n Which environment should I deploy to?\n ❯ 1. Staging\n   2. Production\n Enter to select" },
+    { name: "tool-output-prefixed sentence", screen: autoDenyT1.replace(" ⚠ Claude Code", "  ⎿  Claude Code") },
+    { name: "question absent", screen: autoDenyT1.replace(" Do you want to proceed?\n", "") },
+    { name: "tool-output collapse row before question", screen: autoDenyT1.replace(" Do you want to proceed?", "  ⎿  10 lines collapsed\n Do you want to proceed?") },
+    { name: "four-row question", screen: autoDenyT1.replace("Do you want to proceed?", "Do you want\n to create\n settings-for-production-\n feature-flags-config.json?") },
+    { name: "latest countdown expired", screen: `${autoDenyT1}\n${autoDenyT5.replace("1:26", "0:00")}` },
+  ])("claude-code: auto-deny guard $name stays idle", ({ screen }) => {
+    expect(getDriver("claude-code").detectActivity(screen)).toBe("idle");
+  });
+
   test("claude-code: ⏺ = working", () => {
     const driver = getDriver("claude-code");
     expect(driver.detectActivity("⏺ Reading file src/cli.ts\n0 tokens")).toBe("working");

@@ -59,6 +59,21 @@ function claudeIsWorking(captureOutput: string): boolean {
     || /^\s*[·●]\s+\S.*…\s+\(/mu.test(captureOutput);
 }
 
+// Claude's safety-check dialog appears even in bypass mode and is live work:
+// it denies the request itself when the countdown ends, then the turn continues.
+function claudeAutoDenyPending(captureOutput: string): boolean {
+  const countdown = [...captureOutput.matchAll(/^[^\S\r\n]*⚠[^\S\r\n]+Claude\s+Code\s+will\s+automatically\s+deny\s+this\s+request\s+in\s+(\d+:[0-5]\d|about\s+\d+\s+(?:minutes?|seconds?)),\s+to\s+avoid\s+blocking\s+progress\s+on\s+an\s+unattended\s+session/gmu)].at(-1);
+  if (!countdown || countdown[1] === "0:00") return false;
+  const following = captureOutput.slice(countdown.index! + countdown[0].length);
+  // Live layout: blank rows, a question of up to three rows ending in `?`,
+  // unselected options, the selected `❯ n.` row. A `❯` below it means history.
+  const menu = following.match(/^[^\S\r\n]*\r?\n(?:[^\S\r\n]*\r?\n)*(?:(?![^\S\r\n]*[⎿❯])[^\S\r\n]*\S[^\r\n]*\r?\n){0,2}(?![^\S\r\n]*[⎿❯])[^\r\n]+\?[^\S\r\n]*\r?\n(?:[^\S\r\n]*\d+\.[^\S\r\n]+[^\r\n]*\r?\n)*[^\S\r\n]*❯[^\S\r\n]+\d+\.[^\r\n]*(?:\r?\n|$)/u);
+  if (!menu || following.slice(menu[0].length).includes("❯")) return false;
+  // ponytail: A frozen non-zero countdown reads as working forever, like a
+  // frozen spinner; if observed, bound it by the displayed time plus a grace period.
+  return true;
+}
+
 function claudeNeedsFolderTrust(captureOutput: string): boolean {
   // Both words and individual characters can wrap. Any stable fragment is
   // enough to block: typing into a live consent dialog is worse than an error.
@@ -379,7 +394,7 @@ export const claudeCodeDriver: AgentDriver = {
     if (claudeNeedsFolderTrust(current)) return "booting";
     // Token counters persist at the idle prompt, so use Claude's tool bullet
     // or animated verb line (for example `✢ Gitifying… (2m)`) instead.
-    if (claudeIsWorking(current)) return "working";
+    if (claudeIsWorking(current) || claudeAutoDenyPending(current)) return "working";
     // Prompt visible with 0 tokens = just started, ready for task
     if (/\b0 tokens\b/.test(current) && claudeHasInputPrompt(current)) return "booting";
     // Header/banner appearing = CLI still loading

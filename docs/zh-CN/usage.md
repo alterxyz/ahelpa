@@ -468,6 +468,7 @@ tmux capture-pane -t "$session_id" -p  # 不 attach，直接 dump pane 内容
 - **Claude pane 裁剪了信任对话框标签。** 不支持窄到将标签裁剪而非换行的 pane；启动或恢复前请加宽 pane。
 - **Codex launch 卡在 "Folder access" 界面后失败。** ahelpa 只应答高亮项为 **Trust and continue** 的首次运行提示。受限目录变体（根目录或项目目录的 `trust_level = "untrusted"` 时出现的 "Open restricted"）和其他任何界面都不会被应答。如果错误信息写着 "Folder access was accepted for <root>"，说明 Codex 已保存该信任，失败发生在那之后。先读保存下来的最后一屏，再修改 `CODEX_HOME/config.toml` 中对应条目，或自己在该目录运行一次 `codex`，然后重新 launch。
 - **Kimi 显示 spinner、月相或 `Retrying`。** `thinking…`/`Working…` spinner、循环月相和 provider backoff 倒计时都表示仍在工作，即使 boxed input 仍然可见。继续 `wait`；120 秒 provider 重试不是本地 CLI 或 tmux 故障。
+- **Claude 显示 “automatically deny this request in …” 倒计时。** 该对话框视为仍在工作：Claude 会自行拒绝请求，helper 随后继续。没有该倒计时的权限对话框仍会进入 `needs_attention`。
 - **Helper 看起来卡住。** Attach 到 tmux session 看完整屏幕。可能出现了 driver 没自动处理的 prompt 或确认框。手动处理后，暗号协议仍然有效。
 - **Session 显示 `needs_attention` 但 `summary.md` 已存在。** Helper 往往已完成却没输出暗号。会话空闲、没有暗号、但 `summary.md` 已存在时，daemon 会先催一次（"If your task is finished, print the done signal from the task file alone on a line; if not, continue working."），再次空闲才标为 `needs_attention`。催促只会发给 driver 判定为就绪的聊天输入框（绝不发进菜单、审批或信任对话框），会记录在会话行上以免 daemon 重启后重复，且在截屏之后会话行有变化时跳过。先读 `summary.md`，不要直接当作失败。
 - **`wait` 返回但没有 summary.md。** Helper 可能完成了但没写结果。用 `capture` 或 `logs` 看发生了什么。
