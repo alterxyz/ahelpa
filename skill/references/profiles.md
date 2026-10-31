@@ -80,6 +80,8 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 
 ## dsh
 
+During the Pi trial (since 2026-10-30), launch DSH only when the user asks for it or for a comparison or rollback; otherwise use [pi](#pi).
+
 **Observation status**
 
 These observations were gathered on the `deepseek-official` route; the Magpie route has not been re-evaluated.
@@ -116,9 +118,19 @@ These observations were gathered on the `deepseek-official` route; the Magpie ro
 
 ## pi
 
-Pi is an opt-in backend alongside DSH, without an archive-based capability ranking or established task preference. Use `worker` (default) or `reviewer` with a bounded task and explicit acceptance checks. Neither role presets a model or effort: Pi’s native configuration applies unless the host selects `--model provider/id` or `--effort <level>`. `advisor`, `--safe`, and runtime model switching are unsupported.
+**Trial default since 2026-10-30.** Work this host would have sent to DSH goes to Pi. DSH stays installed for comparison and rollback; whether to retire it is reviewed around 2026-11-06. Use `worker` (default) or `reviewer` with a bounded task and explicit acceptance checks. Neither role presets a model or effort: Pi’s native configuration applies unless the host selects `--model provider/id` or `--effort <level>`. `advisor`, `--safe`, and runtime model switching are unsupported.
 
-See [Pi setup and limits](pi.md) for version requirements, interrupt controls, session locking, and native takeover. Check delivered files and verification evidence before considering migration from an established backend.
+**Observation status**
+- Same-condition comparison, 2026-10-30: Pi 1.4.0 and DSH 0.2.1-rc.5, both `deepseek-flash` / `high` on the official DeepSeek endpoint, launched together on five task types (bug fix with a failing test, cross-file change, seeded adversarial review, git-history research, resume with a changed requirement). One run per task and backend.
+- All 10 runs passed blind review; neither backend claimed false completion, stalled, or needed a nudge. Quality details split both ways, with no task type where DSH was clearly better.
+- Pi was faster and cheaper on every round: 681 s vs 921 s model-active wall clock, 93.6k vs 123.3k output tokens, 173 vs 233 model calls.
+- n=1 per task, small-to-medium tasks in one repository, at most about five minutes each. Long tasks, large repositories, and networked research are untested; small differences are not excluded.
+
+**Watch for**
+- Summaries longer than the requested length, and coverage claims slightly stronger than the tests support.
+- Input-validation edges left open (whitespace-only values, overflow to infinity) and untested environment wiring; tests whose expected value equals the fallback catch no mutants. Ask for a mutation check on validation code.
+
+See [Pi setup and limits](pi.md) for version requirements, interrupt controls, session locking, and native takeover.
 
 ## Task type to helper
 
