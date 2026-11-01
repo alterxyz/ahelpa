@@ -61,6 +61,7 @@ token=$(echo "$result" | jq -r .ownerToken)
 - `writerConflict`（可选）：同一棵目录树中（物理 project 路径相同，或一个包含另一个）仍在活跃的其他 session，且双方至少有一个不是 `reviewer`。比较前会解析符号链接和文件系统别名，包括 macOS 的 `/tmp` 与 `/private/tmp`；`/` 与所有项目重叠。路径保留文件系统自身的大小写规则，不会统一转成小写。已保存的目录不存在时，会解析最近的现存祖先，并保留缺失部分。每项包含 `sessionId`、`role`、`status` 和 `projectPath`。launch 仍会进行，但 evidence 将无法分辨改动属于谁。除非重叠是有意的，请 kill 其中一个，或改用 `--worktree` 重新 launch。同一棵树中的两个 reviewer 不会被报告，发起本次 launch 的 helper 本身也不会（它负责委派并等待）；`--worktree` 启动的 session 不会产生冲突。
 - `taskWarning`（可选）：`--task` 文本较短且含 `/tmp/`、`/private/tmp/` 或 `scratchpad/` 路径，通常意味着任务引用了可能消失的临时文件。请把内容放进持久文件，改用 `--file`。
 - `codexTrust`（可选）：Codex 显示了 "Folder access" 界面，ahelpa 在 **Trust and continue** 上按了 Enter。值是 Codex 在该界面上显示的仓库根目录，现已写入 `CODEX_HOME/config.toml` 的信任记录（见 [Parent 追踪与 safe mode](#parent-追踪与-safe-mode)）。未出现该界面时不返回此字段。`resume` 以相同方式报告。
+- `warning`（可选）：任务已投递，但 driver 尚未确认新回合。session 以 `needs_attention` 开始，所以 `wait` 会立即返回；之后 helper 打出 DONE 或 NEED_HELP 时，daemon 仍会结算它。用 `capture` 查看输入框：任务还在输入框里就用 `send ""` 提交；已经在运行就等这一回合结束再发下一条。检查投递期间保持 helper 存活。
 
 多行任务可以从 UTF-8 文件直接启动，替代 `--task`：
 
@@ -487,6 +488,7 @@ tmux capture-pane -t "$session_id" -p  # 不 attach，直接 dump pane 内容
 - **Codex launch 卡在 "Folder access" 界面后失败。** ahelpa 只应答高亮项为 **Trust and continue** 的首次运行提示。受限目录变体（根目录或项目目录的 `trust_level = "untrusted"` 时出现的 "Open restricted"）和其他任何界面都不会被应答。如果错误信息写着 "Folder access was accepted for <root>"，说明 Codex 已保存该信任，失败发生在那之后。先读保存下来的最后一屏，再修改 `CODEX_HOME/config.toml` 中对应条目，或自己在该目录运行一次 `codex`，然后重新 launch。
 - **Kimi 显示 spinner、月相或 `Retrying`。** `thinking…`/`Working…` spinner、循环月相和 provider backoff 倒计时都表示仍在工作，即使 boxed input 仍然可见。继续 `wait`；120 秒 provider 重试不是本地 CLI 或 tmux 故障。
 - **Claude 显示 “automatically deny this request in …” 倒计时。** 该对话框视为仍在工作：Claude 会自行拒绝请求，helper 随后继续。没有该倒计时的权限对话框仍会进入 `needs_attention`。
+- **`needs_attention` 的 helper 后来自己完成了。** 若是在当前回合投递之后才被标为 `needs_attention`，daemon 会继续读屏，出现 DONE 或 NEED_HELP 就结算，再次 `wait` 会返回 `idle` 或 `error`。仅凭屏幕上的活动不会把它转回 `running`；回合投递前就处于该状态的 helper（刚 `resume`，或后续消息未确认提交）不会被屏幕上已有的暗号结算。
 - **Helper 看起来卡住。** Attach 到 tmux session 看完整屏幕。可能出现了 driver 没自动处理的 prompt 或确认框。手动处理后，暗号协议仍然有效。
 - **Session 显示 `needs_attention` 但 `summary.md` 已存在。** Helper 往往已完成却没输出暗号。会话空闲、没有暗号、但 `summary.md` 已存在时，daemon 会先催一次（"If your task is finished, print the done signal from the task file alone on a line; if not, continue working."），再次空闲才标为 `needs_attention`。催促只会发给 driver 判定为就绪的聊天输入框（绝不发进菜单、审批或信任对话框），会记录在会话行上以免 daemon 重启后重复，且在截屏之后会话行有变化时跳过。先读 `summary.md`，不要直接当作失败。
 - **`wait` 返回但没有 summary.md。** Helper 可能完成了但没写结果。用 `capture` 或 `logs` 看发生了什么。

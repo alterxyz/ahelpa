@@ -140,6 +140,56 @@ describe("completion nudge", () => {
     expect(sendKeys).toHaveBeenCalledWith(id, "/exit");
   });
 
+  // An archived Claude helper was flagged on a misread dialog, then printed DONE three minutes later.
+  test.each([
+    { signal: "[AHELPA:DONE]", status: "draining" },
+    { signal: "[AHELPA:NEED_HELP:blocked]", status: "error" },
+  ])("a flagged Claude helper that later prints $signal settles; until then it stays flagged", async ({ signal, status }) => {
+    db = new StateDB(TEST_DB);
+    const id = "claude-recovered";
+    db.createSession({ id, parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: PROJECT });
+    db.beginTurn(id, db.getSession(id)!.version, "task");
+    const dialog = " Do you want to proceed?\n ❯ 1. Yes\n   2. No\n\n Esc to cancel · Tab to amend";
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    const capture = spyOn(Tmux, "capture").mockResolvedValue(dialog);
+    const sendKeys = spyOn(Tmux, "sendKeys").mockResolvedValue();
+
+    for (let i = 0; i < 8; i++) await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe("needs_attention");
+    capture.mockResolvedValue(`⏺ Bash(ls)\n  ⎿  done\n\n⏺ Thinking it over…`);
+    for (let i = 0; i < 4; i++) await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe("needs_attention");
+    expect(sendKeys).not.toHaveBeenCalled();
+
+    // An unattributable Stop must not hold the signal behind a running-only hook CAS.
+    mkdirSync(`${PROJECT}/.ahelpa/${id}`, { recursive: true });
+    writeFileSync(`${PROJECT}/.ahelpa/${id}/turns.log`, JSON.stringify({ ts: new Date().toISOString(), agent: "claude-code", event: "stop",
+      sessionId: "other", promptId: "other", assistantMessagePresent: true, assistantMessageLength: 1 }) + "\n");
+    capture.mockResolvedValue(`Review complete.\n${signal}\n\n❯ \n  bypass permissions on`);
+    await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe(status);
+  });
+
+  test("an old DONE never ends a flag raised before the current turn was delivered", async () => {
+    db = new StateDB(TEST_DB);
+    const id = "claude-resumed";
+    db.createSession({ id, parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: PROJECT });
+    // Resume: flagged with no task yet; the previous run's DONE is still on screen.
+    db.updateStatus(id, "needs_attention");
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue("Earlier work.\n[AHELPA:DONE]\n\n❯ \n  bypass permissions on");
+    const sendKeys = spyOn(Tmux, "sendKeys").mockResolvedValue();
+
+    await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe("needs_attention");
+    // A follow-up the driver could not confirm leaves the flag in place.
+    await Bun.sleep(5);
+    expect(db.beginTurn(id, db.getSession(id)!.version, "follow-up")).not.toBeNull();
+    await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe("needs_attention");
+    expect(sendKeys).not.toHaveBeenCalled();
+  });
+
   // The focused review's six synthetic completion oracles. No tool header or
   // submitted user turn remains in view; reply text must not suppress nudging.
   const completedClaudePanes = [

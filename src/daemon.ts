@@ -240,12 +240,21 @@ export async function refreshSessionStatuses(
         continue;
       }
 
-      if (session.status !== SESSION_STATUS.Running) continue;
+      // A flag raised after the current turn was delivered can be a misread
+      // screen; an archived Claude helper printed DONE three minutes later. Keep watching
+      // for a signal only: activity counts history rows as work and would rearm
+      // a turn that really ended. Resume and unconfirmed follow-ups flag before
+      // the turn, so an older DONE on screen cannot end them.
+      // ponytail: captures every poll like running rows; slow it down if flagged rows pile up.
+      const flagged = session.status === SESSION_STATUS.NeedsAttention && session.turnStartedAt != null
+        && Date.parse(session.turnStartedAt) <= Date.parse(session.updatedAt);
+      if (session.status !== SESSION_STATUS.Running && !flagged) continue;
 
       const output = await Tmux.capture(session.id, 30);
       const driver = getDriver(session.agentType);
       const outcome = outcomeFromCapture(output, driver);
       const newStatus = outcome.status;
+      if (flagged && newStatus !== SESSION_STATUS.Idle && newStatus !== SESSION_STATUS.Error) continue;
       if (newStatus === SESSION_STATUS.NeedsAttention) {
         const previous = pendingAttention.get(session.id);
         pendingAttention.set(session.id, { version: session.version, reason: outcome.reason });
@@ -253,7 +262,8 @@ export async function refreshSessionStatuses(
         if (previous?.version !== session.version || previous.reason !== outcome.reason) continue;
       }
       pendingAttention.delete(session.id);
-      const turn = driver.turnHooks
+      // Hook consumption is a running-row CAS; a flagged row settles on the signal alone.
+      const turn = driver.turnHooks && !flagged
         ? readTurnEvents(defaultRuntimeLayout.turnsLogPath(session.projectPath, session.id, session.deliveryRoot ?? undefined), session.turnHookOffset ?? 0,
           session.turnStartedAt ?? session.createdAt, session.agentType, session.turnInputAmbiguous ? null : session.turnInputDigest ?? null)
         : { offset: session.turnHookOffset ?? 0, event: null };
@@ -273,7 +283,7 @@ export async function refreshSessionStatuses(
           status: newStatus,
           lastOutput: output.slice(-500),
           reason: outcome.reason,
-        }, SESSION_STATUS.Running, session.version);
+        }, session.status, session.version);
         if (!settled) continue;
         clearSessionFailures(session.id);
         if (newStatus === SESSION_STATUS.Error && outcome.needHelpTags !== null) {

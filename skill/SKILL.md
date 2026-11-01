@@ -113,7 +113,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `version` | Show installed runtime version. |
 | `daemon start\|stop` | Manage the background session monitor. |
 
-- `warning` (optional): the task was delivered, but the driver has not confirmed a new turn. The session stays `needs_attention`, so `wait` returns immediately and the daemon does not inspect completion markers. Use `capture` to inspect the prompt: if the task is still in the input box, submit it with `send ""`; if it is already running, wait for that turn to finish before sending another. Keep the helper alive while checking delivery.
+- `warning` (optional): the task was delivered, but the driver has not confirmed a new turn. The session starts as `needs_attention`, so `wait` returns immediately; the daemon still settles it if the helper then prints DONE or NEED_HELP. Use `capture` to inspect the prompt: if the task is still in the input box, submit it with `send ""`; if it is already running, wait for that turn to finish before sending another. Keep the helper alive while checking delivery.
 
 ## Choosing a Model at Launch
 
