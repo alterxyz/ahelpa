@@ -10,7 +10,7 @@ afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gateDsh = "", gatePi = "", piModel = "", piEffort = "") {
+async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gateDsh = "", gatePi = "", piModel = "", piEffort = "", gateAgy = "") {
   const root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-closure-test-"));
   fixtureRoots.push(root);
   const binDir = join(root, "bin");
@@ -40,18 +40,18 @@ switch (command) {
   case "daemon": break;
   case "launch": {
     const roleIndex = args.indexOf("--role");
-    const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : ["codex", "dsh", "pi"].includes(args[0]) ? "worker" : null)
+    const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : ["codex", "dsh", "pi", "agy"].includes(args[0]) ? "worker" : null)
       : args[roleIndex + 1];
     const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : args[0] === "claude-code" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
-      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "magpie:deepseek/deepseek-flash" : null;
-    const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude-code" && role === "advisor" ? "xhigh" : ["kimi", "pi"].includes(args[0]) ? null : args[0] === "codex" ? "medium" : "high";
+      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "magpie:deepseek/deepseek-flash" : args[0] === "agy" ? "gemini-4-argon" : null;
+    const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude-code" && role === "advisor" ? "xhigh" : ["kimi", "pi"].includes(args[0]) ? null : ["codex", "agy"].includes(args[0]) ? "medium" : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
     const task = args[args.indexOf("--task") + 1];
     const marker = task.match(/Remember this context marker for our next turn: ([a-f0-9-]+)\./)?.[1];
     const completionMarker = task.match(/Write exactly ([^ ]+) followed by a newline/)?.[1];
     sessions[id] = { id, project, task, marker, role, model, effort, status: scenario === "reaped" ? "idle" : "draining",
-      agentResumeId: scenario === "missing-native-id" ? null : args[0] === "pi" ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
+      agentResumeId: scenario === "missing-native-id" ? null : ["pi", "agy"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
     save();
     if (args[0] === "pi") {
       const encoded = "--" + resolve(project).replace(/^[/\\\\]/, "").replace(/[/\\\\:]/g, "-") + "--";
@@ -71,6 +71,10 @@ switch (command) {
       }
       mkdirSync(join(project, ".ahelpa", id), { recursive: true });
       writeFileSync(join(project, ".ahelpa", id, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
+    }
+    if (args[0] === "agy") {
+      mkdirSync(join(project, ".ahelpa", id), { recursive: true });
+      writeFileSync(join(project, ".ahelpa", id, "agy-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
     }
     // A linked worktree keeps its results in the main checkout and a link in the project.
     const delivery = scenario === "linked-results" ? join(root, "main", ".ahelpa", id) : join(project, ".ahelpa", id);
@@ -133,6 +137,10 @@ switch (command) {
       const lockPath = join(...(scenario === "pi-lock-wrong-directory" ? [root, "wrong-directory"] : [process.env.PI_CODING_AGENT_DIR, "sessions", encoded]), ".ahelpa-" + sessions[id].agentResumeId + ".lock");
       writeFileSync(join(directory, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
     }
+    if (sessionId.startsWith("agy-")) {
+      mkdirSync(join(session.project, ".ahelpa", id), { recursive: true });
+      writeFileSync(join(session.project, ".ahelpa", id, "agy-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
+    }
     console.log(JSON.stringify({ sessionId: id, ownerToken: "fixture-token" }));
     break;
   }
@@ -162,6 +170,10 @@ if (process.argv.includes("command=")) {
   if (scenario === "pi-self-match") console.log("bun -e --mode rpc 01234567-89ab-4cde-8012-3456789abcde");
   // Pi hides its RPC argv behind its native process title.
   if (scenario === "pi-child-alive") console.log("pi");
+} else if (sessions.some(session => session.id.startsWith("agy-") && session.status !== "dead")) {
+  console.log(scenario === "agy-bridge-gone" ? "93001 1" : "93001 1\\n93002 93001");
+} else if (scenario === "agy-child-alive") {
+  console.log("93002 1");
 } else if (sessions.some(session => session.id.startsWith("pi-") && session.status !== "dead")) {
   console.log("91001 1\\n91002 91001\\n91003 91002");
 } else if (scenario === "pi-child-alive") {
@@ -171,7 +183,7 @@ if (process.argv.includes("command=")) {
 }
 `, { mode: 0o755 });
   writeFileSync(join(binDir, "tmux"), `#!/usr/bin/env bash
-if [ "$1" = "list-panes" ]; then echo 91001; exit 0; fi
+if [ "$1" = "list-panes" ]; then case "$3" in agy-*) echo 93001 ;; *) echo 91001 ;; esac; exit 0; fi
 if [ "$CLOSURE_TEST_SCENARIO" = "tmux-alive" ]; then exit 0; fi
 exit 1
 `, { mode: 0o755 });
@@ -195,6 +207,7 @@ exit 1
       AHELPA_GATE_PI: gatePi,
       AHELPA_GATE_PI_MODEL: piModel,
       AHELPA_GATE_PI_EFFORT: piEffort,
+      AHELPA_GATE_AGY: gateAgy,
       PI_CODING_AGENT_DIR: join(root, "pi-agent"),
     },
     stdout: "pipe",
@@ -268,6 +281,36 @@ describe("closure gate", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(message);
   }, 20000);
+
+  test("agy gate checks the Argon default, native resume, context continuity and reclamation", async () => {
+    const result = await runFixture("success", "agy");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("pass > agy resume readiness, new turn, and context continuity");
+    expect(result.calls.filter(call => call.command === "kill")).toHaveLength(2);
+    expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
+    expect(readFileSync(join(result.evidenceDir, "pids-agy-worker.txt"), "utf8")).toBe("93001\n93002\n");
+    expect(readFileSync(join(result.evidenceDir, "pids-agy-resumed.txt"), "utf8")).toBe("93001\n93002\n");
+  }, 20000);
+  test.each([
+    ["agy-child-alive", "agy bridge or child remains after kill"],
+    ["agy-bridge-gone", "Cannot snapshot agy bridge and child of a live helper"],
+    ["missing-native-id", "agy did not retain a native session UUID"],
+    ["pi-resume-id-drift", "agy resume changed the native session UUID"],
+    ["check-effort-drift", "expected role/model/effort"],
+    ["context-loss", "missing or incorrect summary"],
+  ])("agy gate rejects %s", async (scenario, message) => {
+    const result = await runFixture(scenario, "agy");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(message);
+  }, 20000);
+  test("agy live gate is opt-in", async () => {
+    const skipped = await runFixture("success", "codex", true);
+    expect(skipped.stdout).toContain("skip > agy (set AHELPA_GATE_AGY=1 to include)");
+    const result = await runFixture("success", "codex", true, "", "", "", "", "", "", "1");
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
+      .toEqual(["claude-code", "claude-code", "codex", "agy"]);
+  }, 30000);
 
   test("DSH gate checks profile, native resume, context continuity and reclamation", async () => {
     const result = await runFixture("success", "dsh");

@@ -80,6 +80,8 @@ run_gate() (
   if [ "$agent" = "kimi" ]; then agent_name="Kimi"; fi
   if [ "$agent" = "dsh" ]; then agent_name="DSH"; fi
   if [ "$agent" = "pi" ]; then agent_name="Pi"; fi
+  uuid_resume=0
+  if [ "$agent" = "pi" ] || [ "$agent" = "agy" ]; then uuid_resume=1; fi
   requested_role="${2:-}"
   expected_role=""
   expected_model=""
@@ -110,6 +112,11 @@ run_gate() (
       expected_model="${AHELPA_GATE_PI_MODEL:-}"
       expected_effort="${AHELPA_GATE_PI_EFFORT:-}"
       ;;
+    agy: | agy:worker)
+      expected_role="worker"
+      expected_model="gemini-4-argon"
+      expected_effort="medium"
+      ;;
     kimi:) ;;
     *) fail "Unsupported gate scenario: $agent $requested_role" ;;
   esac
@@ -131,7 +138,7 @@ run_gate() (
   pi_lock=""
   pi_pids=""
   wait_seconds=180
-  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ]; then
+  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ] || [ "$agent" = "agy" ]; then
     context_marker="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
     task="Remember this context marker for our next turn: $context_marker. $task"
     wait_seconds=500
@@ -261,13 +268,42 @@ run_gate() (
     printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
   }
 
+  # Graceful drain stops agy before the gate's kill, so record the bridge and agy
+  # while the helper is live; kill must leave none of those PIDs behind.
+  snapshot_agy_processes() {
+    [ "$agent" = "agy" ] || return 0
+    local pane_pids
+    pane_pids="$(tmux list-panes -t "$session_id" -F '#{pane_pid}')" || return 1
+    pi_pids="$(ps -axo pid=,ppid= | bun -e '
+      try {
+        const fs = require("fs");
+        const [panes, metadata] = process.argv.slice(1);
+        const info = JSON.parse(fs.readFileSync(metadata, "utf8"));
+        const roots = panes.trim().split(/\s+/).map(Number);
+        if (!roots.length || roots.some(pid => !Number.isSafeInteger(pid) || pid <= 0)) process.exit(1);
+        const rows = fs.readFileSync(0, "utf8").trim().split("\n").map(line => line.trim().split(/\s+/).map(Number));
+        const pids = new Set(roots);
+        let prior;
+        do {
+          prior = pids.size;
+          for (const [pid, parent] of rows) if (pids.has(parent)) pids.add(pid);
+        } while (pids.size !== prior);
+        if (![info.bridgePid, info.childPid].every(pid => Number.isSafeInteger(pid) && pids.has(pid))) process.exit(1);
+        process.stdout.write([...pids].join("\n"));
+      } catch { process.exit(1); }
+    ' "$pane_pids" "$delivery/agy-process.json")" || return 1
+    [ -n "$pi_pids" ] || return 1
+    printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
+  }
+
   verify_pi_reclaimed() {
-    [ "$agent" = "pi" ] || return 0
-    [ -n "$pi_pids" ] && [ -n "$pi_lock" ] || return 1
+    [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || return 0
+    [ -n "$pi_pids" ] || return 1
+    if [ "$agent" = "pi" ] && [ -z "$pi_lock" ]; then return 1; fi
     local attempt
     for attempt in {1..20}; do
       # Process titles may hide RPC arguments; compare only the recorded PIDs.
-      if [ ! -e "$pi_lock" ] && ps -axo pid=,ppid= | bun -e '
+      if { [ -z "$pi_lock" ] || [ ! -e "$pi_lock" ]; } && ps -axo pid=,ppid= | bun -e '
         const rows = require("fs").readFileSync(0, "utf8").trim().split("\n");
         const remaining = new Set(rows.map(line => Number(line.trim().split(/\s+/)[0])));
         const recorded = process.argv[1].trim().split(/\s+/).map(Number);
@@ -288,9 +324,9 @@ run_gate() (
         if (typeof id !== "string" || !/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id)) process.exit(1);
         process.stdout.write(id);
       } catch { process.exit(1); }
-    ' "$session_id")" || fail "Pi did not retain a native session UUID"
+    ' "$session_id")" || fail "$agent_name did not retain a native session UUID"
     if [ -n "$pi_native_id" ] && [ "$pi_native_id" != "$pi_observed_id" ]; then
-      fail "Pi resume changed the native session UUID"
+      fail "$agent_name resume changed the native session UUID"
     fi
     pi_native_id="$pi_observed_id"
 
@@ -307,7 +343,10 @@ run_gate() (
     if ! check_session_status "$("$CLI" check)" "$session_id" killed; then
       fail "check still reports an active $agent session after kill"
     fi
-    if ! verify_pi_reclaimed; then fail "Pi child or session lock remains after kill"; fi
+    if ! verify_pi_reclaimed; then
+      if [ "$agent" = "agy" ]; then fail "agy bridge or child remains after kill"; fi
+      fail "Pi child or session lock remains after kill"
+    fi
     cleaned=1
     preserve_delivery
   }
@@ -323,6 +362,7 @@ run_gate() (
   fi
   launch_output="$("$CLI" "${launch_args[@]}")"
   take_session "$launch_output"
+  if ! snapshot_agy_processes; then fail "Cannot snapshot agy bridge and child of a live helper"; fi
   if [ -n "$expected_role" ] && ! check_session_profile "$launch_output" "$session_id" \
     "$expected_role" "$expected_model" "$expected_effort"; then
     fail "launch did not report expected role/model/effort for $label session $session_id"
@@ -331,17 +371,18 @@ run_gate() (
   if [ "$agent" = "kimi" ] && ! check_kimi_resume_id "$check_output" "$session_id"; then
     fail "Kimi did not retain a native session resume ID"
   fi
-  if [ "$agent" = "pi" ]; then retain_pi_identity "$check_output"; fi
+  if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$check_output"; fi
   reclaim_session
 
-  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ]; then
+  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ] || [ "$agent" = "agy" ]; then
     prior_session="$session_id"
     resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
     label="$agent-resumed"
     take_session "$resume_output"
     if [ "$session_id" = "$prior_session" ]; then fail "$agent_name resume reused the old helper ID"; fi
+    if ! snapshot_agy_processes; then fail "Cannot snapshot agy bridge and child of a live helper"; fi
     resume_check="$("$CLI" check)"
-    if [ "$agent" = "pi" ]; then retain_pi_identity "$resume_check"; fi
+    if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$resume_check"; fi
     if ! check_session_status "$resume_check" "$session_id" ready; then
       fail "$agent_name resume did not reach needs_attention for a follow-up task"
     fi
@@ -394,6 +435,11 @@ run_integration_gate() (
     run_gate pi
   else
     echo "skip > pi (set AHELPA_GATE_PI=1 to include)"
+  fi
+  if [ "${AHELPA_GATE_AGY:-}" = 1 ]; then
+    run_gate agy
+  else
+    echo "skip > agy (set AHELPA_GATE_AGY=1 to include)"
   fi
   # Like DSH, Kimi bills a metered provider, so its live run is opt-in.
   if [ "${AHELPA_GATE_KIMI:-}" = 1 ]; then
