@@ -37,7 +37,7 @@ ahelpa **不是**：
 
 | 层 | 是什么 | 结论 | 例子 |
 | --- | --- | --- | --- |
-| **helper 后端** | 本身就是干活的 agent harness：读文件、改文件、跑命令、调模型。 | driver 候选，进入漏斗。 | `claude-code`、`codex`、`kimi`、`pi`、`dsh`；候选 agy、OpenCode |
+| **helper 后端** | 本身就是干活的 agent harness：读文件、改文件、跑命令、调模型。 | driver 候选，进入漏斗。 | `claude-code`、`codex`、`kimi`、`pi`、`agy`、`dsh`；候选 OpenCode |
 | **host 目标** | *调用* ahelpa 的 agent，对应 skill 安装目标，不是 driver。同一个 agent 可以两者都是。 | 是 skill 安装问题，不是 driver 问题。 | skill 目标 `codex`、`claude-code`、`kimi-code-cli`（三者同时也是 helper 后端） |
 | **模型／网关层** | 位于 driver 之下：provider 端点、路由、密钥代理，或无状态的模型 CLI。 | 是某个现有 driver 的配置，绝不是新 driver。 | Magpie（DSH 的路由）、Kimi `config.toml` 里的 provider、Pi 的 `provider/id` 模型、`gemini-api` |
 | **同行运行时** | 和 ahelpa 处在同一层的编排或管理工具。 | **参照，不是拒绝。** 吸取经验，必要时考虑互通，不写 driver。 | Raft、mngr、oar |
@@ -109,18 +109,18 @@ ahelpa **不是**：
 
 ## Driver 能力矩阵
 
-2026-11-06 据 `src/drivers/*.ts` 和 `skill/references/*.md` 手写。同样的列也是新候选的打分格子：评估卡的「Grid」一节照此填写。agy 的一行在其 driver 合并时补上。
+2026-11-06 据 `src/drivers/*.ts` 和 `skill/references/*.md` 手写。同样的列也是新候选的打分格子：评估卡的「Grid」一节照此填写。
 
-| | `claude-code` | `codex` | `kimi` | `pi` | `dsh`（已退出默认派工） |
-| --- | --- | --- | --- | --- | --- |
-| 形态 | TUI + hook | TUI + hook | TUI，无 hook | RPC 桥接 | 进程内 app |
-| 恢复 token（`resumeTokenAvailableAfterSubmit`） | 仅退出后可得（draining 期间捕获） | 仅退出后可得（draining 期间捕获） | 首次提交后立即可得（原生 `session_*` id） | 首次提交后立即可得（原生 UUID） | 首次提交后立即可得 |
-| 回合结束信号 | 经 `--settings` 会话文件的 hook：`UserPromptSubmit`、`Stop`、`StopFailure` | 单次调用的 `-c notify=[...]` 覆盖（`agent-turn-complete`） | 无；不活动启发式加暗号 | RPC 的原生结算事件 | app 内状态标记 |
-| `--safe` 的含义 | 去掉 `--dangerously-skip-permissions`，原生审批仍在；结果目录在项目外时加 `--add-dir` | `-s workspace-write -a never`（加 `--add-dir`） | 用 `--yolo` 取代 `--auto`（高风险动作仍会询问）；不是沙箱 | 拒绝 | 拒绝 |
-| 信任是否持久化 | driver 不管；用户须先在项目里跑一次 `claude`，否则启动快速失败 | 是：回答「Folder access」（0.163+）会把仓库根写成受信任，保存在 Codex 配置里；hooks 信任提示用 Escape 暂时拒绝 | 是：两种模式都会选「Trust and continue」，由 Kimi 持久化 | 无信任提示；桥接传 `--approve --no-extensions --no-mcp --offline` | 无信任提示；`DSH_PERMISSION_MODE=danger-full-access` |
-| 自更新 | driver 未压制（上游行为未在此核实） | 更新对话框用「Skip」跳过；未压制 | `KIMI_CODE_NO_AUTO_UPDATE=1` | driver 未设置（传了 `--offline`，它对更新检查的影响树内无记载） | driver 不控制；遥测用 `DSH_TELEMETRY_DISABLED=1` 关闭 |
-| 模型／effort | 启动时 `--model`、`--effort`；运行时经模型菜单切换 | `--model`、`-c model_reasoning_effort=`；运行时经模型菜单切换 | 只有 `--model <config.toml 别名>`；无 effort；不能运行时切换 | `--model provider/id`、`--effort`，启动时核实；不能运行时切换 | `--model [provider:]model`、`--effort off\|low\|high\|max`；不能运行时切换 |
-| 最后验证的上游版本 | 树内未记录固定版本；`doctor` 报告已安装版本 | 0.163+（Folder access）；容量短语见于 0.154；更新对话框格式 ≤0.15x 与 0.160 | Kimi Code 2.x（`--auto` 需要） | ≥ 1.4.0，测试基线 1.4.0；2026-11-06 见过 1.5.0 | `@deepseek-ai/dsh@0.2.1-rc.2`；2026-10-30 对比中见过 rc.5 |
+| | `claude-code` | `codex` | `kimi` | `pi` | `dsh`（已退出默认派工） | `agy` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 形态 | TUI + hook | TUI + hook | TUI，无 hook | RPC 桥接 | 进程内 app | stream-json 桥接（同 `pi`） |
+| 恢复 token（`resumeTokenAvailableAfterSubmit`） | 仅退出后可得（draining 期间捕获） | 仅退出后可得（draining 期间捕获） | 首次提交后立即可得（原生 `session_*` id） | 首次提交后立即可得（原生 UUID） | 首次提交后立即可得 | 首次提交后立即可得（`init` 事件里的会话 UUID，第一条消息之前就有）；agy 不认识的 id，桥接直接让 resume 失败 |
+| 回合结束信号 | 经 `--settings` 会话文件的 hook：`UserPromptSubmit`、`Stop`、`StopFailure` | 单次调用的 `-c notify=[...]` 覆盖（`agent-turn-complete`） | 无；不活动启发式加暗号 | RPC 的原生结算事件 | app 内状态标记 | stream-json 每回合一个 `result` 事件（`status`、`finished_reason`） |
+| `--safe` 的含义 | 去掉 `--dangerously-skip-permissions`，原生审批仍在；结果目录在项目外时加 `--add-dir` | `-s workspace-write -a never`（加 `--add-dir`） | 用 `--yolo` 取代 `--auto`（高风险动作仍会询问）；不是沙箱 | 拒绝 | 拒绝 | 拒绝 |
+| 信任是否持久化 | driver 不管；用户须先在项目里跑一次 `claude`，否则启动快速失败 | 是：回答「Folder access」（0.163+）会把仓库根写成受信任，保存在 Codex 配置里；hooks 信任提示用 Escape 暂时拒绝 | 是：两种模式都会选「Trust and continue」，由 Kimi 持久化 | 无信任提示；桥接传 `--approve --no-extensions --no-mcp --offline` | 无信任提示；`DSH_PERMISSION_MODE=danger-full-access` | print 模式无信任提示；不落盘 |
+| 自更新 | driver 未压制（上游行为未在此核实） | 更新对话框用「Skip」跳过；未压制 | `KIMI_CODE_NO_AUTO_UPDATE=1` | driver 未设置（传了 `--offline`，它对更新检查的影响树内无记载） | driver 不控制；遥测用 `DSH_TELEMETRY_DISABLED=1` 关闭 | `AGY_CLI_DISABLE_AUTO_UPDATE=true`（1.5.2 只认小写 `true`；设成 `1` 仍会拉起更新进程） |
+| 模型／effort | 启动时 `--model`、`--effort`；运行时经模型菜单切换 | `--model`、`-c model_reasoning_effort=`；运行时经模型菜单切换 | 只有 `--model <config.toml 别名>`；无 effort；不能运行时切换 | `--model provider/id`、`--effort`，启动时核实；不能运行时切换 | `--model [provider:]model`、`--effort off\|low\|high\|max`；不能运行时切换 | 默认 `--model gemini-4-argon --effort medium`；带后缀的 id（如 `gemini-4-argon-high`）须配同名 `--effort`；不能运行时切换 |
+| 最后验证的上游版本 | 树内未记录固定版本；`doctor` 报告已安装版本 | 0.163+（Folder access）；容量短语见于 0.154；更新对话框格式 ≤0.15x 与 0.160 | Kimi Code 2.x（`--auto` 需要） | ≥ 1.4.0，测试基线 1.4.0；2026-11-06 见过 1.5.0 | `@deepseek-ai/dsh@0.2.1-rc.2`；2026-10-30 对比中见过 rc.5 | 测试基线 1.5.2（2026-11-06） |
 
 ponytail: 手写会和代码漂移；漂移真正造成麻烦时，再改成从 `AgentDriver` 生成。
 
@@ -128,7 +128,7 @@ ponytail: 手写会和代码漂移；漂移真正造成麻烦时，再改成从 
 
 对通过漏斗第 1、2 步的候选，在临时目录和临时 home 里跑一遍。这是 agy 用过的七个问题，抽象成了通用模板。每个答案都要记下命令、上游版本和日期。
 
-> 先注意副作用：运行 agent 二进制可能改变这台机器。agy 的后台更新器，哪怕你只运行 `agy models`，也可能替换已安装的二进制（第三方在 1.1.22 上报告，未在 1.5.2 上复核）。优先用 `--help` 和 `--version`，并且在运行其他任何东西之前先设好更新开关。
+> 先注意副作用：运行 agent 二进制可能改变这台机器。agy 的后台更新器，哪怕你只运行 `agy models`，也可能替换已安装的二进制（第三方在 1.1.22 上报告；在 1.5.2 上把开关设成 `1` 仍会拉起更新进程，只有小写 `true` 有效）。优先用 `--help` 和 `--version`，并且在运行其他任何东西之前先设好更新开关。
 
 1. **tmux 里的登录与首次引导。** 登录能在 pane 里完成吗？凭据存在哪（文件还是系统钥匙串；无头用户可能没有钥匙串）？哪种账号类型可用？首次启动会出现哪些画面（主题、提示、信任、遥测同意），每个都有能关掉它的按键吗？
 2. **自更新。** 由什么触发（前台检查还是脱离终端的后台更新器），替换什么，怎么关（旗标、环境变量、配置）？能固定版本吗？
@@ -190,7 +190,7 @@ Spike 的结果决定接法形态和档次，并写进候选的评估卡。
 | `pi` | helper 后端 | 已接入；原本会派给 DSH 的活默认走它（2026-10-30 起试用） | 不适用 | `skill/references/pi.md`、[档案](../../skill/references/profiles.md) |
 | `dsh` | helper 后端 | 已从默认派工退役（2026-11-06）；安装和 driver 保留；点名启动仍可用 | 不适用 | [档案](../../skill/references/profiles.md)、[入职记录](dsh-onboarding.md) |
 | Gemini CLI | helper 后端 | **不接（2026-11-06）**：不再服务个人账号 | 第 2 步 | [gemini-cli](../backends/gemini-cli.md) |
-| agy（Antigravity CLI） | helper 后端 | **接入中**：另一个会话正在实现 driver；合并时补上 spike 结果 | 第 3 步（spike 待做） | [agy](../backends/agy.md) |
+| `agy`（Antigravity CLI） | helper 后端 | 已接入（2026-11-06），走 stream-json 桥接；默认 `gemini-4-argon` / `medium` | 不适用 | [agy](../backends/agy.md)、`skill/references/agy.md` |
 | OpenCode | helper 后端 | **候选**：通过第 1、2 步；第 3、4 步仅读文档，未做 spike | 第 4 步，仅文档 | [opencode](../backends/opencode.md) |
 | dimAgent | helper 后端（CLI），属于更大的产品族 | **暂缓（2026-11-06）**：两个 CLI 都在变动，其中一个仍是 alpha | 第 2 步 | [dimagent](../backends/dimagent.md) |
 | Raft（原 Slock） | 同行运行时 | **参照**；不写 driver | 第 1 步 | [raft](../backends/raft.md) |

@@ -37,7 +37,7 @@ Most candidates end here. Put the candidate in exactly one row before anything e
 
 | Layer | What it is | Outcome | Examples |
 | --- | --- | --- | --- |
-| **Helper backend** | An agent harness that does the work itself: reads files, edits, runs commands, talks to a model. | Driver candidate. Continue to the funnel. | `claude-code`, `codex`, `kimi`, `pi`, `dsh`; candidates agy, OpenCode |
+| **Helper backend** | An agent harness that does the work itself: reads files, edits, runs commands, talks to a model. | Driver candidate. Continue to the funnel. | `claude-code`, `codex`, `kimi`, `pi`, `agy`, `dsh`; candidate OpenCode |
 | **Host target** | The agent that *calls* ahelpa. It corresponds to a skill installation target, not a driver. The same agent can be both a host target and a helper backend. | Skill-install question, not a driver question. | Skill targets `codex`, `claude-code`, `kimi-code-cli` (all three are also helper backends) |
 | **Model / gateway layer** | Sits below a driver: a provider endpoint, router, key broker, or a stateless model CLI. | It is configuration of an existing driver, never a new driver. | Magpie (DSH's route), Kimi's `config.toml` providers, Pi's `provider/id` models, `gemini-api` |
 | **Peer runtime** | An orchestration or management tool at the same layer as ahelpa. | **Reference, not rejection.** Learn from it, consider interop if useful, write no driver. | Raft, mngr, oar |
@@ -109,18 +109,18 @@ The evidence that this floor is real is `kimi`: no turn hook, no `--effort`, no 
 
 ## Driver capability matrix
 
-Hand-written from `src/drivers/*.ts` and `skill/references/*.md` on 2026-11-06. The same columns are the scoring grid for a new candidate: a card's "Grid" section fills them in. agy's row is added when its driver merges.
+Hand-written from `src/drivers/*.ts` and `skill/references/*.md` on 2026-11-06. The same columns are the scoring grid for a new candidate: a card's "Grid" section fills them in.
 
-| | `claude-code` | `codex` | `kimi` | `pi` | `dsh` (retired from default) |
-| --- | --- | --- | --- | --- | --- |
-| Shape | TUI + hook | TUI + hook | TUI, no hook | RPC bridge | In-process app |
-| Resume token (`resumeTokenAvailableAfterSubmit`) | After exit only (captured while draining) | After exit only (captured while draining) | Right after the first submit (native `session_*` id) | Right after the first submit (native UUID) | Right after the first submit |
-| Turn-end signal | Hooks via `--settings` session file: `UserPromptSubmit`, `Stop`, `StopFailure` | Per-invocation `-c notify=[...]` override (`agent-turn-complete`) | None; inactivity heuristics plus sentinel | Native settlement events over RPC | In-app state markers |
-| `--safe` means | Omits `--dangerously-skip-permissions`; native approvals remain; `--add-dir` for a result dir outside the project | `-s workspace-write -a never` (+ `--add-dir`) | `--yolo` instead of `--auto` (risky actions still ask); not a sandbox | Refused | Refused |
-| Trust persisted | Not managed by the driver; the user must run `claude` in the project once or launch fails fast | Yes: answering "Folder access" (0.163+) writes the repository root as trusted in Codex's config; the hooks-trust prompt is declined with Escape | Yes: "Trust and continue" is selected in both modes and persisted by Kimi | No trust prompt; bridge passes `--approve --no-extensions --no-mcp --offline` | No trust prompt; `DSH_PERMISSION_MODE=danger-full-access` |
-| Self-update | Not suppressed by the driver (upstream behavior not verified here) | Update dialog dismissed with "Skip"; not suppressed | `KIMI_CODE_NO_AUTO_UPDATE=1` | Not set by the driver (`--offline` is passed; its effect on update checks is not documented in tree) | Not controlled by the driver; telemetry off with `DSH_TELEMETRY_DISABLED=1` |
-| Model / effort | `--model`, `--effort` at launch; runtime switch via the model menu | `--model`, `-c model_reasoning_effort=`; runtime switch via the model menu | `--model <config.toml alias>` only; no effort; no runtime switch | `--model provider/id`, `--effort`, verified at startup; no runtime switch | `--model [provider:]model`, `--effort off\|low\|high\|max`; no runtime switch |
-| Last verified upstream | No pin recorded; `doctor` reports the installed version | 0.163+ (Folder access); capacity phrase seen on 0.154; update dialog formats ≤0.15x and 0.160 | Kimi Code 2.x (`--auto` needs it) | ≥ 1.4.0, tested 1.4.0; 1.5.0 seen 2026-11-06 | `@deepseek-ai/dsh@0.2.1-rc.2`; rc.5 seen in the 2026-10-30 comparison |
+| | `claude-code` | `codex` | `kimi` | `pi` | `dsh` (retired from default) | `agy` |
+| --- | --- | --- | --- | --- | --- | --- |
+| Shape | TUI + hook | TUI + hook | TUI, no hook | RPC bridge | In-process app | stream-json bridge (like `pi`) |
+| Resume token (`resumeTokenAvailableAfterSubmit`) | After exit only (captured while draining) | After exit only (captured while draining) | Right after the first submit (native `session_*` id) | Right after the first submit (native UUID) | Right after the first submit | Right after the first submit (conversation UUID from the `init` event, before the first message); the bridge fails a resume whose id agy does not know |
+| Turn-end signal | Hooks via `--settings` session file: `UserPromptSubmit`, `Stop`, `StopFailure` | Per-invocation `-c notify=[...]` override (`agent-turn-complete`) | None; inactivity heuristics plus sentinel | Native settlement events over RPC | In-app state markers | One stream-json `result` event per turn (`status`, `finished_reason`) |
+| `--safe` means | Omits `--dangerously-skip-permissions`; native approvals remain; `--add-dir` for a result dir outside the project | `-s workspace-write -a never` (+ `--add-dir`) | `--yolo` instead of `--auto` (risky actions still ask); not a sandbox | Refused | Refused | Refused |
+| Trust persisted | Not managed by the driver; the user must run `claude` in the project once or launch fails fast | Yes: answering "Folder access" (0.163+) writes the repository root as trusted in Codex's config; the hooks-trust prompt is declined with Escape | Yes: "Trust and continue" is selected in both modes and persisted by Kimi | No trust prompt; bridge passes `--approve --no-extensions --no-mcp --offline` | No trust prompt; `DSH_PERMISSION_MODE=danger-full-access` | No trust prompt in print mode; nothing persisted |
+| Self-update | Not suppressed by the driver (upstream behavior not verified here) | Update dialog dismissed with "Skip"; not suppressed | `KIMI_CODE_NO_AUTO_UPDATE=1` | Not set by the driver (`--offline` is passed; its effect on update checks is not documented in tree) | Not controlled by the driver; telemetry off with `DSH_TELEMETRY_DISABLED=1` | `AGY_CLI_DISABLE_AUTO_UPDATE=true` (1.5.2 honours only lowercase `true`; `1` still starts the updater) |
+| Model / effort | `--model`, `--effort` at launch; runtime switch via the model menu | `--model`, `-c model_reasoning_effort=`; runtime switch via the model menu | `--model <config.toml alias>` only; no effort; no runtime switch | `--model provider/id`, `--effort`, verified at startup; no runtime switch | `--model [provider:]model`, `--effort off\|low\|high\|max`; no runtime switch | Default `--model gemini-4-argon --effort medium`; a suffixed id (`gemini-4-argon-high`) needs a matching `--effort`; no runtime switch |
+| Last verified upstream | No pin recorded; `doctor` reports the installed version | 0.163+ (Folder access); capacity phrase seen on 0.154; update dialog formats ≤0.15x and 0.160 | Kimi Code 2.x (`--auto` needs it) | ≥ 1.4.0, tested 1.4.0; 1.5.0 seen 2026-11-06 | `@deepseek-ai/dsh@0.2.1-rc.2`; rc.5 seen in the 2026-10-30 comparison | Tested 1.5.2 (2026-11-06) |
 
 ponytail: hand-written, so it will drift from the code; generate it from `AgentDriver` when drift actually causes trouble.
 
@@ -128,7 +128,7 @@ ponytail: hand-written, so it will drift from the code; generate it from `AgentD
 
 Run this against any candidate that cleared funnel steps 1-2, in a scratch directory and a scratch home. These are the seven questions asked of agy, generalized. Record each answer with the command, the upstream version, and the date.
 
-> Side effects first: running an agent binary can change the machine. agy's background updater can replace the installed binary even when you only run `agy models` (reported on 1.1.22 by a third party, not re-verified on 1.5.2). Prefer `--help` and `--version`, and set the update kill switch before running anything else.
+> Side effects first: running an agent binary can change the machine. agy's background updater can replace the installed binary even when you only run `agy models` (reported on 1.1.22 by a third party; on 1.5.2 a run with the switch set to `1` still started the updater, since only lowercase `true` works). Prefer `--help` and `--version`, and set the update kill switch before running anything else.
 
 1. **Login and first-run onboarding in tmux.** Can sign-in be completed inside a pane? Where is the credential stored (file or system keyring; a headless user may lack a keyring)? Which account type works? What first-run screens (themes, tips, trust, telemetry consent) appear, and does each have a key that dismisses it?
 2. **Self-update.** What triggers it (foreground check or detached background updater), what does it replace, and what disables it (flag, env var, config)? Can the version be pinned?
@@ -190,7 +190,7 @@ Updated 2026-11-06. "Stopped at" is the last funnel step the candidate was exami
 | `pi` | Helper backend | Integrated; default for work that would have gone to DSH (trial from 2026-10-30) | n/a | `skill/references/pi.md`, [profiles](../skill/references/profiles.md) |
 | `dsh` | Helper backend | Retired from default dispatch (2026-11-06); install and driver kept; named launches still work | n/a | [profiles](../skill/references/profiles.md), [onboarding](dsh-onboarding.md) |
 | Gemini CLI | Helper backend | **Declined (2026-11-06)**: personal accounts are no longer served | Step 2 | [gemini-cli](backends/gemini-cli.md) |
-| agy (Antigravity CLI) | Helper backend | **In progress**: a separate session is building the driver; spike results are added on merge | Step 3 (spike pending) | [agy](backends/agy.md) |
+| `agy` (Antigravity CLI) | Helper backend | Integrated (2026-11-06) through a stream-json bridge; default `gemini-4-argon` / `medium` | n/a | [agy](backends/agy.md), `skill/references/agy.md` |
 | OpenCode | Helper backend | **Candidate**: passes steps 1-2; steps 3-4 read from docs only, not spiked | Step 4, docs-only | [opencode](backends/opencode.md) |
 | dimAgent | Helper backend (CLI) inside a wider product family | **Deferred (2026-11-06)**: two CLIs in flux, one still alpha | Step 2 | [dimagent](backends/dimagent.md) |
 | Raft (formerly Slock) | Peer runtime | **Reference**; no driver | Step 1 | [raft](backends/raft.md) |
