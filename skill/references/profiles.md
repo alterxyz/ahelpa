@@ -135,11 +135,12 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 
 ## agy
 
-**New integration (2026-11-06). First choice for prose people will read and for divergent ideation; never the critical voice.** Google Antigravity CLI, default `gemini-4-argon` / `medium` (Gemini 4 Argon · medium). Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
+**New integration (2026-11-06). First choice for prose people will read, divergent ideation, and the generative half of strategy work; never the critical voice.** Google Antigravity CLI, default `gemini-4-argon` / `medium` (Gemini 4 Argon · medium). Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
 
 **Observation status**
 - Integration checks only: agy 1.5.2 smoke runs and the closure gate (completion, kill, native resume with context recalled). No task-quality comparison inside ahelpa yet.
-- Owner's assessment of Gemini 4 Argon (2026-11-06, from use outside ahelpa): a very good writer, best at text meant for people, and good at divergent thinking. Its clear weakness is agreeing with whatever it is given: it polishes the premise into being right and rarely raises a critical objection. This is about the default model; agy's other models are not assessed.
+- Owner's assessment of Gemini 4 Argon (2026-11-06, from use outside ahelpa): a very good writer, best at text meant for people, and good at divergent thinking. Its clear weakness is agreeing with whatever it is given: it polishes the premise into being right and rarely raises a critical objection. The owner also expects it to suit strategy work, grand strategy especially. This is about the default model; agy's other models are not assessed.
+- Public reviews (read 2026-11-06, three weeks after release; anecdotes and vendor numbers, not ahelpa runs) agree on the writing: it ranks at or near the top of LMArena's creative-writing board and is praised as a structural editor. They add that one-shot first drafts tend to be dense, with long sentences and elevated wording, and that, in one review panel's words, it "generates more ideas than it verifies": it seldom goes back to check its own work. Some users call it sycophantic; Google's model card claims less sycophancy than earlier Gemini models, a comparison outside reviewers dispute. No one has measured strategy work directly; users credit it with long-horizon, open-ended reasoning when the prompt is well specified.
 
 **Watch for**
 - Headless agy never stops for approval. When the model asks itself a question, it gets an empty answer and carries on; a blocked helper only reaches you through `NEED_HELP`. Spell out when to stop and signal.
@@ -148,8 +149,9 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 - Per agy's 1.5.2 changelog (not reproduced by ahelpa), commands on its protected list still go through agy's usual checks under `--dangerously-skip-permissions`, and headless runs deny what would need approval, so the helper sees a refusal instead of a prompt.
 
 **Give it**
-- Prose for people to read: explanations, docs, announcements, drafts. Give it the facts and the sources and let it hold the pen; have a different model check its claims against the sources before the text ships.
+- Prose for people to read: explanations, docs, announcements, drafts. Give it the facts and the sources and let it hold the pen; have a different model check its claims against the sources before the text ships. Ask for plain wording and short sentences, since first drafts run dense.
 - Divergent work: brainstorming, alternatives, framings, naming. Ask for many options with their trade-offs, not a verdict; the host or another model chooses.
+- Strategy, grand strategy included: mapping the landscape, long-horizon scenarios, alternative paths, and the write-up people will read. Give it the goals, constraints, and facts, and ask for several strategies, each with its assumptions and how it could fail. Then have a different model attack those assumptions, and leave the choice to the owner. Strategies usually fail on a wrong premise, and going along with the premise is this model's known weakness, so it must never be the only voice.
 - Not adversarial review, verdicts, ship decisions, or "is this right?" questions: it sides with the premise. Use the `reviewer` role on another model (codex or claude-code), even though agy accepts `--role reviewer`.
 - Choose the effort with `--effort low|medium|high`; a suffixed `--model` needs the matching `--effort`.
 
@@ -168,6 +170,7 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 | Mutation testing | codex | worker | Report mutants tried, killed, survived; survivors become tests. Mutant copies go under `$AHELPA_SCRATCH`; `artifacts/` gets each mutant's patch and the test log, never a tree copy |
 | Prose for people to read (explanations, docs, drafts) | agy | worker | Facts and source files to cite, no code changes; a different model checks the claims against the sources |
 | Brainstorming and alternatives | agy | worker | Many options with trade-offs, not a verdict; the host or another model chooses |
+| Strategy (landscape, scenarios, options, the write-up) | agy, then a red-team pass on a different model | worker | Goals, constraints, and facts; several strategies, each with assumptions and failure modes; the other model attacks the assumptions; the owner decides |
 | Docs that must match code exactly | claude-code | worker (or advisor if judgment-heavy) | Source files to cite, no code changes |
 
 ## What the host must do regardless
