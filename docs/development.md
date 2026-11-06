@@ -181,6 +181,8 @@ AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 
 Enable the live Pi gate with `AHELPA_GATE_PI=1`; it requires Node.js, Pi ≥ 1.4.0 (tested baseline: 1.4.0), and a configured provider. No model or effort is preset; optional `AHELPA_GATE_PI_MODEL=provider/id` and `AHELPA_GATE_PI_EFFORT=<level>` override native defaults. The gate checks launch/check settings, the unchanged native UUID after resume, remembered context on a second turn, and disappearance of both Pi child and UUID lock after each kill. It validates the native session header to check the lock directory; it neither reads credentials nor prints native session contents. Pi’s native sessions remain in its cwd-encoded directory, outside the gate’s temporary ahelpa state.
 
+Enable the live agy gate with `AHELPA_GATE_AGY=1`; it requires Node.js and agy ≥ 1.5.2 (tested baseline: 1.5.2), signed in once in `agy`. It uses the `gemini-4-argon` / `medium` default and checks launch/check settings, the unchanged conversation ID after resume, remembered context on a second turn, and that the bridge and agy PIDs recorded while the helper ran are gone after each kill. agy keeps the gate's conversations in its own history.
+
 ## Adding a Driver
 
 Drivers live in `src/drivers/`. A new driver implements the `AgentDriver` interface from `src/drivers/types.ts`:

@@ -182,6 +182,8 @@ AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 
 Pi 的真机 gate 通过 `AHELPA_GATE_PI=1` 启用，需要 Node.js、Pi ≥ 1.4.0（测试基线 1.4.0）及已经配置好的 provider。默认不指定模型或 effort；可通过 `AHELPA_GATE_PI_MODEL=provider/id` 和 `AHELPA_GATE_PI_EFFORT=<level>` 覆盖。Gate 核对 launch／check 的角色与设置，验证原生 UUID 在 resume 后不变、第二轮能记住上下文，并在每次 kill 后检查 Pi 子进程与 UUID 锁均已消失。它会校验原生会话头以核对锁目录，不读取凭据，也不输出原生会话内容。Pi 原生会话保存在其按 cwd 编码的目录中，不属于 gate 的 ahelpa 临时状态。
 
+agy 的真机 gate 通过 `AHELPA_GATE_AGY=1` 启用，需要 Node.js 和 agy ≥ 1.5.2（测试基线 1.5.2），并已在 `agy` 里登录过一次。它使用默认的 `gemini-4-argon`／`medium`，检查 launch／check 记录的设置、resume 后 conversation ID 不变、第二个回合记得之前的上下文，以及 helper 运行时记录下的 bridge 与 agy PID 在每次 kill 后都已消失。gate 产生的对话会留在 agy 自己的历史记录里。
+
 ## 添加 driver
 
 Driver 位于 `src/drivers/`。新 driver 需要实现 `src/drivers/types.ts` 中的 `AgentDriver` 接口：

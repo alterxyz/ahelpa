@@ -1,6 +1,6 @@
 # Helper Profiles
 
-Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. DSH and Pi are newly integrated and are not represented in that sample. Defaults (model, effort, roles) are in `SKILL.md`; this file only says which to pick and what to put in the task.
+Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. DSH, Pi, and agy are newly integrated and are not represented in that sample. Defaults (model, effort, roles) are in `SKILL.md`; this file only says which to pick and what to put in the task.
 
 Every profile assumes the task file ends with the `## ahelpa contract` and `## ahelpa signals` sections ahelpa appends. Do not weaken them.
 
@@ -132,6 +132,24 @@ These observations were gathered on the `deepseek-official` route; the Magpie ro
 - Input-validation edges left open (whitespace-only values, overflow to infinity) and untested environment wiring; tests whose expected value equals the fallback catch no mutants. Ask for a mutation check on validation code.
 
 See [Pi setup and limits](pi.md) for version requirements, interrupt controls, session locking, and native takeover.
+
+## agy
+
+**New integration (2026-11-06), opt-in by name.** Google Antigravity CLI, default `gemini-4-argon` / `medium` (Gemini 4 Argon · medium). Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
+
+**Observation status**
+- Integration checks only: agy 1.5.2 smoke runs and the closure gate (completion, kill, native resume with context recalled). No task-quality comparison with other helpers yet, so make no capability claim.
+
+**Watch for**
+- Headless agy never stops for approval. When the model asks itself a question, it gets an empty answer and carries on; a blocked helper only reaches you through `NEED_HELP`. Spell out when to stop and signal.
+- The model may decline a destructive command on its own and report it as skipped (seen with `git push --force`). Read the summary for skipped steps, not only the exit status.
+- Per agy's 1.5.2 changelog (not reproduced by ahelpa), commands on its protected list still go through agy's usual checks under `--dangerously-skip-permissions`, and headless runs deny what would need approval, so the helper sees a refusal instead of a prompt.
+
+**Give it**
+- Well-scoped, checkable coding or review tasks with `--check`, until it has a track record. Choose the effort with `--effort low|medium|high`; a suffixed `--model` needs the matching `--effort`.
+
+**Runtime quirks**
+- Each helper is one agy process in headless stream-json mode behind a bridge; resume reopens the same agy conversation. See [agy setup and limits](agy.md).
 
 ## Task type to helper
 

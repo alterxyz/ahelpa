@@ -152,13 +152,13 @@ Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration �
 
 | 职责 | 示例 |
 | --- | --- |
-| Session prefix | `claude`、`codex`、`kimi`、`dsh`、`pi` |
+| Session prefix | `claude`、`codex`、`kimi`、`dsh`、`pi`、`agy` |
 | Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
 | 提交后处理 | 必要时补 Enter；捕获新创建的原生 session ID |
-| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 DSH／Pi 适配器状态标记 |
+| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 DSH／Pi／agy 适配器状态标记 |
 
-当前支持 `claude-code`、`codex`、`kimi`、`dsh` 和 `pi`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
+当前支持 `claude-code`、`codex`、`kimi`、`dsh`、`pi` 和 `agy`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
 
 `launch --safe` 会把 safe-mode hint 传给选定 driver，并把它写入 session 状态。原生 resume 会继承该姿态；`resume --safe` 可以升级默认姿态记录，但省略参数不会把 safe 记录降级。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`；Kimi 会用 `--yolo`（Ask When Needed）代替 `--auto`（Never Ask）。Kimi 在 safe mode 下仍会自动信任项目目录，因此它的 safe mode 不是 sandbox；Codex 的 "Folder access" 提示在 safe mode 下同样会被应答（见[安全说明](security.md)）。
 
@@ -181,6 +181,13 @@ DSH `0.2.1-rc.2` 提供 Web、headless、SDK 和 ACP 入口 profile，没有内�
 桥接逐行解析 JSON，串行提交本地 FIFO 任务，跨 retry／compaction 保持 running，只在真正结算后输出带会话和回合身份的状态标记；排队任务之间不暴露 idle。`/abort` 清队列并中止，`/exit` 或终止信号有界关闭子进程。终端挂断时跳过 RPC 取消和终端恢复；清理向 Pi 及记录的后代进程组依次发送 TERM、KILL，包括独立进程组的 bash 工具。协议失败后留在拒收任务的故障输入循环，避免后续任务落到 shell。
 
 原生 JSONL 放在 Pi 按物理 cwd 编码的会话目录（先解析符号链接和 `/tmp` 别名）。`PI_CODING_AGENT_DIR` 遵循 Pi 的绝对／相对路径、`~`、`~/…` 和 `file://` 规则。桥接在交付目录的 `pi-process.json` 记录锁路径及桥接／子进程 PID；gate 在 kill 前记录整个 pane 进程树，再按 PID 检查回收，不依赖进程标题。每个 UUID 在 spawn 前取得排他锁，子进程 close 且记录的后代清理完成后才释放；遗留锁拒绝恢复，不按 PID 自动接管。Resume 要求恰好一个匹配 UUID 且头部有效的记录，并核验 RPC 会话身份。正常完成仍由 daemon 回收终端，后续上下文通过原生 resume 延续。详见 [Pi 说明](../../skill/references/pi.md)。
+
+
+### agy stream-json 桥接
+
+`agy.ts` 在交接目录生成 `agy-terminal.mjs`；`agy-terminal-source.ts` 中的 Node 桥接在 tmux 内独占一个 headless agy 子进程（`--input-format stream-json --output-format stream-json --dangerously-skip-permissions`），并设置 `AGY_CLI_DISABLE_AUTO_UPDATE=true`。每行任务变成一条 NDJSON 用户消息，每个回合以一个 `result` 事件结束；桥接串行处理本地 FIFO，输出与 Pi 桥接同类的会话／回合／状态标记。agy 在第一个任务之前就报告 conversation ID，因此 launch 时即记为 resume token；resume 传 `--conversation <id>`，若 agy 报告的 ID 不同（agy 遇到未知 ID 会这样做）则失败。默认 `gemini-4-argon`／`medium`。
+
+停止时发 SIGINT：stdin EOF 会让 agy 先跑完当前回合，SIGTERM 会留下工具进程。agy 把每个工具命令放在独立进程组里，它的 SIGINT 清理又与自身退出竞争，所以桥接在发信号前先快照 agy 的子孙进程（PID、父进程、进程组、启动时间），之后对身份仍然吻合的残留进程先发 TERM 再发 KILL。stderr 可能带有账号信息，只输出固定错误类别。桥接把 bridge／child PID 写进交付目录的 `agy-process.json`；gate 在 helper 存活时记录 pane 进程树，kill 后检查这些 PID。详见 [agy 参考](../../skill/references/agy.md)。
 
 ## Nesting
 
@@ -233,3 +240,5 @@ Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`�
 | `drivers/kimi.ts` | Kimi Code driver |
 | `drivers/pi.ts` | Pi driver |
 | `drivers/pi-terminal-source.ts` | Pi RPC 桥接与生命周期 |
+| `drivers/agy.ts` | agy driver |
+| `drivers/agy-terminal-source.ts` | agy stream-json 桥接与生命周期 |

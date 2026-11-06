@@ -89,14 +89,17 @@ For longer tasks, use `ahelpa launch codex --file ./task.md`. Choose exactly one
 | `kimi` | `kimi` |
 | `dsh` | `dsh` (DeepSeek Harness) |
 | `pi` | `pi` ≥ 1.4.0 + Node.js |
+| `agy` | `agy` (Antigravity CLI) ≥ 1.5.2 + Node.js |
 
-Verify prerequisites with `command -v claude`, `command -v codex`, `command -v kimi`, `command -v dsh`, or `command -v pi` — the Claude helper type name is not its binary name.
+Verify prerequisites with `command -v claude`, `command -v codex`, `command -v kimi`, `command -v dsh`, `command -v pi`, or `command -v agy` — the Claude helper type name is not its binary name.
 
 DSH defaults to the local Magpie gateway route (`magpie:deepseek/deepseek-flash`). DSH support targets `@deepseek-ai/dsh@0.2.1-rc.2`. ahelpa creates a separate `ahelpa` profile and a session-local terminal app; existing Desktop/Web profiles and credentials are preserved. Start with `ahelpa launch dsh --task "Review the parser" --project /path/to/project`. See [DSH setup and limitations](skill/references/dsh.md) for installation, authentication, and native resume. This is a new integration under observation; `--safe` and runtime model switching are not supported.
 
 The [DSH onboarding record](docs/dsh-onboarding.md) separates observed behavior, independently checked fixture results, task guidance, and further observation.
 
 Pi is an explicit opt-in backend alongside DSH. It requires `@earendil-works/pi-coding-agent` ≥ 1.4.0 (tested baseline: 1.4.0) and Node.js. Run `ahelpa launch pi --file ./task.md` to use Pi’s configured model and thinking defaults; override them with `--model provider/id` and `--effort <level>`, whose effective values are verified at startup. Pi’s `worker`/`reviewer` roles have no model or effort presets; `advisor`, `--safe`, and runtime model switching are unsupported. Resume requires the matching native UUID history; after the helper exits, use `pi -r` in the same project for native takeover. See [Pi setup and limitations](skill/references/pi.md).
+
+agy (Google Antigravity CLI) is an explicit opt-in backend. It requires `agy` ≥ 1.5.2 (tested baseline: 1.5.2), a sign-in done once in `agy`, and Node.js. Run `ahelpa launch agy --file ./task.md` for Gemini 4 Argon · medium. ahelpa drives agy's headless stream-json mode through a bridge in tmux, so it answers no trust dialog and writes no agy settings or project hooks; `resume` reopens the same agy conversation. `--safe` and runtime model switching are unsupported. See [agy setup and limitations](skill/references/agy.md).
 
 ### Roles and defaults
 
@@ -110,8 +113,9 @@ Pi is an explicit opt-in backend alongside DSH. It requires `@earendil-works/pi-
 | `dsh` | `worker` (default) | `magpie:deepseek/deepseek-flash` | `high` |
 | `dsh` | `reviewer` | `magpie:deepseek/deepseek-flash` | `high` |
 | `pi` | `worker` (default), `reviewer` | native default | native default |
+| `agy` | `worker` (default), `reviewer` | `gemini-4-argon` | `medium` |
 
-Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Use `reviewer` for read-only adversarial review; its task contract forbids modifying files outside the result directory. Codex, DSH, and Pi reject `advisor`. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
+Use advisors for analysis, plans, and review; use workers for execution against a clear objective. For example, `ahelpa launch claude-code --role worker --file ./task.md` selects Sonnet. Explicit `--model` and `--effort` override their respective defaults. Use `reviewer` for read-only adversarial review; its task contract forbids modifying files outside the result directory. Codex, DSH, Pi, and agy reject `advisor`. Roles select launch settings without changing permissions or task scope. Kimi keeps its native model defaults and does not accept `--role`. `models` shows these presets; `check` shows the recorded role, model, and effort. Resume preserves recorded settings, including legacy sessions without a role.
 
 ## Commands
 
@@ -175,7 +179,7 @@ bun test                       # Unit tests
 bun run build                  # Compile binary to dist/
 bun run package:skill          # Build skill package with runtime bundle
 bash scripts/deploy-local.sh   # Install runtime + global hard-copy skills
-bun run closure:gate           # End-to-end gate (Claude Code + Codex; AHELPA_GATE_KIMI=1 / AHELPA_GATE_DSH=1 / AHELPA_GATE_PI=1 opt in)
+bun run closure:gate           # End-to-end gate (Claude Code + Codex; AHELPA_GATE_KIMI=1 / AHELPA_GATE_DSH=1 / AHELPA_GATE_PI=1 / AHELPA_GATE_AGY=1 opt in)
 ```
 
 The repository does not track compiled bundles — they are generated artifacts ignored by git.

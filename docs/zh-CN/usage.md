@@ -17,16 +17,17 @@ ahelpa doctor
 ahelpa doctor codex --project /path/to/project
 ```
 
-`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude-code`、`codex`、`kimi` 或 `dsh`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
+`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude-code`、`codex`、`kimi`、`dsh`、`pi` 或 `agy`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
 
 JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver 名称组织的 `agents`。每个 agent 返回 `executable`、`version`（无法获取时为 `null`）、`locally_ready: true|false|"unknown"` 和 `reasons: [...]`。缺少 tmux 或 agent 二进制时，该 agent 未就绪；明确阻塞优先于未知状态。检查完成时退出码为 0，即使 agent 未就绪；参数无效或项目目录不存在时退出码为 1。调用方应读取 `locally_ready`；已就绪的 agent 仍可能带有仅供参考的 `reasons`。
 
-各 driver 只探测本地状态。不会执行 agent 二进制，包括 `--version`：版本只来自与可执行文件匹配的包元数据（Codex／Claude／DSH）或可识别的内嵌构建元数据（Claude／Kimi）。其他分发格式返回 `version: null`，且就绪状态为未知，除非发现明确阻塞。
+各 driver 只探测本地状态。不会执行 agent 二进制，包括 `--version`：版本只来自与可执行文件匹配的包元数据（Codex／Claude／DSH）或可识别的内嵌构建元数据（Claude／Kimi／agy）。其他分发格式返回 `version: null`，且就绪状态为未知，除非发现明确阻塞。
 
 - Claude 检查 `.claude.json` 中的工作区信任，查找键按 NFC 规范化；对 worktree 检查公共仓库的规范根目录，再检查 Git 根目录范围内已信任的祖先目录。支持旧式 `.config.json`、`CLAUDE_CONFIG_DIR` 和自定义 OAuth 的独立信任文件。worktree／子模块的祖先信任无法确认规范 Git 边界时，返回 `unknown`。
 - Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下受支持的 API key／token 认证文件结构。选中的自定义 provider 若配置 `requires_openai_auth = false`，无需 OpenAI 登录；配置了 `env_key` 时，相应环境变量必须存在。profile 选择、额外系统／项目配置层、不支持的 provider 选项、keyring／auto／ephemeral 存储，以及无法识别或读取的认证状态，在只读检查无法确认有效状态时返回 `unknown`。它还会从同一份配置读取 `[projects."<root>"].trust_level`；仓库根目录尚未被信任时，在不改变 `locally_ready` 的前提下追加 `repository root not trusted by Codex: <root> (launch accepts the prompt)`。根目录是最近的包含 `.git` 条目的祖先目录（linked worktree 对应主 checkout）；键只按真实路径精确匹配，不尝试 NFC 或符号链接写法，取第一个带 `trust_level` 的条目：先项目目录自身，再最近的 `.git` 目录（linked worktree 自己的目录），最后是根目录。根目录或项目目录被标为 `untrusted` 时，Codex 会显示 launch 不会应答的受限目录界面，此时 `locally_ready` 为 `false`。任何项目条目的 `trust_level` 若不是 `trusted` 或 `untrusted`，Codex 会拒绝加载该配置，因此报告 `unknown`（`config field types unrecognized`）。不在 git 仓库内时不报告任何内容。
 - Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。模型必须包含模型名称及正整数 `max_context_size`；provider 的 API key 与 OAuth 互斥。缺失或冲突的配置、keyring 和服务身份状态返回 `unknown`。
 - DSH 检查已安装包的版本，以及 `DEEPSEEK_API_KEY`、`$DSH_HOME/.env` 或 `$DSH_HOME/.credentials.yaml` 是否存在（`DSH_HOME` 默认 `~/.dsh`），不读取这些文件的凭据正文。它还在 profile patch 文本中检查 `magpie:` provider 键，缺失时给出 `unknown` 提示；这不是 YAML 或网关验证。认证仍为 `unknown`，由 DSH 在 runtime 验证。
+- agy 读取 Go 二进制里内嵌的版本串，要求有 Node.js 运行桥接，拒绝低于测试版本 1.5.2 的版本。`PATH` 上有多个不同的 `agy` 时，逐一列出，说明哪个遮住了其他的、它是否在桌面 `.app` 包里。agy 把登录态存在系统钥匙串，doctor 不打开钥匙串，所以登录状态到启动时才确定，此前为 `unknown`。
 
 `doctor` 检查本地凭据和配置的结构，不验证其完整有效性；例如，不检测 JWT claim 键的重复。`locally_ready: true` 表示未发现已知的本地启动阻塞。不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
 
@@ -103,6 +104,19 @@ DSH 需要 Node.js、用于 profile／插件管理的 pnpm，以及官方原生 
 启动时，ahelpa 会在缺失时从 base bundle 创建 `DSH_HOME/profiles/ahelpa`，并在会话交接目录中写入终端 app 与 `--patch` overlay。官方 CLI 提供 Web、headless、SDK 和 ACP profile，没有内置 TUI。适配器直接使用公开 Agent/Session API，让同一个 DSH 进程保持多轮上下文，并通过原生会话持久化实现 `resume`；不添加 ACP／SDK 传输或第三方 TUI。`task`、`wait`、`check`、`kill` 沿用通常工作流。
 
 DSH 默认为 `worker`、`magpie:deepseek/deepseek-flash`、`high` effort；`reviewer` 使用相同模型与 effort，以及只审不改的任务合同。默认路由使用本地 Magpie 网关。`--model <model>` 保留 profile 的默认 provider；`--model <provider>:<model>` 指定 provider，仅按第一个冒号拆分。Model ID 因 provider 而异：Magpie 使用 `deepseek/deepseek-v4-pro`，`deepseek-official` 使用 `deepseek-flash`；实际可用性取决于配置的路由与账号。`--effort` 接受 `off|low|high|max`。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。该 profile 以完整本地权限运行，并关闭适配器会话的 session-log contributor 与 OTel 上传；模型请求仍发送给 provider。此接入尚待观察，未来 DSH 版本未验证。详见 [DSH 接入说明](../../skill/references/dsh.md)。
+
+**Antigravity CLI（agy）**
+
+先运行一次 `agy` 完成登录，再检查并启动：
+
+```bash
+ahelpa doctor agy --project /path/to/project
+ahelpa launch agy --project /path/to/project --task "Review the CLI parser"
+```
+
+agy 1.5.2 是测试基线，更旧的版本会被拒绝。ahelpa 在 tmux 里用一个很小的 Node 桥接以 headless 方式运行 agy（`--input-format stream-json --output-format stream-json --dangerously-skip-permissions`），因此不会弹信任对话框，也不写 agy 的全局设置或项目目录。同一个 agy 进程处理这个 helper 的所有任务，并保持同一段对话。`resume` 用 `--conversation <id>` 重新打开同一段对话；如果 agy 打开的是另一段对话，resume 失败。`task`、`wait`、`check`、`kill` 沿用通常工作流。
+
+agy 默认为 `worker`，使用 `--model gemini-4-argon --effort medium`，agy 将其解析为 `gemini-4-argon-medium`（Gemini 4 Argon · medium）；`reviewer` 使用相同模型，以及只审不改的任务合同。agy 的模型 ID 自带 effort：只传 `--effort high` 得到 `gemini-4-argon-high`；带后缀的 `--model`（如 `gemini-3.8-flash-low`）需要配上相同的 `--effort low`，或改用模型族名加 `--effort`。`agy models` 列出账号可用的模型。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。详见 [agy 接入说明](../../skill/references/agy.md)。
 
 用 `--label` 给 session 打标签，方便识别：
 

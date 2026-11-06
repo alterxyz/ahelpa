@@ -158,13 +158,13 @@ Drivers encapsulate agent-specific terminal behavior so that launch orchestratio
 
 | Responsibility | Example |
 | --- | --- |
-| Session prefix | `claude`, `codex`, `kimi`, `dsh`, `pi` |
+| Session prefix | `claude`, `codex`, `kimi`, `dsh`, `pi`, `agy` |
 | Launch command | `claude --dangerously-skip-permissions --verbose`, `codex --dangerously-bypass-approvals-and-sandbox`, `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` |
 | Pre-task readiness | Wait for CLI to be ready, handle trust prompts |
 | Post-submission handling | Press Enter if needed; capture a newly created native session ID |
-| Sentinel detection | Shared sentinel matching in `src/drivers/sentinels.ts`, or DSH/Pi adapter state markers |
+| Sentinel detection | Shared sentinel matching in `src/drivers/sentinels.ts`, or DSH/Pi/agy adapter state markers |
 
-The supported drivers are `claude-code`, `codex`, `kimi`, `dsh`, and `pi`. They share the task/result file contract and helper completion signals, with driver-specific startup and state detection. On Kimi's first launch in a directory, its driver automatically selects **Trust and continue**. Kimi persists that trust and may then start project MCP servers from the directory. Kimi initially shows no native session ID; after the first task message creates a `session_*` ID, ahelpa records it and resumes with `kimi --session <id>`.
+The supported drivers are `claude-code`, `codex`, `kimi`, `dsh`, `pi`, and `agy`. They share the task/result file contract and helper completion signals, with driver-specific startup and state detection. On Kimi's first launch in a directory, its driver automatically selects **Trust and continue**. Kimi persists that trust and may then start project MCP servers from the directory. Kimi initially shows no native session ID; after the first task message creates a `session_*` ID, ahelpa records it and resumes with `kimi --session <id>`.
 
 `launch --safe` passes a safe-mode hint into the selected driver and stores it with the session. Native resume inherits that posture; `resume --safe` can upgrade a default-posture record, but an omitted flag cannot downgrade a safe one. Claude Code omits `--dangerously-skip-permissions`; Codex uses `-s workspace-write -a never` instead of `--dangerously-bypass-approvals-and-sandbox`; Kimi uses `--yolo` (Ask When Needed) instead of `--auto` (Never Ask). Kimi still automatically trusts the project directory in safe mode, so its safe mode is not a sandbox; Codex's "Folder access" prompt is likewise answered in safe mode (see [security](security.md)).
 
@@ -187,6 +187,12 @@ The adapter uses the shared `DSH_HOME` (default `~/.dsh`) and provider keys load
 The bridge parses JSON lines, submits its local FIFO one task at a time, keeps running through retries/compaction, and emits terminal state markers with session/turn identity only after settlement, without idle gaps between queued tasks. `/abort` clears the queue and aborts; `/exit` and termination signals stop the child within bounded waits. Pane hangup skips RPC cancellation and terminal restoration, and cleanup sends TERM then KILL to Pi and its recorded descendant process groups, including detached bash tools. Protocol failure leaves a task-discarding fatal input loop so later input cannot reach a shell.
 
 Native JSONL lives in Pi’s physical-cwd-encoded session directory (symlinks and `/tmp` aliases resolve before encoding). `PI_CODING_AGENT_DIR` follows Pi’s absolute/relative path, `~`, `~/…`, and `file://` rules. The bridge records its lock path and bridge/child PIDs in delivery `pi-process.json`; the gate snapshots the pane process tree before kill and checks those PIDs, independent of process titles. A UUID lock is acquired before spawn and released only after child close and recorded descendant cleanup; leftover locks refuse resume without PID-based takeover. Resume requires exactly one matching UUID transcript with a valid header and verifies the RPC session identity. The daemon still reclaims a successfully completed terminal; native resume preserves later context. See [Pi reference](../skill/references/pi.md).
+
+### agy stream-json bridge
+
+`agy.ts` generates `agy-terminal.mjs` in the delivery directory; the Node bridge in `agy-terminal-source.ts` owns one headless agy child (`--input-format stream-json --output-format stream-json --dangerously-skip-permissions`) inside tmux, with `AGY_CLI_DISABLE_AUTO_UPDATE=true`. Each task line becomes one NDJSON user message and each turn ends with one `result` event; the bridge serializes its FIFO and prints the same kind of session/turn/state markers as the Pi bridge. agy reports the conversation ID before the first task, so it is recorded as the resume token at launch; resume passes `--conversation <id>` and fails when agy reports a different ID, which agy does for unknown IDs. The defaults are `gemini-4-argon` / `medium`.
+
+Stopping uses SIGINT: stdin EOF lets agy finish its turn, and SIGTERM leaves tool processes behind. agy runs tool commands in their own process groups and its SIGINT cleanup races its exit, so the bridge snapshots agy's descendants (PID, parent, group, start time) before signalling and then sends TERM, then KILL, to survivors whose identity still matches. Stderr is reduced to fixed categories because it can name the account. The bridge records bridge/child PIDs in delivery `agy-process.json`; the gate records the pane process tree while the helper is live and checks those PIDs after kill. See [agy reference](../skill/references/agy.md).
 
 ## Nesting
 
@@ -239,3 +245,5 @@ The retained SQLite record supplies ownership checks and resume settings. Runnin
 | `drivers/kimi.ts` | Kimi Code driver |
 | `drivers/pi.ts` | Pi driver |
 | `drivers/pi-terminal-source.ts` | Pi RPC bridge and lifecycle |
+| `drivers/agy.ts` | agy driver |
+| `drivers/agy-terminal-source.ts` | agy stream-json bridge and lifecycle |
