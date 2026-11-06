@@ -1,6 +1,6 @@
 # Codex Helper Status Detection — open work
 
-> **For the next session:** both changes below are implemented, reviewed, verified and committed locally (A = `2d2853a`, B = `e939132`, on `main`), and installed on this machine on 2026-10-20 with the daemon restarted. Nothing has been pushed.
+> **For the next session:** both changes below are implemented, reviewed, verified and committed locally (A = `2d2853a`, B = `e939132`, on `main`), installed on this machine on 2026-10-20 with the daemon restarted, and pushed the same day. Two follow-ups remain open at the end of this file.
 
 ## Change A — a Codex model-capacity stop is reported, not `running` forever
 

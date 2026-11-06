@@ -75,16 +75,16 @@ The gate runs tests, typechecks, builds, and launches Claude Code and Codex; DSH
 
 ## Open Work
 
-Campaign records with unchecked boxes live in `docs/superpowers/plans/`. At the start of a session, check the newest one for open items before proposing new work:
+Campaign records with unchecked boxes live in `docs/superpowers/plans/`. At the start of a session, check them for open items before proposing new work:
 
-- `2026-10-08-helper-contract-and-evidence.md` — observation period for the v0.9.0 contract / evidence / `--check` / nudge mechanisms; the "Open work" section has the commands to run and the decisions to make.
-- `2026-10-18-runtime-files-and-launch-diagnostics.md` — keeping a failed launch's screen is committed locally (not installed); four items await the author: keep worktree evidence in the source repo (the 2026-10-20 count says host-made worktrees lose more than `--worktree` does), half-done on local branch `wip/linked-worktree-results`, bound `daemon.log`, move helper scratch out of the project, and prune deploy backups.
-- `2026-10-18-codex-helper-status-detection.md` — two fixes committed and installed locally (Codex model-capacity stop → `needs_attention`; sub-agent `turn_complete` no longer ends the main turn), awaiting push; three other follow-ups are still open.
+- `2026-10-08-helper-contract-and-evidence.md` — observation period for the v0.9.0 contract / evidence / `--check` / nudge mechanisms. Still open: re-count the nudge numbers on builds after 2026-10-20 and decide what to tune, the contract-wording decision, one Linux run of the evidence/wait tests, and four watch-only items (`nudged_at` never resets, other Claude `❯` forms, old sessions' skill snapshot, the intermittent Codex "did not expose the submitted task" launch failure).
+- `2026-10-18-codex-helper-status-detection.md` — both fixes are pushed and installed. Still open: align the Codex host instructions with the owner's memory-service policy (through the owner's config flow), and decide whether `wait --check` needs its own time budget.
 
-Fully shipped records are removed from the tree so searches stay lean. Read them from git history with `git show b87fe45:<path>`:
+Fully shipped records are removed from the tree so searches stay lean. Read them from git history:
 
-- `docs/proposals/2026-10-08-orchestration-lessons-clawwork-confer.md` — the full original behind the rejected designs (MCP server, workflow engine, full permission as the only posture, process-per-delivery, a shared transcript, an ACP transport; §6). The current summary of each is in [`docs/backends.md#rejected-designs`](docs/backends.md#rejected-designs); read that before proposing any of them again, and use the original (§6) only when you need the full argument.
-- `docs/superpowers/plans/2026-06-26-launch-model-options.md` — the finished launch model/effort campaign.
+- `git show b87fe45:docs/proposals/2026-10-08-orchestration-lessons-clawwork-confer.md` — the full original behind the rejected designs (MCP server, workflow engine, full permission as the only posture, process-per-delivery, a shared transcript, an ACP transport; §6). The current summary of each is in [`docs/backends.md#rejected-designs`](docs/backends.md#rejected-designs); read that before proposing any of them again, and use the original (§6) only when you need the full argument.
+- `git show b87fe45:docs/superpowers/plans/2026-06-26-launch-model-options.md` — the finished launch model/effort campaign.
+- `git show 955278d:docs/superpowers/plans/2026-10-18-runtime-files-and-launch-diagnostics.md` — the finished runtime-files campaign: linked worktrees keep results in the main checkout, bounded `daemon.log`, a failed launch keeps its screen, helper scratch lives outside the project, deploy backups are pruned, and DSH starts under non-official providers.
 
 ## Guardrails
 
