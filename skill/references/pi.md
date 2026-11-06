@@ -1,6 +1,6 @@
 # Pi
 
-Pi is a helper backend alongside DSH and, since 2026-10-30, the trial default for work that would have gone to DSH (see [profiles](profiles.md#pi)). Install `@earendil-works/pi-coding-agent` ≥ 1.4.0 and Node.js, and configure a provider in Pi before launching. Version 1.4.0 is the tested baseline; newer releases are accepted, older releases are refused with an upgrade message. `ahelpa doctor pi` checks installed metadata without executing the CLI or reading credentials; authentication remains unknown until launch.
+Pi is the default helper for work that would have gone to DSH, which was retired from default dispatch on 2026-11-06 (see [profiles](profiles.md#pi)). Install `@earendil-works/pi-coding-agent` ≥ 1.4.0 and Node.js, and configure a provider in Pi before launching. Version 1.4.0 is the tested baseline; newer releases are accepted, older releases are refused with an upgrade message. `ahelpa doctor pi` checks installed metadata without executing the CLI or reading credentials; authentication remains unknown until launch.
 
 ```bash
 ahelpa launch pi --file ./task.md --project /path/to/project
@@ -29,4 +29,4 @@ Child stderr and RPC, retry, compaction, and extension errors are reduced to fix
 
 ## Verification
 
-`AHELPA_GATE_PI=1 bun run closure:gate` opts into model calls and checks completion, native resume/context continuity, and process-tree/lock cleanup using pre-kill PID snapshots and delivery `pi-process.json` metadata. It uses native defaults unless `AHELPA_GATE_PI_MODEL=provider/id` or `AHELPA_GATE_PI_EFFORT=<level>` is set. Pi’s native session directory is separate from the gate’s disposable ahelpa state. The gate checks integration only; the trial default rests on the comparison recorded in [profiles](profiles.md#pi).
+`AHELPA_GATE_PI=1 bun run closure:gate` opts into model calls and checks completion, native resume/context continuity, and process-tree/lock cleanup using pre-kill PID snapshots and delivery `pi-process.json` metadata. It uses native defaults unless `AHELPA_GATE_PI_MODEL=provider/id` or `AHELPA_GATE_PI_EFFORT=<level>` is set. Pi’s native session directory is separate from the gate’s disposable ahelpa state. The gate checks integration only; the default rests on the comparison and review recorded in [profiles](profiles.md#pi).

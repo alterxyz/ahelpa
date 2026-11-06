@@ -80,7 +80,7 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 
 ## dsh
 
-During the Pi trial (since 2026-10-30), launch DSH only when the user asks for it or for a comparison or rollback; otherwise use [pi](#pi).
+**Retired from default dispatch since 2026-11-06.** Launch DSH only when the user names it or asks for a comparison or rollback; otherwise use [pi](#pi). The driver and install stay, so a named launch still works.
 
 **Observation status**
 
@@ -118,13 +118,14 @@ These observations were gathered on the `deepseek-official` route; the Magpie ro
 
 ## pi
 
-**Trial default since 2026-10-30.** Work this host would have sent to DSH goes to Pi. DSH stays installed for comparison and rollback; whether to retire it is reviewed around 2026-11-06. Use `worker` (default) or `reviewer` with a bounded task and explicit acceptance checks. Neither role presets a model or effort: Pi’s native configuration applies unless the host selects `--model provider/id` or `--effort <level>`. `advisor`, `--safe`, and runtime model switching are unsupported.
+**Default for work that would have gone to DSH** (trial from 2026-10-30; DSH retired from default dispatch on 2026-11-06). DSH stays installed for named launches, comparison and rollback. Use `worker` (default) or `reviewer` with a bounded task and explicit acceptance checks. Neither role presets a model or effort: Pi’s native configuration applies unless the host selects `--model provider/id` or `--effort <level>`. `advisor`, `--safe`, and runtime model switching are unsupported.
 
 **Observation status**
 - Same-condition comparison, 2026-10-30: Pi 1.4.0 and DSH 0.2.1-rc.5, both `deepseek-flash` / `high` on the official DeepSeek endpoint, launched together on five task types (bug fix with a failing test, cross-file change, seeded adversarial review, git-history research, resume with a changed requirement). One run per task and backend.
 - All 10 runs passed blind review; neither backend claimed false completion, stalled, or needed a nudge. Quality details split both ways, with no task type where DSH was clearly better.
 - Pi was faster and cheaper on every round: 681 s vs 921 s model-active wall clock, 93.6k vs 123.3k output tokens, 173 vs 233 model calls.
 - n=1 per task, small-to-medium tasks in one repository, at most about five minutes each. Long tasks, large repositories, and networked research are untested; small differences are not excluded.
+- Retirement review, 2026-11-06: during the trial week hosts kept naming DSH (38 launches, 37 clean, one 7-second error recovered by relaunch), and Pi ran 20 launches on 2026-11-06 alone with no stall, false completion, or error, on Pi 1.5.0 (ahelpa tested 1.4.0). The retirement rests on that short sample and the comparison above.
 
 **Watch for**
 - Summaries longer than the requested length, and coverage claims slightly stronger than the tests support.
