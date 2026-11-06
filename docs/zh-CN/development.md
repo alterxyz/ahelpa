@@ -47,6 +47,8 @@ dist/                      # 构建输出（git-ignored）
 
 修改面向用户的文档时，请在同一个改动里同步两种语言；如果某次改动只适用于一种语言，请明确说明。
 
+例外：`docs/backends/*.md` 里的候选卡只有英文。它们是带日期、面向 agent 的第三方产品证据，不是面向用户的文档，翻译只会产生漂移。`docs/backends.md` 本身仍然保持双语。
+
 ## 源码 vs 已安装 runtime
 
 这个仓库是源码树。已安装 runtime 是由源码编译出的二进制。
@@ -186,15 +188,26 @@ agy 的真机 gate 通过 `AHELPA_GATE_AGY=1` 启用，需要 Node.js 和 agy �
 
 ## 添加 driver
 
-Driver 位于 `src/drivers/`。新 driver 需要实现 `src/drivers/types.ts` 中的 `AgentDriver` 接口：
+请先读 [Helper 后端](backends.md)。它回答一个候选到底该不该做成 driver（分类和准入漏斗）、三种接法里哪种合适、spike 清单，以及已评估候选的登记表。无论接不接，结论都要记进登记表。driver 是最后一步，不是第一步。
 
-- `name` 和 `sessionPrefix` — 身份
-- `buildLaunchCommand` — 启动 agent CLI 的 shell command
-- `prepareForTask` — 任务投递前处理启动 prompt
-- `afterTaskSubmitted` — 任务提交后的确认或 nudge
-- `detectStatus` — 基于暗号检测状态，通常委托 `sentinels.ts`
+Driver 位于 `src/drivers/`。driver 要实现 `src/drivers/types.ts` 中的 `AgentDriver` 接口，共 22 个成员。
 
-最后在 `src/drivers/registry.ts` 中注册。
+**必选（15 个）：**
+
+- 身份与目录：`name`、`sessionPrefix`（session ID 前缀）、`modelCatalog`。
+- 启动与恢复：`buildLaunchCommand`、`buildResumeCommand`、`extractResumeToken`，以及 `resumeTokenAvailableAfterSubmit`（原生恢复 id 是在首次提交后立即可读，还是要等 helper 退出之后）。
+- 启动与投递：`prepareForTask` 和 `prepareForResume`（就绪检测、信任提示、更新对话框），以及 `afterTaskSubmitted`（确认新一回合确实开始）。
+- 状态：`detectStatus`、`detectOutcome`（状态，加可选的 NEED_HELP 标签和 `reason`）、`detectActivity`（`working`、`booting` 或 `idle`）。暗号匹配在 `sentinels.ts`。
+- 控制：`switchModel`（不支持运行时切换就抛错）和 `gracefulExit`。
+
+**可选（7 个）：**
+
+- `turnHooks` 和 `prepareLaunchFiles`：启动前写进结果目录的会话级 hook 或桥接文件。
+- `launchProfiles`：角色 → model/effort 预设。
+- `checkReadiness`：`doctor` 在不运行 CLI 的情况下报告什么。
+- `acceptsInput`、`acceptsInputAfterTurn`、`workingAfterTurn`：比默认实现更严格的「敲进去的字会不会进输入框」和「这一回合是否仍在运行」判断。
+
+在 `src/drivers/registry.ts` 中注册 driver。还有好几处会枚举 driver；`grep -rn "\bpi\b" src scripts skill docs` 是找到它们的快捷办法。至少包括：`src/disk-usage.ts`（session ID 前缀的匹配模式和桥接文件名）、`scripts/closure-gate.sh` 里的 closure gate 场景及其 `AHELPA_GATE_<NAME>` 开关、`skill/SKILL.md` 的前置条件、配置说明页 `skill/references/<name>.md` 与 `skill/references/profiles.md`，以及 README 的支持 helper 表。还要加 `tests/<name>-driver.test.ts`，用合成的 pane 抓屏做测试。
 
 Codex 终止回合的模型错误由 `detectOutcome` 检测，可返回 `needs_attention` 和可选的 `reason`（`model_capacity` 或 `usage_limit`）。只有错误后的工作证据才抑制该结果，并且错误后必须出现空闲输入框。准确短语必须紧随第零列的 `■`（仅 Codex 0.154 容量短语也支持 `⚠`）；`Tmux.capture` 保留行首空白。监控器需在同一 session version 下连续两次确认 driver 的相同 attention 原因，其他结果或 version 变化会重新计数。保留暗号优先级与不支持模型的原有错误行为。结算时将原因保存到已有归档，`check`、`status` 和 `wait` 仅展示当前已结算回合的原因。仅 `needs_attention` 且原因为 `model_capacity` 或 `usage_limit` 时，`wait` 才返回退出码 1；旧 attention 原因及没有原因的结果仍返回 0。合成终端及结果传递回归测试位于 `tests/codex-capacity.test.ts`。
 

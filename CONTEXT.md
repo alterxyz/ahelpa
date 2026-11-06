@@ -14,6 +14,12 @@
 
 **Driver** — An adapter for one helper type. Drivers own startup commands, readiness checks, trust prompt handling, post-submission nudges, and sentinel detection.
 
+**Helper backend** — The agent CLI or runtime behind one driver (Claude Code, Codex, Kimi, Pi, DSH). What qualifies, and how a candidate is evaluated, is in `docs/backends.md`.
+
+**Host target** — An agent that *calls* ahelpa (a Host, seen as a product), which maps to a skill installation target rather than a driver. The same agent can be both a host target and a helper backend; the two questions are evaluated separately.
+
+**Peer runtime** (同行运行时) — An orchestration or management tool at the same layer as ahelpa. Treated as reference, not rejection: learn from it, consider interop if useful, write no driver. Listed in the candidate registry.
+
 **Sentinel protocol** — Helpers print `[AHELPA:DONE]` or `[AHELPA:NEED_HELP]` (optionally `[AHELPA:NEED_HELP:<payload>]` with comma-separated tags) to declare completion or request assistance. Sentinel strings and matching rules live in `src/drivers/sentinels.ts`.
 
 **Wakeup protocol** — `wait` blocks on a named pipe (FIFO). When a session settles, the daemon writes a wakeup event through the pipe. Pipe paths and payload handling live in `src/wakeup.ts`.

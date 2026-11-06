@@ -47,6 +47,8 @@ English is the default documentation language. Simplified Chinese translations l
 
 When editing user-facing documentation, update both language versions in the same change unless the edit is intentionally language-specific.
 
+Exception: the candidate cards in `docs/backends/*.md` are English-only. They are dated, agent-facing evidence about third-party products, not user-facing documentation, and a translation would only drift. `docs/backends.md` itself stays bilingual.
+
 ## Source vs Installed Runtime
 
 This repository is the source tree. The installed runtime is a compiled binary generated from it.
@@ -185,15 +187,26 @@ Enable the live agy gate with `AHELPA_GATE_AGY=1`; it requires Node.js and agy �
 
 ## Adding a Driver
 
-Drivers live in `src/drivers/`. A new driver implements the `AgentDriver` interface from `src/drivers/types.ts`:
+Read [Helper backends](backends.md) first. It covers whether a candidate should be a driver at all (classification and the admission funnel), which of the three wiring shapes fits, the spike checklist, and the registry of candidates already evaluated. Record the outcome in the registry whether or not you build it. The driver is the last step, not the first.
 
-- `name` and `sessionPrefix` — identity
-- `buildLaunchCommand` — the shell command to start the agent CLI
-- `prepareForTask` — handle any startup prompts before task delivery
-- `afterTaskSubmitted` — handle post-submission confirmation (e.g., press Enter)
-- `detectStatus` — sentinel-based status detection (typically delegates to `sentinels.ts`)
+Drivers live in `src/drivers/`. A driver implements `AgentDriver` from `src/drivers/types.ts`, which has 22 members.
 
-Register the new driver in `src/drivers/registry.ts`.
+**Required (15):**
+
+- Identity and catalog: `name`, `sessionPrefix` (the session-ID prefix), `modelCatalog`.
+- Launch and resume: `buildLaunchCommand`, `buildResumeCommand`, `extractResumeToken`, and `resumeTokenAvailableAfterSubmit` (whether the native resume id is readable right after the first submit, or only after the helper exits).
+- Startup and delivery: `prepareForTask` and `prepareForResume` (readiness, trust prompts, update dialogs), and `afterTaskSubmitted` (confirm that the new turn started).
+- State: `detectStatus`, `detectOutcome` (a status plus optional NEED_HELP tags and a `reason`), and `detectActivity` (`working`, `booting`, or `idle`). Sentinel matching lives in `sentinels.ts`.
+- Control: `switchModel` (throw if runtime switching is unsupported) and `gracefulExit`.
+
+**Optional (7):**
+
+- `turnHooks` and `prepareLaunchFiles`: session-scoped hook or bridge files written under the result directory before launch.
+- `launchProfiles`: role → model/effort presets.
+- `checkReadiness`: what `doctor` reports without running the CLI.
+- `acceptsInput`, `acceptsInputAfterTurn`, `workingAfterTurn`: stricter "would typed text reach the composer" and "is the turn still running" checks than the defaults.
+
+Register the driver in `src/drivers/registry.ts`. Several other places enumerate drivers; `grep -rn "\bpi\b" src scripts skill docs` is a quick way to find them. At least: `src/disk-usage.ts` (a session-ID prefix pattern and the names of bridge files), the closure gate scenario and its `AHELPA_GATE_<NAME>` switch in `scripts/closure-gate.sh`, the prerequisites in `skill/SKILL.md`, the setup page `skill/references/<name>.md` and `skill/references/profiles.md`, and the supported-helpers table in the README. Add `tests/<name>-driver.test.ts` with synthetic pane captures.
 
 Codex terminal model stops belong in `detectOutcome`, which can return `needs_attention` with an optional `reason` (`model_capacity` or `usage_limit`). Only work after the error suppresses this outcome, and the idle composer must follow it. Require the exact phrase immediately after a column-zero `■` (`⚠` is supported only for the Codex 0.154 capacity phrase); `Tmux.capture` preserves leading whitespace. The monitor confirms a driver attention outcome twice at the same session version and reason, resetting on other outcomes or version changes. Preserve sentinel precedence and unsupported-model errors. Settlement stores the reason in the existing archive; `check`, `status`, and `wait` expose it for the current settled turn. `wait` exits 1 only for `needs_attention` with `model_capacity` or `usage_limit`; legacy attention reasons and missing reasons keep exit 0. Synthetic pane and reporting regressions live in `tests/codex-capacity.test.ts`.
 

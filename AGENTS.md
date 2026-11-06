@@ -41,6 +41,8 @@ English is the default public documentation language. Simplified Chinese lives b
 
 When changing user-facing docs, update both language versions or explicitly note why only one language changed.
 
+Exception: `docs/backends/*.md` (candidate cards) are English-only dated evidence for agents, with no zh-CN copy. `docs/backends.md` stays bilingual.
+
 ## Requirements
 
 - macOS or Linux, Bun 1.4.2 (pinned in `packageManager` and CI), tmux
@@ -81,7 +83,7 @@ Campaign records with unchecked boxes live in `docs/superpowers/plans/`. At the 
 
 Fully shipped records are removed from the tree so searches stay lean. Read them from git history with `git show b87fe45:<path>`:
 
-- `docs/proposals/2026-10-08-orchestration-lessons-clawwork-confer.md` — why ahelpa declines an MCP server, a workflow engine, always-full permission, process-per-delivery, a shared transcript and an ACP transport (§6). Read §6 before proposing any of them again.
+- `docs/proposals/2026-10-08-orchestration-lessons-clawwork-confer.md` — the full original behind the rejected designs (MCP server, workflow engine, full permission as the only posture, process-per-delivery, a shared transcript, an ACP transport; §6). The current summary of each is in [`docs/backends.md#rejected-designs`](docs/backends.md#rejected-designs); read that before proposing any of them again, and use the original (§6) only when you need the full argument.
 - `docs/superpowers/plans/2026-06-26-launch-model-options.md` — the finished launch model/effort campaign.
 
 ## Guardrails
@@ -90,6 +92,7 @@ Fully shipped records are removed from the tree so searches stay lean. Read them
 - Prefer file handoff over terminal output parsing.
 - Keep `wait` bounded — long tasks use re-wait or polling.
 - Keep agent-specific behavior inside drivers.
+- Before proposing or researching a new helper backend, read [`docs/backends.md`](docs/backends.md) and its [candidate registry](docs/backends.md#candidate-registry); the candidate may already be evaluated. Record the conclusion in the registry either way (declined, deferred or built), with date and version.
 - Do not commit runtime output, dependency folders, build artifacts, archives, credentials, or local paths.
 - Tests put scratch under `realpathSync(tmpdir())` and remove it, never under the checkout or its `.ahelpa/`. A helper's result directory is not a test fixture root; test code written by a helper must not keep that path.
 - Helpers run with full local permissions. Be deliberate about `--project` and worktree isolation.

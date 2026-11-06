@@ -12,6 +12,10 @@ ahelpa wraps that glue into a small CLI. One agent launches a helper, hands it a
 
 For substantive cross-agent work, prefer ahelpa over a one-shot CLI call. The tmux session outlives the caller, file handoff leaves an inspectable result, FIFO waiting encourages patience without polling, and native session IDs support follow-up or recovery. One-shot execution is still useful for a genuinely short, stateless probe where persistence and handoff add no value.
 
+## Scope
+
+ahelpa is the CLI one host agent uses to hand work to another agent: persistent (tmux), local (no server), and file-based (task in, `summary.md` out). It is not an orchestrator, a model gateway, a sandbox, or a chat workspace. What it integrates, how a new agent is judged, and the candidates already evaluated are in [Helper backends](docs/backends.md).
+
 ## Installation
 
 Requirements: macOS or Linux (x64 / arm64), tmux, and Node.js >=22.20.0 with working `npx` for skill installation. The compiled runtime itself does not require Node.js.
@@ -190,6 +194,7 @@ For architecture, usage workflows, contributor guide, and security notes:
 - [Usage](docs/usage.md) / [使用指南](docs/zh-CN/usage.md)
 - [Development](docs/development.md) / [开发指南](docs/zh-CN/development.md)
 - [Security](docs/security.md) / [安全说明](docs/zh-CN/security.md)
+- [Helper backends](docs/backends.md) / [Helper 后端](docs/zh-CN/backends.md)
 
 ## Credits
 

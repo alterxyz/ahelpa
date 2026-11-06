@@ -12,6 +12,10 @@ ahelpa 把这些胶水收束成一个小 CLI。一个 agent 启动 helper，把�
 
 对于正儿八经的跨 agent 工作，默认应优先使用 ahelpa，而不是一次性 CLI 调用。tmux session 可以脱离调用方继续存活；文件交接留下可检查的结果；FIFO wait 让调用方耐心等待而无需轮询；原生 session ID 则支持后续追问和恢复。只有真正短小、无状态，而且持久性与交接都没有价值的探针，才适合一次性执行。
 
+## 定位
+
+ahelpa 是让一个 host agent 把活交给另一个 agent 的 CLI：持久（tmux）、本地（没有服务器）、靠文件交接（任务进、`summary.md` 出）。它不是编排器、模型网关、沙箱，也不是聊天工作区。它接什么、怎么判断一个新 agent 能不能接，以及已经评估过的候选，见 [Helper 后端](docs/zh-CN/backends.md)。
+
 ## 安装
 
 要求：macOS 或 Linux（x64 / arm64）、tmux，以及用于安装 skill 的 Node.js >=22.20.0 和可正常运行的 `npx`。编译后的 runtime 本身不依赖 Node.js。
@@ -190,6 +194,7 @@ bun run closure:gate           # 端到端 gate（Claude Code + Codex；AHELPA_G
 - [使用指南](docs/zh-CN/usage.md) / [Usage](docs/usage.md)
 - [开发指南](docs/zh-CN/development.md) / [Development](docs/development.md)
 - [安全说明](docs/zh-CN/security.md) / [Security](docs/security.md)
+- [Helper 后端](docs/zh-CN/backends.md) / [Helper backends](docs/backends.md)
 
 ## 致谢
 
