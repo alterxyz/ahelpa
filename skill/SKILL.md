@@ -21,6 +21,11 @@ Public documentation is available in English and Simplified Chinese:
 
 ## Installation
 
+To inspect local disk usage, run `ahelpa du` (metadata only, no content hashes).
+`--json` includes category/path detail; `--exclude tmp.scratch,dev` omits categories or groups.
+Use `--scan <parent-dir>` to discover historical project `.ahelpa` directories no longer recorded in state.db.
+The report distinguishes logical bytes from allocated blocks; shared agent-native sessions/caches are not included.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/alterxyz/ahelpa/main/scripts/install.sh | bash
 ```

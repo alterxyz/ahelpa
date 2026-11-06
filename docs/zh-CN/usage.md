@@ -30,6 +30,24 @@ JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver �
 
 `doctor` 检查本地凭据和配置的结构，不验证其完整有效性；例如，不检测 JWT claim 键的重复。`locally_ready: true` 表示未发现已知的本地启动阻塞。不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
 
+## 统计磁盘占用
+
+系统临时目录中名为 `ahelpa-*` 的条目（例如安装、打包和闭环验收残留）单列为 `tmp.legacy`。只检查顶层匹配名称，不搜索无关临时文件树。
+
+```bash
+ahelpa du
+ahelpa du --scan ~/projects --json
+ahelpa du --exclude tmp.scratch,dev
+```
+
+`du` 是只读命令，从运行时布局、已有数据库和 need-help 台账、当前 checkout、安装位置与 Git worktree 元数据发现路径。覆盖运行状态、日志、归档、安装备份与技能副本、scratch/任务文件/FIFO、项目交付（输入、总结、artifacts、日志、桥接与邮件），以及能确认归属的 helper worktree。在 ahelpa 源码仓库运行时，也将 `dist`、`node_modules`、`skill/bundle` 计入 `dev.*`。
+
+表格同时显示文件字节数（logical）和磁盘分配块（`st_blocks × 512`），并列出最大的十个已统计路径。`--json` 提供每类的原始字节数和路径明细。`--exclude` 接受输出里的精确分类 ID，或整组名称：`runtime`、`install`、`tmp`、`delivery`、`worktree`、`dev`。被排除内容不会落入其他分类。
+
+`--scan` 用于补充数据库记录已被清理的历史项目：搜索一个公共父目录，深度上限 8；跳过软链接、`node_modules` 和除 `.ahelpa` 外的隐藏目录，发现结果目录后不再进入。这是有边界的清单，不是全设备搜索；改名、迁移的归档及范围外的项目可能遗漏。JSON 中保留发现来源与跳过的根路径。
+
+不计算内容哈希。遍历不跟随软链接；硬链接以设备号/inode 在所有根之间只计一次。共享的 agent 原生会话、全局工具缓存、host 自建 worktree 和共享 Git 对象不计入。APFS clone/快照可能与其他文件共享数据块，因此分配量不代表删除后能释放的空间。权限等错误会明确标记为不完整下限（`complete: false`、`≥`），仍返回可用结果并退出 0；参数错误退出 1。运行中的写入会使快照发生变化。
+
 ## 启动 helper
 
 ```bash

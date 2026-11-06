@@ -30,6 +30,24 @@ The driver probes inspect local state only. Agent executables are never run, eve
 
 `doctor` checks the shape of local credentials and configuration, not their full validity; for example, it does not detect duplicate JWT claim keys. `locally_ready: true` means nothing locally known to block a launch. It does not validate credentials against a server, refresh tokens, check quota, or guarantee a successful model call. No model is called, no interactive session or daemon starts, and no config, tmux session, database, task file, or FIFO is created. For source-mode checks, set `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` to also disable Bun's own transpilation cache.
 
+## Measure Disk Usage
+
+System temp entries named `ahelpa-*` (for example installer, packaging and closure-gate leftovers) are counted separately as `tmp.legacy`. Only top-level matching names are inspected; unrelated temp trees are not searched.
+
+```bash
+ahelpa du
+ahelpa du --scan ~/projects --json
+ahelpa du --exclude tmp.scratch,dev
+```
+
+`du` is read-only: it discovers paths from the runtime layout, existing database and need-help ledger, current checkout, installation locations and Git worktree metadata. It counts runtime state/logs/archives, installation backups and skill copies, scratch/task/FIFO files, project handoffs (inputs, summaries, artifacts, logs, bridges and mail), and identifiable helper worktrees. In the ahelpa source checkout it also counts `dist`, `node_modules` and `skill/bundle` under `dev.*`.
+
+The table shows file bytes (logical) and allocated disk blocks (`st_blocks × 512`), plus the ten largest counted paths. `--json` includes byte counts and path detail for every category. `--exclude` accepts exact category IDs from the output or whole groups: `runtime`, `install`, `tmp`, `delivery`, `worktree`, `dev`. Excluded content never falls back into an `other` category.
+
+`--scan` supplements project discovery after database records have been cleaned. It searches one parent directory to depth 8, skips symlinks, `node_modules` and hidden directories other than `.ahelpa`, and does not descend into discovered result directories. This is a bounded inventory, not a whole-device search: renamed/moved archives and projects outside these sources may be absent. JSON records discovery sources and skipped roots.
+
+No content hashes are computed. Symlink targets are not traversed; hardlinks are counted once across all roots using device/inode metadata. Shared agent-native sessions, global tool caches, host-created worktrees and shared Git objects are not counted. Allocated bytes can include APFS clone/snapshot blocks shared with other files, so the total is not an estimate of space freed by deletion. Errors produce an explicitly incomplete lower-bound report (`complete: false`, `≥`) while usable results still exit 0; invalid options exit 1. Live writes can change the snapshot.
+
 ## Launch a Helper
 
 ```bash

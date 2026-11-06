@@ -122,6 +122,7 @@ Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `
 | `check [--parent <id>] [--job <id>]` | 非阻塞状态查询，做 inline refresh 并显示与调用方的关系 |
 | `models [agent]` | 列出启动时可选的模型 |
 | `doctor [agent] [--project <path>]` | 以 JSON 检查本地就绪状态，不调用模型、不写运行状态 |
+| `du [--json] [--exclude <category,...>] [--scan <dir>]` | 用文件系统元数据统计磁盘占用，列出分类与最大路径 |
 | `send <id> "msg" --token <tok>` | 给运行中的 helper 发送短消息 |
 | `mail (<to-id> \| --peers) (--file <path> \| --text "...")` | 在调用 helper 的 job 内投递有界 peer mail |
 | `inbox [--read <seq>]` | 列出调用 helper 的消息及已读状态，或读取并标记一条 |

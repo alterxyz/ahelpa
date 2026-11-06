@@ -122,6 +122,7 @@ Use advisors for analysis, plans, and review; use workers for execution against 
 | `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh and caller relationship |
 | `models [agent]` | List launch-time model options |
 | `doctor [agent] [--project <path>]` | Check local readiness as JSON without a model call or runtime writes |
+| `du [--json] [--exclude <category,...>] [--scan <dir>]` | Measure disk usage from filesystem metadata; show categories and largest paths |
 | `send <id> "msg" --token <tok>` | Send a message to a running helper |
 | `mail (<to-id> \| --peers) (--file <path> \| --text "...")` | Deliver bounded peer mail within the calling helper's job |
 | `inbox [--read <seq>]` | List the calling helper's messages with read state, or read and mark one |

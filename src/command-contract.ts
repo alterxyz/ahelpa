@@ -19,6 +19,7 @@ import { readTaskFile } from "./task-input";
 import { parseHelperRole } from "./launch-profiles";
 import { mail, inbox, readMailFile } from "./commands/peer-mail";
 import { resolveParentId } from "./caller-identity";
+import { collectDiskUsage, formatDiskUsage, parseDiskExclusions } from "./disk-usage";
 export { resolveParentId } from "./caller-identity";
 
 export class UsageError extends Error {}
@@ -119,6 +120,19 @@ export function renderModelsText(agent?: string): string {
 }
 
 export const COMMAND_CONTRACTS: CommandContract[] = [
+  {
+    name: "du",
+    usage: "du [--json] [--exclude <category,...>] [--scan <dir>]",
+    description: "Measure local disk usage from filesystem metadata without content hashes",
+    stateless: true,
+    flags: { json: { kind: "boolean" }, exclude: { kind: "string" }, scan: { kind: "string" } },
+    async run(ctx) {
+      try { parseDiskExclusions(ctx.flags.strings.exclude); }
+      catch (error) { throw new UsageError((error as Error).message); }
+      const report = collectDiskUsage({ exclude: ctx.flags.strings.exclude, scan: ctx.flags.strings.scan });
+      ctx.print(ctx.flags.booleans.json ? JSON.stringify(report, null, 2) : formatDiskUsage(report));
+    },
+  },
   {
     name: "doctor",
     usage: "doctor [agent] [--project <path>]",
