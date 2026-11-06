@@ -37,7 +37,6 @@ function createAgyTerminal(deps) {
     // Deliberately retain stdin: tmux's fallback shell must never receive tasks.
   }
   function finish(result) {
-    const turn = active;
     stopPulse();
     const text = typeof result.response === "string" ? result.response : "";
     const signals = [...text.matchAll(/^\s*(?:[-•●⏺]\s*)?\[AHELPA:(DONE|NEED_HELP(?::([^\]\r\n]*))?)\]\s*$/gmu)];
@@ -53,7 +52,6 @@ function createAgyTerminal(deps) {
     if (status !== "idle") queue.length = 0;
     if (queue.length) { active = undefined; next(); }
     else { frames(status, help ? tags : []); active = undefined; }
-    return turn;
   }
   function next() {
     if (!ready || fatal || exiting || active || !queue.length) return;
