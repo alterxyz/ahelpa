@@ -135,18 +135,23 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 
 ## agy
 
-**New integration (2026-11-06), opt-in by name.** Google Antigravity CLI, default `gemini-4-argon` / `medium` (Gemini 4 Argon · medium). Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
+**New integration (2026-11-06). First choice for prose people will read and for divergent ideation; never the critical voice.** Google Antigravity CLI, default `gemini-4-argon` / `medium` (Gemini 4 Argon · medium). Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
 
 **Observation status**
-- Integration checks only: agy 1.5.2 smoke runs and the closure gate (completion, kill, native resume with context recalled). No task-quality comparison with other helpers yet, so make no capability claim.
+- Integration checks only: agy 1.5.2 smoke runs and the closure gate (completion, kill, native resume with context recalled). No task-quality comparison inside ahelpa yet.
+- Owner's assessment of Gemini 4 Argon (2026-11-06, from use outside ahelpa): a very good writer, best at text meant for people, and good at divergent thinking. Its clear weakness is agreeing with whatever it is given: it polishes the premise into being right and rarely raises a critical objection. This is about the default model; agy's other models are not assessed.
 
 **Watch for**
 - Headless agy never stops for approval. When the model asks itself a question, it gets an empty answer and carries on; a blocked helper only reaches you through `NEED_HELP`. Spell out when to stop and signal.
+- Agreement is not evidence. An Argon summary that endorses the brief's premise says little about whether the premise holds; look for what it actually checked.
 - The model may decline a destructive command on its own and report it as skipped (seen with `git push --force`). Read the summary for skipped steps, not only the exit status.
 - Per agy's 1.5.2 changelog (not reproduced by ahelpa), commands on its protected list still go through agy's usual checks under `--dangerously-skip-permissions`, and headless runs deny what would need approval, so the helper sees a refusal instead of a prompt.
 
 **Give it**
-- Well-scoped, checkable coding or review tasks with `--check`, until it has a track record. Choose the effort with `--effort low|medium|high`; a suffixed `--model` needs the matching `--effort`.
+- Prose for people to read: explanations, docs, announcements, drafts. Give it the facts and the sources and let it hold the pen; have a different model check its claims against the sources before the text ships.
+- Divergent work: brainstorming, alternatives, framings, naming. Ask for many options with their trade-offs, not a verdict; the host or another model chooses.
+- Not adversarial review, verdicts, ship decisions, or "is this right?" questions: it sides with the premise. Use the `reviewer` role on another model (codex or claude-code), even though agy accepts `--role reviewer`.
+- Choose the effort with `--effort low|medium|high`; a suffixed `--model` needs the matching `--effort`.
 
 **Runtime quirks**
 - Each helper is one agy process in headless stream-json mode behind a bridge; resume reopens the same agy conversation. See [agy setup and limits](agy.md).
@@ -156,12 +161,14 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 | Task | Helper | Role | Contract emphasis |
 | --- | --- | --- | --- |
 | Implementation | codex | worker | Failing-first test, forbidden list, final-diff verification with exit codes and `-count=1`-style cache off |
-| Adversarial review | a different model than the implementer (archive: mostly codex with mutation testing; claude for judgment-heavy review) | reviewer | Built-in reviewer contract (review-only, verdict first, findings with `path:line` and P1/P2, reruns with exit codes and cache off, at least 3 reverted mutations, unchecked list); add host-supplied commands to rerun |
+| Adversarial review | a different model than the implementer, not agy (it sides with the premise) (archive: mostly codex with mutation testing; claude for judgment-heavy review) | reviewer | Built-in reviewer contract (review-only, verdict first, findings with `path:line` and P1/P2, reruns with exit codes and cache off, at least 3 reverted mutations, unchecked list); add host-supplied commands to rerun |
 | Rework after review | codex | worker | Map each finding to a change; no new tests that only mirror the fix; full-suite rerun after the last edit |
 | Focused re-review | same choice as the adversarial review | reviewer | Built-in reviewer contract; check only the delta plus regressions; do not assume the rework's own claims |
 | Read-only investigation | claude-code | advisor | Question, scope limits, `file:line` evidence, "not examined" section |
 | Mutation testing | codex | worker | Report mutants tried, killed, survived; survivors become tests. Mutant copies go under `$AHELPA_SCRATCH`; `artifacts/` gets each mutant's patch and the test log, never a tree copy |
-| Docs and prose | claude-code | worker (or advisor if judgment-heavy) | Source files to cite, no code changes |
+| Prose for people to read (explanations, docs, drafts) | agy | worker | Facts and source files to cite, no code changes; a different model checks the claims against the sources |
+| Brainstorming and alternatives | agy | worker | Many options with trade-offs, not a verdict; the host or another model chooses |
+| Docs that must match code exactly | claude-code | worker (or advisor if judgment-heavy) | Source files to cite, no code changes |
 
 ## What the host must do regardless
 
