@@ -1,5 +1,7 @@
 # ahelpa on Codex
 
+Public name: `codex`. The `gpt` nickname uses the same profile and prefix.
+
 Platform-specific guidance for using ahelpa inside the Codex CLI.
 
 ## Runtime Constraints
@@ -17,7 +19,7 @@ Launch and resume add a per-invocation `-c notify=[...]` override, leaving user 
 ## Binary Mapping
 
 - `ahelpa launch codex ...` uses the `codex` CLI
-- `ahelpa launch claude-code ...` uses the `claude` CLI
+- `ahelpa launch claude ...` uses the `claude` CLI
 
 Verify with `command -v codex` or `command -v claude`, not `command -v claude-code`.
 
@@ -45,7 +47,7 @@ ls ".ahelpa/$session_id/artifacts/"
 Cross-agent launch:
 
 ```bash
-result=$(ahelpa launch claude-code --task "Review the API contracts" --project /path/to/project)
+result=$(ahelpa launch claude --task "Review the API contracts" --project /path/to/project)
 session_id=$(echo "$result" | jq -r .sessionId)
 ahelpa wait "$session_id"
 ```

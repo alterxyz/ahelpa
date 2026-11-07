@@ -1,7 +1,7 @@
 import { StateDB, type CreateSessionInput } from "../state";
 import { Tmux } from "../tmux";
 import { defaultWakeup } from "../wakeup";
-import { getDriver } from "../drivers/registry";
+import { getHelperName, getHarnessDriver } from "../drivers/registry";
 import { codexTrustNote, type AgentDriver, type DriverRuntime, type HelperRole, type TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
 import { activeSessionAncestorIds, getPendingLaunchNestingInfo, getSessionTreeId, getMaxActivePerTree, getMaxNestingDepth, listActiveSessionsInTree, readPositiveInt } from "../nesting";
@@ -232,11 +232,13 @@ export function planLaunch(input: LaunchInput): LaunchPlan {
     if (input.role === "reviewer") throw new Error("--scope cannot be used with --role reviewer: a reviewer must not change files");
     input = { ...input, scope: parseScope(input.scope) };
   }
-  const driver = getDriver(input.agentType);
+  const entry = getHelperName(input.agentType);
+  const driver = entry.driver;
   // Resolve once in the caller's working directory. The helper changes cwd,
   // and a later resume may be invoked from an entirely different directory.
   input = {
     ...input,
+    agentType: entry.harnessId,
     ...resolveLaunchProfile(driver, { role: input.role, model: input.model, effort: input.effort }),
     projectPath: resolveProjectPath(input.projectPath),
   };
@@ -652,6 +654,7 @@ export interface ResumeResult {
 
 export async function resume(input: ResumeInput): Promise<ResumeResult> {
   const oldSession = requireAuthorizedSession(input.db, input.sessionId, input.ownerToken);
+  const driver = getHarnessDriver(oldSession.agentType);
 
   if (oldSession.status !== SESSION_STATUS.Dead && oldSession.status !== SESSION_STATUS.Idle) {
     throw new Error(
@@ -674,8 +677,8 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
   const projectPath = resolveProjectPath(oldSession.projectPath);
   const sourceHandoff = planSessionHandoff(oldSession);
 
-  const driver = getDriver(oldSession.agentType);
-  const sessionId = generateAvailableSessionId(input.db, driver.sessionPrefix);
+  const prefix = oldSession.id.match(/^(.+)-[a-f0-9]{12}$/)?.[1] ?? driver.sessionPrefix;
+  const sessionId = generateAvailableSessionId(input.db, prefix);
   const ownerToken = crypto.randomUUID().replace(/-/g, "");
   const deliveryRoot = deliveryRootFor(projectPath);
   const fileHandoff = planFileHandoff(projectPath, sessionId, defaultRuntimeLayout, deliveryRoot);

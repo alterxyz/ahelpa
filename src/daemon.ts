@@ -6,7 +6,7 @@ import { Tmux } from "./tmux";
 import { Archive } from "./archive";
 import { Wakeup, defaultWakeup } from "./wakeup";
 import { settle } from "./settle";
-import { getDriver } from "./drivers/registry";
+import { getHarnessDriver, REMOVED_DSH_MESSAGE } from "./drivers/registry";
 import { SESSION_STATUS, outcomeFromCapture } from "./session-lifecycle";
 import { defaultRuntimeLayout } from "./runtime-layout";
 import { shellEscape } from "./shell";
@@ -211,10 +211,10 @@ export async function refreshSessionStatuses(
 
       if (session.status === SESSION_STATUS.Draining) {
         // Capture agent resume token while session is still alive
-        if (!session.agentResumeId) {
+        if (!session.agentResumeId && session.agentType !== "dsh") {
           try {
             const output = await Tmux.capture(session.id, 50);
-            const driver = getDriver(session.agentType);
+            const driver = getHarnessDriver(session.agentType);
             const resumeId = driver.extractResumeToken(output);
             if (resumeId) {
               db.updateResumeId(session.id, resumeId);
@@ -240,6 +240,27 @@ export async function refreshSessionStatuses(
         continue;
       }
 
+      // Removed harnesses retain their rows and terminals for inspection/kill.
+      // Flag unfinished work once without attempting the deleted driver, and
+      // keep the generic missing-session and draining cleanup above available.
+      if (session.agentType === "dsh") {
+        if (session.status === SESSION_STATUS.Running) {
+          let lastOutput: string | undefined;
+          try { lastOutput = await Tmux.capture(session.id, 500); } catch {}
+          const settled = await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
+            status: SESSION_STATUS.NeedsAttention,
+            lastOutput,
+            reason: REMOVED_DSH_MESSAGE,
+          }, session.status, session.version);
+          if (settled) {
+            idleCount.delete(session.id);
+            pendingAttention.delete(session.id);
+            clearSessionFailures(session.id);
+          }
+        }
+        continue;
+      }
+
       // A flag raised after the current turn was delivered can be a misread
       // screen; an archived Claude helper printed DONE three minutes later. Keep watching
       // for a signal only: activity counts history rows as work and would rearm
@@ -251,7 +272,7 @@ export async function refreshSessionStatuses(
       if (session.status !== SESSION_STATUS.Running && !flagged) continue;
 
       const output = await Tmux.capture(session.id, 30);
-      const driver = getDriver(session.agentType);
+      const driver = getHarnessDriver(session.agentType);
       const outcome = outcomeFromCapture(output, driver);
       const newStatus = outcome.status;
       if (flagged && newStatus !== SESSION_STATUS.Idle && newStatus !== SESSION_STATUS.Error) continue;

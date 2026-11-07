@@ -12,7 +12,7 @@ import { requireAuthorizedSession } from "../session-access";
 import { activeSessionAncestorIds, getSessionNestingInfo, listActiveDescendants } from "../nesting";
 import { defaultRuntimeLayout, RuntimeLayout } from "../runtime-layout";
 import { planSessionHandoff, prepareFileHandoff } from "../file-handoff";
-import { getDriver } from "../drivers/registry";
+import { getHarnessDriver } from "../drivers/registry";
 import type { DriverRuntime, ModelSwitchOptions, TaskSubmissionContext } from "../drivers/types";
 import * as daemon from "../daemon";
 import { ModelSwitchAppliedError } from "../drivers/types";
@@ -52,7 +52,7 @@ async function resumeMonitoringAfterIntervention(
   session: SessionRecord,
   context: TaskSubmissionContext,
 ): Promise<void> {
-  const driver = getDriver(session.agentType);
+  const driver = getHarnessDriver(session.agentType);
   const submitted = await driver.afterTaskSubmitted(session.id, driverRuntime, context);
   if (!submitted) {
     throw new Error(
@@ -75,7 +75,7 @@ async function resumeMonitoringAfterIntervention(
 }
 
 export const send = withAuth(async ({ db, session }, message: string) => {
-  if (getDriver(session.agentType).turnHooks) message = normalizeTurnInput(message);
+  if (getHarnessDriver(session.agentType).turnHooks) message = normalizeTurnInput(message);
   let submissionContext: TaskSubmissionContext = {};
   await deliverTurn(db, session, message, () => Tmux.sendKeys(session.id, message), {
     prepare: async () => {
@@ -96,6 +96,9 @@ export const capture = withAuth(async ({ session }, lines: number = 50) => {
 });
 
 export const sendTask = withAuth(async ({ db, session }, filePath: string) => {
+  // Retired harnesses may still have readable, killable session records.
+  // Refuse new work before reading or publishing its task file.
+  getHarnessDriver(session.agentType);
   if (!isAbsolute(session.projectPath)) {
     throw new Error(
       `Cannot send task: session ${session.id} stores a relative project path and its original working directory is unknown. Launch a new session with an absolute --project path.`,
@@ -126,7 +129,7 @@ const driverRuntime: DriverRuntime = {
 };
 
 export const switchModel = withAuth(async ({ db, session }, opts: ModelSwitchOptions) => {
-  const driver = getDriver(session.agentType);
+  const driver = getHarnessDriver(session.agentType);
   let result: string;
   try {
     result = await driver.switchModel(session.id, driverRuntime, opts);

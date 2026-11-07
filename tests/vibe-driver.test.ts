@@ -30,7 +30,7 @@ function fakeVibe(dir: string, version = "3.1.0") {
 }
 
 test("vibe is registered with the Large 4 high default", () => {
-  expect(getDriver("vibe")).toBe(driver);
+  expect(getDriver("vibe")).toBe(getDriver("mistral"));
   expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model: "mistral-large-4-0-3", effort: "high" });
   expect(resolveLaunchProfile(driver, { role: "reviewer", effort: "high" })).toEqual({ role: "reviewer", model: "mistral-large-4-0-3", effort: "high" });
   expect(() => resolveLaunchProfile(driver, { role: "advisor" })).toThrow('does not support role "advisor"');

@@ -154,7 +154,7 @@ The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots 
 
 ## Closure Gate
 
-The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary with the selected drivers. It exercises Claude's default advisor and explicit worker separately, followed by Codex's default worker. Like DSH, the live Kimi scenario bills a metered provider and runs only with `AHELPA_GATE_KIMI=1`. The first three scenarios verify the exact role/model/effort returned by launch and persisted in check, using separate result markers and evidence directories. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
+The closure gate runs tests, typechecks, and a build, then tests the compiled `dist/ahelpa` binary with the selected drivers. It exercises Claude's default advisor and explicit worker separately, followed by Codex's default worker. The live Kimi scenario bills a metered provider and runs only with `AHELPA_GATE_KIMI=1`. The first three scenarios verify the exact role/model/effort returned by launch and persisted in check, using separate result markers and evidence directories. Codex and Kimi use the stable `tests/fixtures/closure` workspace; Claude Code uses the repository root. Tasks permit only the assigned task file and result directory.
 
 The gate assigns private `AHELPA_HOME` and `AHELPA_TMP_DIR` roots, so its SQLite state, daemon, archives, FIFOs, and task files do not interfere with active ahelpa sessions. Helper CLIs retain their normal OS home and authentication.
 
@@ -171,7 +171,7 @@ For each driver, the gate requires:
 
 Timeouts, echoed task text, and account errors fail the gate. Logs are retained for diagnosis, including when the daemon has already reclaimed tmux. Failed checks also attempt to kill only the helper launched by that run. The printed evidence directory contains the summaries and command results. The gate copies its result directories into that evidence directory before removing its own fixture handoff files, and stops only its isolated daemon.
 
-DSH (`AHELPA_GATE_DSH=1`) and Kimi (`AHELPA_GATE_KIMI=1`) also complete a second task after `kill` and `resume`. The gate requires a retained native session ID, a resumed helper waiting in `needs_attention`, and a new summary containing the context marker remembered from the first turn.
+Kimi (`AHELPA_GATE_KIMI=1`) also complete a second task after `kill` and `resume`. The gate requires a retained native session ID, a resumed helper waiting in `needs_attention`, and a new summary containing the context marker remembered from the first turn.
 
 To verify an installed binary with the same checks, set an absolute executable path:
 
@@ -179,13 +179,13 @@ To verify an installed binary with the same checks, set an absolute executable p
 AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 ```
 
-**Prerequisite:** With DSH enabled, the local Magpie gateway must be running, and `$DSH_HOME/profiles/ahelpa/cordis.patch.yml` must configure its provider/model with the provider key available through `$DSH_HOME/.env`; see the [Magpie route setup](../skill/references/dsh.md#magpie-route). The helper CLIs selected for the run must be authenticated locally: `claude` and `codex` by default, plus `dsh` or `kimi` when enabled. If a helper CLI fails during authentication bootstrap, repair that CLI's login state before treating the gate result as meaningful.
+**Prerequisite:** Authenticate the selected helper CLIs locally. If authentication bootstrap fails, repair that CLI’s login state before treating the gate result as meaningful.
 
-Enable the live Pi gate with `AHELPA_GATE_PI=1`; it requires Node.js, Pi ≥ 1.4.0 (tested baseline: 1.4.0), and a configured provider. No model or effort is preset; optional `AHELPA_GATE_PI_MODEL=provider/id` and `AHELPA_GATE_PI_EFFORT=<level>` override native defaults. The gate checks launch/check settings, the unchanged native UUID after resume, remembered context on a second turn, and disappearance of both Pi child and UUID lock after each kill. It validates the native session header to check the lock directory; it neither reads credentials nor prints native session contents. Pi’s native sessions remain in its cwd-encoded directory, outside the gate’s temporary ahelpa state.
+Enable the live `deepseek-pi` gate with `AHELPA_GATE_PI=1`; it requires Node.js, Pi ≥ 1.4.0 (tested baseline: 1.4.0), and DeepSeek configured in CC-Switch and synced to Pi. Defaults are `cc-switch-deep-seek/deepseek-flash` / `high`; optional `AHELPA_GATE_PI_MODEL=provider/id` and `AHELPA_GATE_PI_EFFORT=<level>` override these defaults. The gate checks launch/check settings, the unchanged native UUID after resume, remembered context on a second turn, and disappearance of both Pi child and UUID lock after each kill. It validates the native session header to check the lock directory; it neither reads credentials nor prints native session contents. Pi’s native sessions remain in its cwd-encoded directory, outside the gate’s temporary ahelpa state.
 
-Enable the live agy gate with `AHELPA_GATE_AGY=1`; it requires Node.js and agy ≥ 1.5.2 (tested baseline: 1.5.2), signed in once in `agy`. It uses the `gemini-4-argon` / `medium` default and checks launch/check settings, the unchanged conversation ID after resume, remembered context on a second turn, and that the bridge and agy PIDs recorded while the helper ran are gone after each kill. agy keeps the gate's conversations in its own history.
+Enable the live `gemini` gate with `AHELPA_GATE_AGY=1`; it requires Node.js and agy ≥ 1.5.2 (tested baseline: 1.5.2), signed in once in `agy`. It uses the `gemini-4-argon` / `medium` default and checks launch/check settings, the unchanged conversation ID after resume, remembered context on a second turn, and that the bridge and agy PIDs recorded while the helper ran are gone after each kill. agy keeps the gate's conversations in its own history.
 
-Enable the live Vibe gate with `AHELPA_GATE_VIBE=1`; it requires Node.js, vibe ≥ 3.1.0, and an existing sign-in, using `mistral-large-4-0-3` / `high`. It checks normal DONE completion through `wait`/`check`, then recalls context after native resume. A second resume runs `sleep 120`; the gate kills it while running and verifies that the recorded bridge, native child and tool processes are gone. Vibe retains its native session history.
+Enable the live `mistral` gate with `AHELPA_GATE_VIBE=1`; it requires Node.js, vibe ≥ 3.1.0, and an existing sign-in, using `mistral-large-4-0-3` / `high`. It checks normal DONE completion through `wait`/`check`, then recalls context after native resume. A second resume runs `sleep 120`; the gate kills it while running and verifies that the recorded bridge, native child and tool processes are gone. `AHELPA_GATE_DEEPSEEK=1` runs the same Vibe scenario with type `deepseek`, defaulting to `deepseek-v4-1-flash-1017` / `high` and requiring its inclusion in the Mistral subscription. Vibe retains its native session history.
 
 ## Adding a Driver
 

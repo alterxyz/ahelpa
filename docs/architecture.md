@@ -9,7 +9,7 @@ ahelpa is a local helper runtime built around a small set of durable primitives:
 ```
 host agent
   │
-  │ ahelpa launch claude-code --task "..."
+  │ ahelpa launch claude --task "..."
   ▼
 ahelpa CLI ──────────► tmux session
   │                       │
@@ -148,23 +148,25 @@ On the next refresh, an accepted event without a current-turn sentinel triggers 
 | [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) | Check the advertised `loadSession` capability before attempting native resume. |
 | [Claude hooks](https://code.claude.com/docs/en/hooks) | `Stop`, `StopFailure`, and `SessionEnd` represent different lifecycle events. A finished response alone does not prove the assigned task succeeded. |
 
-The current implementation keeps tmux and file handoff. Adopting these transports requires a supervised process that outlives the caller, capability negotiation, approval handling, cancellation, and reconnection tests. Add one driver at a time behind the existing command contract. Before making it the default, verify launch, interruption, restart, native resume, and result delivery; keep the same owner-token and safe-mode guarantees. These external structured transports remain a follow-up design direction; the DSH adapter below uses in-process APIs, while Pi uses an internal RPC bridge inside tmux.
+The current implementation keeps tmux and file handoff. Adopting these transports requires a supervised process that outlives the caller, capability negotiation, approval handling, cancellation, and reconnection tests. Add one driver at a time behind the existing command contract. Before making it the default, verify launch, interruption, restart, native resume, and result delivery; keep the same owner-token and safe-mode guarantees. These external structured transports remain a follow-up design direction; Pi uses an internal RPC bridge inside tmux.
 
 ### Current terminal drivers
 
-Optional driver `launchProfiles` define supported roles and their default model/effort. `launch-profiles.ts` resolves the role and explicit overrides once during launch planning. The resulting role, model, and effort are stored with the session and returned to the host. Claude supports `advisor` (default), `worker`, and `reviewer`; Codex, DSH, and Pi support `worker` (default) and `reviewer`; Kimi leaves the role unset and retains native model defaults. Roles select defaults and the reviewer task contract, without changing permissions. Resume uses the stored settings directly, including unknown values in legacy records, and never reapplies current launch presets.
+Optional driver `launchProfiles` define supported roles and their default model/effort. `launch-profiles.ts` resolves the role and explicit overrides once during launch planning. The resulting role, model, and effort are stored with the session and returned to the host. Claude supports `advisor` (default), `worker`, and `reviewer`; Codex and Pi support `worker` (default) and `reviewer`; Kimi leaves the role unset and retains native model defaults. Roles select defaults and the reviewer task contract, without changing permissions. Resume uses the stored settings directly, including unknown values in legacy records, and never reapplies current launch presets.
 
 Drivers encapsulate agent-specific terminal behavior so that launch orchestration stays generic. A driver defines:
 
 | Responsibility | Example |
 | --- | --- |
-| Session prefix | `claude`, `codex`, `kimi`, `dsh`, `pi`, `agy`, `vibe` |
+| Session prefix | `claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, `deepseek` |
 | Launch command | `claude --dangerously-skip-permissions --verbose`, `codex --dangerously-bypass-approvals-and-sandbox`, `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` |
 | Pre-task readiness | Wait for CLI to be ready, handle trust prompts |
 | Post-submission handling | Press Enter if needed; capture a newly created native session ID |
-| Sentinel detection | Shared sentinel matching in `src/drivers/sentinels.ts`, or DSH/Pi/agy/Vibe adapter state markers |
+| Sentinel detection | Shared sentinel matching in `src/drivers/sentinels.ts`, or Pi/agy/Vibe adapter state markers |
 
-The supported drivers are `claude-code`, `codex`, `kimi`, `dsh`, `pi`, `agy`, and `vibe`. They share the task/result file contract and helper completion signals, with driver-specific startup and state detection. On Kimi's first launch in a directory, its driver automatically selects **Trust and continue**. Kimi persists that trust and may then start project MCP servers from the directory. Kimi initially shows no native session ID; after the first task message creates a `session_*` ID, ahelpa records it and resumes with `kimi --session <id>`.
+The registry name directory is the single source of truth: public names and nicknames point to a harness ID plus a launch profile, and the database stores only the harness ID. `claude` maps to `claude-code`, `gemini` to `agy`, `mistral` and `deepseek` to `vibe`, and `deepseek-pi` to `pi`. New sessions use public-name prefixes; resume resolves the stored harness ID and model/effort and preserves the old session prefix. Existing records are not migrated. DeepSeek receives its full per-session model definition with or without effort.
+
+The supported types are `claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, and `deepseek`. They share the task/result file contract and helper completion signals, with driver-specific startup and state detection. On Kimi's first launch in a directory, its driver automatically selects **Trust and continue**. Kimi persists that trust and may then start project MCP servers from the directory. Kimi initially shows no native session ID; after the first task message creates a `session_*` ID, ahelpa records it and resumes with `kimi --session <id>`.
 
 `launch --safe` passes a safe-mode hint into the selected driver and stores it with the session. Native resume inherits that posture; `resume --safe` can upgrade a default-posture record, but an omitted flag cannot downgrade a safe one. Claude Code omits `--dangerously-skip-permissions`; Codex uses `-s workspace-write -a never` instead of `--dangerously-bypass-approvals-and-sandbox`; Kimi uses `--yolo` (Ask When Needed) instead of `--auto` (Never Ask). Kimi still automatically trusts the project directory in safe mode, so its safe mode is not a sandbox; Codex's "Folder access" prompt is likewise answered in safe mode (see [security](security.md)).
 
@@ -172,17 +174,9 @@ Kimi sets the canonical `KIMI_CODE_NO_AUTO_UPDATE=1` flag so a CLI self-update c
 
 After Kimi prints `[AHELPA:DONE]`, `resume` is rejected while the old helper is draining. The host can wait for daemon reclamation until `check` reports `idle` and the terminal is gone, or explicitly `kill` the helper, then resume. All settled records are retained until `clean`; completed and legacy dead records with an `agentResumeId` can be resumed. `clean` deletes settled records and their resume metadata only after the terminal is gone; it preserves live, draining, and attention sessions. Persistence means reconnecting the native Kimi session in a new tmux session, not preserving the original tmux process indefinitely.
 
-### DSH terminal profile
+### Pi RPC bridge (`deepseek-pi`)
 
-DSH `0.2.1-rc.2` ships Web, headless, SDK, and ACP entry profiles without a built-in TUI. The driver creates a separate base-backed `DSH_HOME/profiles/ahelpa` if absent and leaves existing profile files and credentials intact. It writes a Cordis terminal app and a `--patch` overlay into each session's delivery directory, then launches `dsh --profile ahelpa --patch <overlay>` inside tmux. The base profile alone has no terminal UI; start it through `ahelpa launch dsh`.
-
-The app uses the public Agent/Session APIs directly, retaining one DSH process and native session context across turns. It emits adapter state and turn markers for driver readiness, submission confirmation, and settlement, and records a native session ID for resume in a new process. This does not introduce an ACP/SDK transport or a third-party TUI. The existing owner-token, file handoff, wait/check, and cleanup paths remain in charge.
-
-The adapter uses the shared `DSH_HOME` (default `~/.dsh`) and provider keys loaded by DSH from `$DSH_HOME/.env`, stored Web credentials, or `DEEPSEEK_API_KEY` for the corresponding provider. Its launch overlay disables the session-log contributor, and its environment disables OTel upload; provider model requests continue normally. DSH runs with full local permissions and explicitly rejects `--safe` and runtime model switching. Both `worker` and `reviewer` default to the local Magpie route `magpie:deepseek/deepseek-flash`/`high`. Launch accepts `<model>` to keep the profile's provider or `<provider>:<model>` to override it, splitting only at the first colon; model IDs are provider-specific. The driver always sets `AHELPA_DSH_PROVIDER`, `AHELPA_DSH_MODEL`, and `AHELPA_DSH_EFFORT`, clearing absent overrides to prevent inheritance from a parent helper. Resume reuses the recorded model, including its qualified provider. Effort is `off|low|high|max`. This is a new integration under observation; future CLI releases are unverified. See [DSH reference](../skill/references/dsh.md).
-
-### Pi RPC bridge
-
-`pi.ts` generates `pi-terminal.mjs` in the delivery directory; the Node bridge in `pi-terminal-source.ts` owns one `pi --mode rpc` child inside tmux. RPC is internal to the driver: public commands, owner tokens, file handoff, and daemon paths are unchanged. Both `worker` and `reviewer` use native model/effort defaults.
+`pi.ts` generates `pi-terminal.mjs` in the delivery directory; the Node bridge in `pi-terminal-source.ts` owns one `pi --mode rpc` child inside tmux. RPC is internal to the driver: public commands, owner tokens, file handoff, and daemon paths are unchanged. `deepseek-pi` worker and reviewer default to `cc-switch-deep-seek/deepseek-flash` / `high`, after CC-Switch configuration and sync to Pi; resume keeps stored settings.
 
 The bridge parses JSON lines, submits its local FIFO one task at a time, keeps running through retries/compaction, and emits terminal state markers with session/turn identity only after settlement, without idle gaps between queued tasks. `/abort` clears the queue and aborts; `/exit` and termination signals stop the child within bounded waits. Pane hangup skips RPC cancellation and terminal restoration, and cleanup sends TERM then KILL to Pi and its recorded descendant process groups, including detached bash tools. Protocol failure leaves a task-discarding fatal input loop so later input cannot reach a shell.
 
@@ -194,7 +188,7 @@ Native JSONL lives in Pi’s physical-cwd-encoded session directory (symlinks an
 
 Stopping uses SIGINT: stdin EOF lets agy finish its turn, and SIGTERM leaves tool processes behind. agy runs tool commands in their own process groups and its SIGINT cleanup races its exit, so the bridge snapshots agy's descendants (PID, parent, group, start time) before signalling and then sends TERM, then KILL, to survivors whose identity still matches. Stderr is reduced to fixed categories because it can name the account. The bridge records bridge/child PIDs in delivery `agy-process.json`; the gate records the pane process tree while the helper is live and checks those PIDs after kill. See [agy reference](../skill/references/agy.md).
 
-### Vibe streaming bridge
+### Vibe streaming bridge (`mistral` / `deepseek`)
 
 `vibe.ts` generates `vibe-terminal.mjs` in the delivery directory and passes model/effort arguments to the bridge on launch and resume. Before announcing ready, the bridge writes a mode-0600 `ahelpa-helper.toml` from those arguments. The Node bridge persists in tmux and serializes input lines; each turn writes a mode-0600 prompt file and starts `vibe --prompt-file <file> --output streaming --trust --agent ahelpa-helper`. The first event supplies sessionId; later turns add `--resume <id>`, also used by native resume. The bridge survives each child exit and the native session retains context.
 

@@ -1,11 +1,13 @@
 # ahelpa on Kimi Code
 
+Public name: `kimi`.
+
 Platform-specific guidance for using ahelpa with Kimi Code CLI, either as the host or as the helper.
 
 ## Binary Mapping
 
 - `ahelpa launch kimi ...` uses the `kimi` CLI
-- `ahelpa launch claude-code ...` uses the `claude` CLI
+- `ahelpa launch claude ...` uses the `claude` CLI
 - `ahelpa launch codex ...` uses the `codex` CLI
 
 Verify with `command -v kimi`, `command -v claude`, or `command -v codex`.

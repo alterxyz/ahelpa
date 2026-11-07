@@ -1,13 +1,17 @@
 # Pi
 
-Pi is the default helper for work that would have gone to DSH, which was retired from default dispatch on 2026-11-06 (see [profiles](profiles.md#pi)). Install `@earendil-works/pi-coding-agent` ≥ 1.4.0 and Node.js, and configure a provider in Pi before launching. Version 1.4.0 is the tested baseline; newer releases are accepted, older releases are refused with an upgrade message. `ahelpa doctor pi` checks installed metadata without executing the CLI or reading credentials; authentication remains unknown until launch.
+Public name: `deepseek-pi`. The `pi` nickname uses the same profile and prefix.
+
+The `deepseek-pi` type is the official DeepSeek API backup for the subscription-first `deepseek` route (see [names](names.md)). Install `@earendil-works/pi-coding-agent` ≥ 1.4.0 and Node.js. Configure DeepSeek in CC-Switch and sync it to Pi so provider `cc-switch-deep-seek` exists. Version 1.4.0 is the tested baseline; newer releases are accepted, older releases are refused with an upgrade message. `ahelpa doctor deepseek-pi` checks installed metadata without executing the CLI or reading credentials; authentication remains unknown until launch.
 
 ```bash
-ahelpa launch pi --file ./task.md --project /path/to/project
-ahelpa launch pi --role reviewer --file ./review.md
+ahelpa launch deepseek-pi --file ./task.md --project /path/to/project
+ahelpa launch deepseek-pi --role reviewer --file ./review.md
 ```
 
-`worker` is the default role; `reviewer` applies the read-only review contract. Neither presets a model or effort, and `advisor` is unsupported. Omit `--model` and `--effort` to keep Pi’s native defaults. To select explicitly, pass `--model provider/id` and `--effort <level>`; thinking levels depend on the selected model. The bridge verifies the actual provider, model, and thinking level before accepting a task, rejecting silent clamps. Runtime `ahelpa model`, including `--persist`, is unsupported; launch with the desired options instead.
+`worker` is the default role; `reviewer` applies the read-only review contract. Both default to `cc-switch-deep-seek/deepseek-flash` / `high`; `advisor` is unsupported. These defaults also apply when launching with the `pi` nickname. To select explicitly, pass `--model provider/id` and `--effort <level>`; thinking levels depend on the selected model. The bridge verifies the actual provider, model, and thinking level before accepting a task, rejecting silent clamps. Runtime `ahelpa model`, including `--persist`, is unsupported; launch with the desired options instead.
+
+`pi` is a nickname for `deepseek-pi` and the stable stored harness ID. Existing sessions resolve without a database migration; resume keeps their recorded model and effort. New session IDs start with `deepseek-pi-`.
 
 ## Permissions and resources
 
@@ -29,4 +33,4 @@ Child stderr and RPC, retry, compaction, and extension errors are reduced to fix
 
 ## Verification
 
-`AHELPA_GATE_PI=1 bun run closure:gate` opts into model calls and checks completion, native resume/context continuity, and process-tree/lock cleanup using pre-kill PID snapshots and delivery `pi-process.json` metadata. It uses native defaults unless `AHELPA_GATE_PI_MODEL=provider/id` or `AHELPA_GATE_PI_EFFORT=<level>` is set. Pi’s native session directory is separate from the gate’s disposable ahelpa state. The gate checks integration only; the default rests on the comparison and review recorded in [profiles](profiles.md#pi).
+`AHELPA_GATE_PI=1 bun run closure:gate` opts into model calls and checks completion, native resume/context continuity, and process-tree/lock cleanup using pre-kill PID snapshots and delivery `pi-process.json` metadata. It uses `cc-switch-deep-seek/deepseek-flash` / `high` unless `AHELPA_GATE_PI_MODEL=provider/id` or `AHELPA_GATE_PI_EFFORT=<level>` is set. Pi’s native session directory is separate from the gate’s disposable ahelpa state. The gate checks integration only; task-selection observations are recorded in [profiles](profiles.md#deepseek-pi).

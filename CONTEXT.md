@@ -6,15 +6,17 @@
 
 **Helper** — A persistent coding-agent session launched by another agent. A helper can be a peer reviewer, a parallel worker, or a fresh-context clone.
 
-**Role** — A launch preset and session label. A `worker` executes against a clear objective; an `advisor` handles analysis and plans; a `reviewer` uses a review-only contract. Claude defaults to advisor and supports all three roles; Codex and DSH support worker and reviewer, defaulting to worker. Roles select model/effort defaults and the task contract without changing permissions. Kimi and legacy records may have no role.
+**Role** — A launch preset and session label. A `worker` executes against a clear objective; an `advisor` handles analysis and plans; a `reviewer` uses a review-only contract. Claude defaults to advisor and supports all three roles; Codex, Gemini, Mistral, DeepSeek, and deepseek-pi support worker and reviewer, defaulting to worker. Roles select model/effort defaults and the task contract without changing permissions. Kimi and legacy records may have no role.
 
 **Host** — The agent that launches a helper and owns the returned token. A host controls only sessions it created directly. The sole lineage carve-out is `kill --tree`: abort authority follows lineage; control does not.
 
 **Session** — One helper runtime entity: a tmux session plus a SQLite record. The session ID doubles as the tmux session name.
 
-**Driver** — An adapter for one helper type. Drivers own startup commands, readiness checks, trust prompt handling, post-submission nudges, and sentinel detection.
+**Helper name** — A public name and its nicknames are pointers to a stable harness ID plus a default launch profile. The database stores the harness ID; new session prefixes use the public name, and resume preserves the old prefix and recorded settings.
 
-**Helper backend** — The agent CLI or runtime behind one driver (Claude Code, Codex, Kimi, Pi, DSH). What qualifies, and how a candidate is evaluated, is in `docs/backends.md`.
+**Driver** — An adapter for an agent harness, which may serve several helper types. Drivers own startup commands, readiness checks, trust prompt handling, post-submission nudges, and sentinel detection.
+
+**Helper backend** — The agent CLI or runtime (harness) behind a driver; public names differ from harness IDs: `claude` uses `claude-code`, `gemini` uses `agy`, `mistral` and `deepseek` use `vibe`, and `deepseek-pi` uses `pi`. What qualifies, and how a candidate is evaluated, is in `docs/backends.md`.
 
 **Host target** — An agent that *calls* ahelpa (a Host, seen as a product), which maps to a skill installation target rather than a driver. The same agent can be both a host target and a helper backend; the two questions are evaluated separately.
 

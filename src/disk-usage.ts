@@ -92,7 +92,7 @@ function classify(kind: RootKind, parts: string[]): Category {
   if (first === "backups" || (first === "bin" && /^ahelpa\.(?:pre-|backup\.)/.test(parts[1] ?? ""))) return "install.backups";
   if (first === "bin") return "install.bin";
   // Sessions launched with --project ~ share the runtime namespace.
-  if (/^(?:claude|codex|kimi|dsh|pi|agy|vibe)-[a-f0-9]{12}$/.test(first)) return deliveryCategory(parts);
+  if (/^(?:claude|codex|gemini|kimi|dsh|pi|agy|vibe|mistral|deepseek-pi|deepseek)-[a-f0-9]{12}$/.test(first)) return deliveryCategory(parts);
   return "runtime.other";
 }
 
@@ -180,7 +180,6 @@ export function collectDiskUsage(options: DiskUsageOptions = {}): DiskUsageRepor
     root(join(layout.homeDir, path), "install.skills");
   }
   root(join(layout.homeDir, ".local/bin/ahelpa"), "install.bin");
-  root(join(env.DSH_HOME || join(layout.homeDir, ".dsh"), "profiles/ahelpa"), "install.skills");
 
   // Never construct StateDB here: its constructor migrates and creates files.
   const dbPath = layout.stateDbPath();
@@ -299,7 +298,7 @@ export function collectDiskUsage(options: DiskUsageOptions = {}): DiskUsageRepor
     const id = classify(owner.kind, parts);
     // Only namespace/session containers can acquire a more specific category.
     const canRefine = owner.kind === "delivery" ? parts.length < 2
-      : owner.kind === "runtime" ? parts.length === 0 || (parts.length === 1 && (parts[0] === "bin" || /^(?:claude|codex|kimi|dsh|pi|agy|vibe)-[a-f0-9]{12}$/.test(parts[0])))
+      : owner.kind === "runtime" ? parts.length === 0 || (parts.length === 1 && (parts[0] === "bin" || /^(?:claude|codex|gemini|kimi|dsh|pi|agy|vibe|mistral|deepseek-pi|deepseek)-[a-f0-9]{12}$/.test(parts[0])))
       : (owner.kind === "tmp" || owner.kind === "install.bin") && parts.length === 0;
     if (isExcluded(id) && !canRefine) return;
     let stat;

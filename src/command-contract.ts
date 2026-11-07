@@ -11,8 +11,7 @@ import { doctor } from "./commands/doctor";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, switchModel, kill, logs, check, status, clean } from "./commands/session-ops";
 import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
-import { getDriver, listDrivers } from "./drivers/registry";
-import type { AgentDriver, ModelCatalogEntry } from "./drivers/types";
+import { HELPER_NAMES, renderNameDirectory } from "./drivers/registry";
 import { SessionAccessError } from "./session-access";
 import { VERSION } from "./version";
 import { readTaskFile } from "./task-input";
@@ -89,34 +88,8 @@ export function resolveWaitTargets(db: StateDB, ids: string[], job?: string): st
   return active.map((session) => session.id);
 }
 
-function renderModelLine(model: ModelCatalogEntry): string {
-  const details: string[] = [];
-  if (model.efforts?.length) details.push(`effort: ${model.efforts.join(", ")}`);
-  if (model.defaultEffort) details.push(`default: ${model.defaultEffort}`);
-  return details.length ? `  ${model.name} (${details.join("; ")})` : `  ${model.name}`;
-}
-
-function renderCatalog(agent: string, driver: AgentDriver): string {
-  const { modelCatalog: catalog, launchProfiles } = driver;
-  const lines = [agent];
-  if (launchProfiles) {
-    lines.push("  Launch defaults (explicit --model and --effort override these):");
-    for (const [role, profile] of Object.entries(launchProfiles.profiles)) {
-      if (!profile) continue;
-      const defaultLabel = role === launchProfiles.defaultRole ? " (default)" : "";
-      lines.push(`    ${role}${defaultLabel}: ${profile.model ?? "native default"}; effort: ${profile.effort ?? "native default"}`);
-    }
-    lines.push("  Model catalog (model defaults may differ from launch defaults):");
-  }
-  lines.push(...catalog.models.map(renderModelLine));
-  if (catalog.effortNote) lines.push(`  ${catalog.effortNote}`);
-  return lines.join("\n");
-}
-
 export function renderModelsText(agent?: string): string {
-  const agents = agent === undefined ? listDrivers() : [agent];
-  const catalogs = agents.map((name) => renderCatalog(name, getDriver(name)));
-  return ["Available models", "", catalogs.join("\n\n")].join("\n");
+  return ["Available models", "", renderNameDirectory(agent)].join("\n");
 }
 
 export const COMMAND_CONTRACTS: CommandContract[] = [
@@ -175,7 +148,7 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
   },
   {
     name: "launch",
-    usage: "launch <type> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--job <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--scope \"<glob>[,<glob>...]\"] [--after <id>] [--unblind] [--worktree]",
+    usage: "launch <name> (--task \"...\" | --file <path>) [--role worker|advisor|reviewer] [--label \"...\"] [--project <path>] [--parent <id>] [--job <id>] [--safe] [--model <model>] [--effort <level>] [--check \"<cmd>\"] [--scope \"<glob>[,<glob>...]\"] [--after <id>] [--unblind] [--worktree]",
     description: "Launch a helper agent",
     minPositionals: 1,
     flags: {
@@ -421,7 +394,10 @@ export function renderHelpText(): string {
   return `ahelpa - Agent Help Agent
 
 Commands:
-${commands}`;
+${commands}
+
+Helper names:
+${HELPER_NAMES.map(entry => `  ${entry.name}: ${entry.purpose}`).join("\n")}`;
 }
 
 function resolveFlags(contract: CommandContract, raw: Record<string, string>): ResolvedFlags {

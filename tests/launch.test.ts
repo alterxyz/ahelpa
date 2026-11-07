@@ -210,7 +210,7 @@ describe("launch", () => {
 
     expect(plan.sessionId).toMatch(/^claude-/);
     expect(plan.ownerToken).toHaveLength(32);
-    expect(plan.driver.name).toBe("claude-code");
+    expect(plan.driver.name).toBe("claude");
     expect(plan.launchCmd).toContain("claude --dangerously-skip-permissions");
     expect(plan.fileHandoff.taskInstruction).toContain("Please read and complete the task described in");
     expect(plan.fileHandoff.sessionDeliveryDir).toContain(`${TEST_PROJECT}/.ahelpa/`);

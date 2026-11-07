@@ -85,8 +85,12 @@ beforeEach(() => {
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("doctor", () => {
-  test.each(["claude-code", "codex", "kimi", "dsh", "pi", "agy", "vibe"])("never executes a writing executable: %s", (agent) => {
-    const binary = agent === "claude-code" ? "claude" : agent;
+  test("default report lists model-named types without compatibility aliases", () => {
+    expect(Object.keys(report().agents)).toEqual(["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi"]);
+  });
+
+  test.each(["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi"])("never executes a writing executable: %s", (agent) => {
+    const binary = agent === "gemini" ? "agy" : ["mistral", "deepseek"].includes(agent) ? "vibe" : agent === "deepseek-pi" ? "pi" : agent;
     stub(binary, 'printf "executed" > "$HOME/executed-marker"\nprintf "fixture 1.2.3\\n"');
     const before = snapshot(root);
     report([agent]);
@@ -272,7 +276,7 @@ describe("doctor", () => {
     const output = report();
     expect(output.project).toBe(project);
     expect(output.tmux).toMatchObject({ present: true, executable: join(bin, "tmux") });
-    expect(output.agents["claude-code"]).toMatchObject({ executable: join(bin, "claude"), version: "1.2.3", locally_ready: true, reasons: [] });
+    expect(output.agents.claude).toMatchObject({ executable: join(bin, "claude"), version: "1.2.3", locally_ready: true, reasons: [] });
     for (const name of ["codex", "kimi"]) {
       expect(output.agents[name]).toMatchObject({ executable: null, version: null, locally_ready: false, reasons: ["binary not found"] });
     }

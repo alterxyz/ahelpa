@@ -17,16 +17,15 @@ ahelpa doctor
 ahelpa doctor codex --project /path/to/project
 ```
 
-`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude-code`、`codex`、`kimi`、`dsh`、`pi`、`agy` 或 `vibe`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
+`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral` 或 `deepseek`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
 
 JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver 名称组织的 `agents`。每个 agent 返回 `executable`、`version`（无法获取时为 `null`）、`locally_ready: true|false|"unknown"` 和 `reasons: [...]`。缺少 tmux 或 agent 二进制时，该 agent 未就绪；明确阻塞优先于未知状态。检查完成时退出码为 0，即使 agent 未就绪；参数无效或项目目录不存在时退出码为 1。调用方应读取 `locally_ready`；已就绪的 agent 仍可能带有仅供参考的 `reasons`。
 
-各 driver 只探测本地状态。不会执行 agent 二进制，包括 `--version`：版本只来自与可执行文件匹配的包元数据（Codex／Claude／DSH／Vibe）或可识别的内嵌构建元数据（Claude／Kimi／agy）。其他分发格式返回 `version: null`，且就绪状态为未知，除非发现明确阻塞。
+各 driver 只探测本地状态。不会执行 agent 二进制，包括 `--version`：版本只来自与可执行文件匹配的包元数据（Codex／Claude／Vibe）或可识别的内嵌构建元数据（Claude／Kimi／agy）。其他分发格式返回 `version: null`，且就绪状态为未知，除非发现明确阻塞。
 
 - Claude 检查 `.claude.json` 中的工作区信任，查找键按 NFC 规范化；对 worktree 检查公共仓库的规范根目录，再检查 Git 根目录范围内已信任的祖先目录。支持旧式 `.config.json`、`CLAUDE_CONFIG_DIR` 和自定义 OAuth 的独立信任文件。worktree／子模块的祖先信任无法确认规范 Git 边界时，返回 `unknown`。
 - Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下受支持的 API key／token 认证文件结构。选中的自定义 provider 若配置 `requires_openai_auth = false`，无需 OpenAI 登录；配置了 `env_key` 时，相应环境变量必须存在。profile 选择、额外系统／项目配置层、不支持的 provider 选项、keyring／auto／ephemeral 存储，以及无法识别或读取的认证状态，在只读检查无法确认有效状态时返回 `unknown`。它还会从同一份配置读取 `[projects."<root>"].trust_level`；仓库根目录尚未被信任时，在不改变 `locally_ready` 的前提下追加 `repository root not trusted by Codex: <root> (launch accepts the prompt)`。根目录是最近的包含 `.git` 条目的祖先目录（linked worktree 对应主 checkout）；键只按真实路径精确匹配，不尝试 NFC 或符号链接写法，取第一个带 `trust_level` 的条目：先项目目录自身，再最近的 `.git` 目录（linked worktree 自己的目录），最后是根目录。根目录或项目目录被标为 `untrusted` 时，Codex 会显示 launch 不会应答的受限目录界面，此时 `locally_ready` 为 `false`。任何项目条目的 `trust_level` 若不是 `trusted` 或 `untrusted`，Codex 会拒绝加载该配置，因此报告 `unknown`（`config field types unrecognized`）。不在 git 仓库内时不报告任何内容。
 - Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。模型必须包含模型名称及正整数 `max_context_size`；provider 的 API key 与 OAuth 互斥。缺失或冲突的配置、keyring 和服务身份状态返回 `unknown`。
-- DSH 检查已安装包的版本，以及 `DEEPSEEK_API_KEY`、`$DSH_HOME/.env` 或 `$DSH_HOME/.credentials.yaml` 是否存在（`DSH_HOME` 默认 `~/.dsh`），不读取这些文件的凭据正文。它还在 profile patch 文本中检查 `magpie:` provider 键，缺失时给出 `unknown` 提示；这不是 YAML 或网关验证。认证仍为 `unknown`，由 DSH 在 runtime 验证。
 - agy 读取 Go 二进制里内嵌的版本串，要求有 Node.js 运行桥接，拒绝低于测试版本 1.5.2 的版本。`PATH` 上有多个不同的 `agy` 时，逐一列出，说明哪个遮住了其他的、它是否在桌面 `.app` 包里。agy 把登录态存在系统钥匙串，doctor 不打开钥匙串，所以登录状态到启动时才确定，此前为 `unknown`。
 - Vibe 检查 PATH 中的 `vibe` 和 Node.js，读取已安装 `mistral-vibe` 的 dist-info 元数据，标记低于测试基线 3.1.0 的版本。doctor 不读钥匙串，登录状态保持 `unknown`，在首次回合确认。
 
@@ -53,7 +52,7 @@ ahelpa du --exclude tmp.scratch,dev
 ## 启动 helper
 
 ```bash
-result=$(ahelpa launch claude-code --task "Review src/parser.ts for edge cases")
+result=$(ahelpa launch claude --task "Review src/parser.ts for edge cases")
 session_id=$(echo "$result" | jq -r .sessionId)
 token=$(echo "$result" | jq -r .ownerToken)
 ```
@@ -90,45 +89,29 @@ command -v kimi
 ahelpa launch kimi --project /path/to/project --task "Review the CLI parser"
 ```
 
-**DeepSeek Harness（DSH）**
-
-安装当前接入的版本，再做不调用模型的本地检查：
-
-```bash
-npm install -g @deepseek-ai/dsh@0.2.1-rc.2
-ahelpa doctor dsh --project /path/to/project
-ahelpa launch dsh --project /path/to/project --task "Review the CLI parser"
-```
-
-DSH 需要 Node.js、用于 profile／插件管理的 pnpm，以及官方原生 sandbox／PTY 组件。Magpie 的 provider 密钥通过 `apiKeyEnv` 引用 `$DSH_HOME/.env` 中的变量，DSH 启动时加载该文件。对应 provider 仍可使用 DSH Web 凭据或 `DEEPSEEK_API_KEY`。启动前按 [DSH 接入说明](../../skill/references/dsh.md#magpie-route)配置 Magpie 路由并启动本地网关。ahelpa 保留共享的 `DSH_HOME`（默认 `~/.dsh`）、已有 Desktop/Web profile 与凭据。
-
-启动时，ahelpa 会在缺失时从 base bundle 创建 `DSH_HOME/profiles/ahelpa`，并在会话交接目录中写入终端 app 与 `--patch` overlay。官方 CLI 提供 Web、headless、SDK 和 ACP profile，没有内置 TUI。适配器直接使用公开 Agent/Session API，让同一个 DSH 进程保持多轮上下文，并通过原生会话持久化实现 `resume`；不添加 ACP／SDK 传输或第三方 TUI。`task`、`wait`、`check`、`kill` 沿用通常工作流。
-
-DSH 默认为 `worker`、`magpie:deepseek/deepseek-flash`、`high` effort；`reviewer` 使用相同模型与 effort，以及只审不改的任务合同。默认路由使用本地 Magpie 网关。`--model <model>` 保留 profile 的默认 provider；`--model <provider>:<model>` 指定 provider，仅按第一个冒号拆分。Model ID 因 provider 而异：Magpie 使用 `deepseek/deepseek-v4-pro`，`deepseek-official` 使用 `deepseek-flash`；实际可用性取决于配置的路由与账号。`--effort` 接受 `off|low|high|max`。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。该 profile 以完整本地权限运行，并关闭适配器会话的 session-log contributor 与 OTel 上传；模型请求仍发送给 provider。此接入尚待观察，未来 DSH 版本未验证。详见 [DSH 接入说明](../../skill/references/dsh.md)。
-
 **Antigravity CLI（agy）**
 
 先运行一次 `agy` 完成登录，再检查并启动：
 
 ```bash
-ahelpa doctor agy --project /path/to/project
-ahelpa launch agy --project /path/to/project --task "Review the CLI parser"
+ahelpa doctor gemini --project /path/to/project
+ahelpa launch gemini --project /path/to/project --task "Review the CLI parser"
 ```
 
 agy 1.5.2 是测试基线，更旧的版本会被拒绝。ahelpa 在 tmux 里用一个很小的 Node 桥接以 headless 方式运行 agy（`--input-format stream-json --output-format stream-json --dangerously-skip-permissions`），因此不会弹信任对话框，也不写 agy 的全局设置或项目目录。同一个 agy 进程处理这个 helper 的所有任务，并保持同一段对话。`resume` 用 `--conversation <id>` 重新打开同一段对话；如果 agy 打开的是另一段对话，resume 失败。`task`、`wait`、`check`、`kill` 沿用通常工作流。
 
 agy 默认为 `worker`，使用 `--model gemini-4-argon --effort medium`，agy 将其解析为 `gemini-4-argon-medium`（Gemini 4 Argon · medium）；`reviewer` 使用相同模型，以及只审不改的任务合同。agy 的模型 ID 自带 effort：只传 `--effort high` 得到 `gemini-4-argon-high`；带后缀的 `--model`（如 `gemini-3.8-flash-low`）需要配上相同的 `--effort low`，或改用模型族名加 `--effort`。`agy models` 列出账号可用的模型。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。详见 [agy 接入说明](../../skill/references/agy.md)。
 
-**Mistral Vibe CLI**
+**Mistral / DeepSeek (Vibe)**
 
-先完成 Vibe 登录，运行 `ahelpa doctor vibe`，再用 `ahelpa launch vibe --file ./task.md --project /path/to/project` 启动。测试基线为 3.1.0，需要 Node.js。`worker`（默认）和 `reviewer` 都使用 `mistral-large-4-0-3`／`high`。`--model` 接收模型别名，`--effort off|low|medium|high|max` 通过会话专属 agent TOML 写入模型的 thinking；各模型支持的级别不同，见 `ahelpa models vibe`。
+先完成 Vibe 登录，运行 `ahelpa doctor mistral`，再用 `ahelpa launch mistral --file ./task.md --project /path/to/project` 启动。测试基线为 3.1.0，需要 Node.js。`worker`（默认）和 `reviewer` 都使用 `mistral-large-4-0-3`／`high`。`--model` 接收模型别名，`--effort off|low|medium|high|max` 通过会话专属 agent TOML 写入模型的 thinking；各模型支持的级别不同，见 `ahelpa models mistral`。
 
-桥接持续驻留 tmux，每回合使用一个新 headless 子进程，以 `--resume <sessionId>` 延续同一原生会话。`--trust` 仅对本次调用生效；不写 Vibe 全局配置，关闭自动更新和更新检查。退出码加助手正文暗号决定回合状态，未知 resume ID 明确失败。拒绝 `advisor`、`--safe` 和运行时模型切换。详见 [Vibe 接入说明](../../skill/references/vibe.md)。
+桥接持续驻留 tmux，每回合使用一个新 headless 子进程，以 `--resume <sessionId>` 延续同一原生会话。`--trust` 仅对本次调用生效；不写 Vibe 全局配置，关闭自动更新和更新检查。退出码加助手正文暗号决定回合状态，未知 resume ID 明确失败。拒绝 `advisor`、`--safe` 和运行时模型切换。使用 `ahelpa launch deepseek --file ./task.md` 可通过 Mistral 订阅启动 `deepseek-v4-1-flash-1017`／`high`。桥接按会话写完整模型定义，不依赖全局配置；订阅必须包含该模型，否则会报告模型不可用及订阅提示。`deepseek-pi` 是 API 备份，默认 `cc-switch-deep-seek/deepseek-flash`／`high`；需先在 CC-Switch 中配置 DeepSeek 并同步到 Pi。订阅模型不可用或认证失败后，由 host 决定是否回退，运行时不会自动切换路线。小名、内部 harness ID 和完整回退策略见[名字目录](../../skill/references/names.md)。详见 [Vibe 接入说明](../../skill/references/vibe.md)。
 
 用 `--label` 给 session 打标签，方便识别：
 
 ```bash
-ahelpa launch claude-code --task "Fix auth bug" --label "auth-fix"
+ahelpa launch claude --task "Fix auth bug" --label "auth-fix"
 ```
 
 用 `--check` 给 helper 一条验收命令，并由 ahelpa 独立复验：
@@ -150,7 +133,7 @@ ahelpa launch codex --file ./task.md --scope "src/parser/**,tests/parser/**"
 用 `--after <id>` 串联前后手。新任务文件开头会加一段 `## ahelpa previous hand`。显式指定 `--role reviewer` 时默认盲审：只提供上一手的 `ask.md` 路径和 diff 目标（上一手的 base commit，缺失时使用当前 HEAD，以及本次 launch 的目标指纹），不提供其完整 `task.md`、`summary.md`、`artifacts/` 路径。`ask.md` 只包含 host 写入的任务正文和后续任务，不含自动生成的交接、合同、信号或结果路径段。旧 session 没有 `ask.md` 时，交接会明确说明原始任务不可用，不会退回 `task.md`。Reviewer 从任务要求和代码形成结论；host 在收到结论后，再与作者的声称对照。Reviewer 确实需要上一手的说明时，加 `--unblind` 恢复完整 task、summary 和 artifacts 路径。未指定 `--role reviewer` 时，`--unblind` 会被拒绝。其他角色保留全部上一手路径，并要求把结论当作“声称”而非事实，因此返工 worker 可以读取审阅结果。单独使用 `--after` 只记录 lineage 和上一手交接，不增加审阅目标或指纹。ID 不存在时 `launch` 报错。关联记录在会话的 `afterId`。
 
 ```bash
-ahelpa launch claude-code --role reviewer --after "$impl_id" --file ./review.md
+ahelpa launch claude --role reviewer --after "$impl_id" --file ./review.md
 ```
 
 在 git 项目中，只有显式指定 `--role reviewer` 启动时，才会在会话和任务文件中记录 `targetFingerprint = {head, treeHash}`。`head` 是 launch 时的 HEAD；`treeHash` 是 `git status --porcelain -z --untracked-files=all` 与 tracked 文件 `git diff`、`git diff --cached` 的 SHA-256，并递归纳入每个已初始化子模块自己的 HEAD、status 和 staged/unstaged binary diff。Untracked 文件只计文件名，因此只修改其内容不会被检测到。Reviewer 的整个结果目录（`.ahelpa/<id>/`，包括 `ask.md`、`task.md`、`summary.md`、`artifacts/` 和 `check.log`；在 linked worktree 中还包括指向它的链接）都排除在指纹之外，避免交接和结果写入改变目标。`resume` 保留原始指纹并沿用 `targetResultDirs`，排除原 reviewer 及所有恢复 reviewer 的交付目录。其他 `.ahelpa/` 路径仍按 git 规则参与取证，不排除整个目录。非 git 项目省略指纹。计算使用绝对截止时间（launch 为 10 秒，`wait` 为剩余预算），遇到重复物理仓库或达到 128 个仓库时停止；未完成的 launch 快照保存为 `{incomplete: "<原因>"}`，reviewer 仍继续启动。
@@ -169,7 +152,7 @@ ahelpa 会在 `<project 的父目录>/<project 名>-worktrees/<session-id>` 创�
 
 ```bash
 impl=$(ahelpa launch codex --job ahelpa-issue-14-parser-fix --file ./impl.md | jq -r .sessionId)
-rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)   # 继承 job
+rev=$(ahelpa launch claude --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)   # 继承 job
 ahelpa check --job ahelpa-issue-14-parser-fix
 ahelpa wait --job ahelpa-issue-14-parser-fix --all
 ```
@@ -223,7 +206,7 @@ Helper 只能用 `--parent` 指向自己的 helper tree 内的 session。Reviewe
 ahelpa launch codex --safe --project /path/to/project --task "Review this change"
 ```
 
-Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。ahelpa 会记录该姿态并在 `resume` 时继承；`resume --safe` 可以升级默认姿态记录，但省略该参数不会把已 safe 的 session 降级。DSH 的审批界面需要 DSH Web，因此 launch 和 resume 都拒绝 `--safe`。其他 driver 的具体行为见 [安全说明](security.md)。
+Safe mode 是更低权限的启动姿态，不是独立 OS user 或 VM。ahelpa 会记录该姿态并在 `resume` 时继承；`resume --safe` 可以升级默认姿态记录，但省略该参数不会把已 safe 的 session 降级。其他 driver 的具体行为见 [安全说明](security.md)。
 
 Kimi 默认以 `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` 启动（需要 Kimi Code 2.x，旧版没有 `--auto`）。这个 canonical 更新开关用于避免 CLI 自更新中断持久 tmux session。首次在某个目录启动时，ahelpa 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动该目录中的项目 MCP server。即使使用 `--safe`，自动信任步骤也会执行：Kimi safe mode 只会改用 `--yolo`（Ask When Needed），它不是 sandbox。
 
@@ -231,17 +214,17 @@ Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未�
 
 ## 启动时选择模型
 
-先按任务选择角色。Claude 默认 `advisor`，用于分析、规划和审阅；目标明确的实现或执行任务使用 `--role worker`；只读的对抗式审阅使用 `--role reviewer`（Claude、Codex 和 DSH 均支持）。Codex 和 DSH 支持 `worker` 与 `reviewer`，拒绝 `advisor`，显式选择其他模型也不会改变这一点。
+`ahelpa models` 和未知名字错误使用同一份完整目录：列出对外名字、小名、harness 全名、默认模型和 effort、路线、前提及回退策略。`ahelpa models <name>` 查看模型选项；回退仅供 host 决策，运行时不会自动执行。数据库只存内部 harness ID，resume 沿用旧前缀和已记录设置。
+
+先按任务选择角色。Claude 默认 `advisor`，用于分析、规划和审阅；目标明确的实现或执行任务使用 `--role worker`；只读的对抗式审阅使用 `--role reviewer`（`claude`、`codex`、`gemini`、`mistral`、`deepseek` 和 `deepseek-pi` 均支持）。除 `claude` 和 `kimi` 外的名字支持 `worker` 与 `reviewer`，拒绝 `advisor`，显式选择其他模型也不会改变这一点。
 
 | 启动方式 | 实际默认值 |
 | --- | --- |
 | `launch codex` | `worker`、`gpt-6-astra`、`medium` |
-| `launch claude-code` | `advisor`、`claude-opus-5-5`、`xhigh` |
-| `launch claude-code --role worker` | `worker`、`claude-sonnet-5-5`、`high` |
-| `launch claude-code --role reviewer` | `reviewer`、`claude-opus-5-5`、`xhigh` |
+| `launch claude` | `advisor`、`claude-opus-5-5`、`xhigh` |
+| `launch claude --role worker` | `worker`、`claude-sonnet-5-5`、`high` |
+| `launch claude --role reviewer` | `reviewer`、`claude-opus-5-5`、`xhigh` |
 | `launch codex --role reviewer` | `reviewer`、`gpt-6-astra`、`medium` |
-| `launch dsh` | `worker`、`magpie:deepseek/deepseek-flash`、`high` |
-| `launch dsh --role reviewer` | `reviewer`、`magpie:deepseek/deepseek-flash`、`high` |
 
 口语中的 extra-high 在 CLI 中写作 `xhigh`；`extra` 不是 Claude 接受的 effort 值。完整模型 ID 固定选择 5.5，避免不同提供方的 `opus`、`sonnet` 别名指向不同版本。两款模型均支持 `high`、`xhigh`。依据见 [Claude 模型配置](https://code.claude.com/docs/en/model-config)。
 
@@ -251,11 +234,10 @@ Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未�
 ahelpa models
 ahelpa models codex
 ahelpa launch codex --file ./task.md
-ahelpa launch claude-code --role worker --file ./implementation.md
+ahelpa launch claude --role worker --file ./implementation.md
 ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
-ahelpa launch claude-code --model sonnet --task "Review this change"
-ahelpa launch dsh --model magpie:deepseek/deepseek-flash --effort high --file ./task.md
+ahelpa launch claude --model sonnet --task "Review this change"
 ```
 
 `models [agent]` 会打印当前 ahelpa 版本已知的模型目录。对 Codex 而言，`gpt-5.6` 是稳定便捷别名，实际启动 `gpt-5.6-sol`；需要其他变体时请显式使用 `gpt-5.6-terra` 或 `gpt-5.6-luna`。Kimi 默认应省略 `--model`，让 CLI 使用其 `config.toml` 中的默认模型；如果传入 `--model`，值必须与该文件中已经配置的完整 alias 精确匹配，只有显示名称可能会失败。所选 agent 支持启动时设置 effort 时，`--effort` 会一并透传；Kimi 会拒绝 `--effort`。如果 launch 时显式传入了模型 alias，`resume` 会沿用它。
@@ -273,7 +255,7 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 
 Helper 必须停在可输入的 idle prompt。Claude Code 只切当前 session。Codex 会走自己的 `/model` TUI，而该 TUI 会写入 Codex config；ahelpa 默认在当前 session 切换后恢复原 config。检测到无关配置变化时，会保留当前文件并报告未能恢复默认值。需要保留 Codex 新默认模型时，加 `--persist`。成功切换会更新 `resume` 沿用的模型和显式 effort；省略 effort 时，恢复的 CLI 自行选择默认值。
 
-Kimi 和 DSH 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择模型。DSH 接受 `<model>` 或 `<provider>:<model>` 形式的 provider 专属 model ID，以及 `off|low|high|max` effort，不转换 Codex 或 Claude 模型别名。
+`kimi`、`gemini`、`mistral`、`deepseek` 和 `deepseek-pi` 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择设置。
 
 Claude Code 会拒绝运行时的 `--effort` 和 `--persist`；effort 请在 launch 时指定。切换成功必须有匹配所选模型的新确认信息；失败时会先退出模型菜单，再返回错误。
 
@@ -336,11 +318,11 @@ ahelpa 交给 helper 的任务文件末尾附有 `## ahelpa contract`：要求�
 ```bash
 impl=$(ahelpa launch codex --file ./impl.md --check "go test -count=1 ./..." | jq -r .sessionId)
 ahelpa wait "$impl"                                   # 看 evidence.check，不只看 summary
-rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)
+rev=$(ahelpa launch claude --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)
 ahelpa wait "$rev"
 fix=$(ahelpa launch codex --after "$rev" --file ./rework.md --check "go test -count=1 ./..." | jq -r .sessionId)
 ahelpa wait "$fix"
-final=$(ahelpa launch claude-code --role reviewer --after "$fix" --file ./recheck.md | jq -r .sessionId)
+final=$(ahelpa launch claude --role reviewer --after "$fix" --file ./recheck.md | jq -r .sessionId)
 ahelpa wait "$final"
 ```
 
@@ -408,7 +390,6 @@ ahelpa logs "$session_id" --token "$token"
 
 如果 `check` 显示 `agentResumeId`，就可以把 agent 对话重新连接到新的 helper session。Kimi 初始启动时还没有 `session_*` ID；ahelpa 会在提交第一条任务消息后捕获它，之后通过 `kimi --session <id>` 重新连接。
 
-DSH 会记录原生 session ID，并在相同 `DSH_HOME` 下由新的终端 app 恢复该会话。Resume 保留已记录的模型和 effort，包括 `<provider>:<model>` 中指定的 provider；返回后用 `send` 或 `task` 发送后续任务。旧终端仍在 draining 时，DSH 同样拒绝恢复，也不接受 `resume --safe`。
 
 按当前 settle/drain 生命周期，旧 Kimi helper 仍在 draining 时，`resume` 会被拒绝。可以等待 `ahelpa check` 显示它已变为 `idle` 且终端已回收，也可以走更快的显式回收路径：
 

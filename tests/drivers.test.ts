@@ -11,7 +11,7 @@ describe("Drivers", () => {
   test("claude-code driver exists", () => {
     const driver = getDriver("claude-code");
     expect(driver).not.toBeNull();
-    expect(driver.name).toBe("claude-code");
+    expect(driver.name).toBe("claude");
     expect(driver.sessionPrefix).toBe("claude");
   });
 

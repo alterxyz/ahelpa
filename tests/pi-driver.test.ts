@@ -17,7 +17,7 @@ function runtime(screens: string[]): DriverRuntime & { sent: string[]; captures:
   return { sent: [], captures: 0, async capture() { return screens[Math.min(this.captures++, screens.length - 1)]; },
     async sleep() {}, async sendKey(_id, key) { this.sent.push(key); }, async sendKeys(_id, text) { this.sent.push(text); } };
 }
-test("Pi is registered", () => { expect(getDriver("pi")).toBe(driver); });
+test("Pi is registered", () => { expect(getDriver("pi")).toBe(getDriver("deepseek-pi")); });
 test("Pi quotes all arguments and uses the supplied result directory", () => {
   const command = driver.buildLaunchCommand({ cwd: "/tmp/project's files", deliveryDir: "/tmp/results", model: "provider/model's id", effort: "high" });
   expect(command).toContain("cd '/tmp/project'\\''s files'");

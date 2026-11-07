@@ -95,18 +95,28 @@ describe("command contract", () => {
   });
 
   test("rejects an unknown model catalog agent", () => {
-    expect(() => renderModelsText("unknown")).toThrow('Unknown driver: "unknown"');
+    expect(() => renderModelsText("unknown")).toThrow('Unknown helper name: "unknown"');
   });
 
   test("rejects an empty-string model catalog agent", () => {
-    expect(() => renderModelsText("")).toThrow('Unknown driver: ""');
+    expect(() => renderModelsText("")).toThrow('Unknown helper name: ""');
   });
 });
 
-test("Pi catalog renders native defaults without inventing a model preset", () => {
+test("Pi catalog renders the standard DeepSeek API defaults", () => {
   const catalog = renderModelsText("pi");
-  expect(catalog).toContain("worker (default): native default; effort: native default");
-  expect(catalog).toContain("reviewer: native default; effort: native default");
+  expect(catalog).toContain("worker (default): cc-switch-deep-seek/deepseek-flash; effort: high");
+  expect(catalog).toContain("reviewer: cc-switch-deep-seek/deepseek-flash; effort: high");
   expect(catalog).toContain("--model <provider>/<model>");
   expect(catalog).not.toContain("undefined");
+});
+
+
+test("default model catalogs expose new types and hide harness aliases", () => {
+  const text = renderModelsText();
+  for (const name of ["mistral", "deepseek", "deepseek-pi"]) expect(text).toContain(`\n${name}\n`);
+  for (const name of ["vibe", "pi"]) expect(text).not.toContain(`\n${name}\n`);
+  expect(text).not.toContain("glm-5-3");
+  expect(renderModelsText("vibe")).toBe(renderModelsText("mistral"));
+  expect(renderModelsText("pi")).toBe(renderModelsText("deepseek-pi"));
 });

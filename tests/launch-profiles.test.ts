@@ -116,13 +116,13 @@ describe("launch profiles", () => {
   });
 });
 
-test("Pi worker/reviewer preserve native defaults with explicit overrides", () => {
+test("Pi alias uses the standard API profiles with explicit overrides", () => {
   const driver = getDriver("pi");
   for (const role of ["worker", "reviewer"] as const) {
-    expect(resolveLaunchProfile(driver, { role })).toEqual({ role, model: undefined, effort: undefined });
+    expect(resolveLaunchProfile(driver, { role })).toEqual({ role, model: "cc-switch-deep-seek/deepseek-flash", effort: "high" });
     const command = driver.buildLaunchCommand({ cwd: "/tmp/project", ...resolveLaunchProfile(driver, { role }) });
-    expect(command).not.toContain("--model");
-    expect(command).not.toContain("--effort");
+    expect(command).toContain("--model 'cc-switch-deep-seek/deepseek-flash'");
+    expect(command).toContain("--effort 'high'");
   }
   expect(resolveLaunchProfile(driver, { model: "provider/model", effort: "high" })).toEqual({ role: "worker", model: "provider/model", effort: "high" });
   expect(() => resolveLaunchProfile(driver, { role: "advisor" })).toThrow("does not support role");

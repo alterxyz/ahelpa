@@ -1,10 +1,10 @@
 # Helper Profiles
 
-Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. DSH, Pi, and agy are newly integrated and are not represented in that sample. Defaults (model, effort, roles) are in `SKILL.md`; this file only says which to pick and what to put in the task.
+Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. Pi and Antigravity are newly integrated and are not represented in that sample. Defaults (model, effort, roles) are in [names.md](names.md); this file only says which to pick and what to put in the task.
 
 Every profile assumes the task file ends with the `## ahelpa contract` and `## ahelpa signals` sections ahelpa appends. Do not weaken them.
 
-## claude-code advisor (default role)
+## claude advisor (default role)
 
 **Best at**
 - Review, planning, and writing: Claude sessions were mostly review, plan, and prose work.
@@ -23,7 +23,7 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 - Fails fast on an untrusted workspace (run `claude` there once first).
 - `--effort` is launch-time only.
 
-## claude-code worker (`--role worker`)
+## claude worker (`--role worker`)
 
 **Best at**
 - Writing, docs, and small bounded edits against a clear objective.
@@ -78,54 +78,12 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 **Runtime quirks**
 - Auto-trusts the project folder; `--safe` is not a sandbox. See `kimi.md`.
 
-## dsh
+## deepseek-pi
 
-**Retired from default dispatch since 2026-11-06.** Launch DSH only when the user names it or asks for a comparison or rollback; otherwise use [pi](#pi). The driver and install stay, so a named launch still works.
-
-**Observation status**
-
-These observations were gathered on the `deepseek-official` route; the Magpie route has not been re-evaluated.
-
-- Small controlled onboarding sample, 2026-10-22: DSH `0.2.1-rc.2`, `deepseek-flash` / `high`, through the ahelpa profile. Prompts, task contracts, and profile affect the observed behavior. These trials are not an archive, reliability estimate, or comparison with other helpers.
-- Bounded parser repair: 44 helper tests and 132 independent host cases passed; the final file inventory and source diff stayed within the allowed source/test files, and the README remained unchanged.
-- A native-resume follow-up changed the parser's upper bound from 86400 to 3600. It made a one-line implementation change, disclosed the old-test updates required by the new rule, and passed 51 helper tests plus 132 new-bound host cases; the final inventory and diff remained within scope.
-- A seeded permission review found all three planted fault groups: public access bypassing identity/active/tenant checks, owner access before tenant isolation, and treating a share list as truthy authorization. The host reran its 15 regression checks on the faulty target: 8 passed and 7 reproduced failures.
-- A separate fresh review of the correct control returned `ship` with no code findings. The host reran 13 regression checks and a 288-case combination oracle, all passing; three host-written mutants were caught by the reviewer's regression suite and the original source hash was restored.
-- These are distinct fixture results, not one combined success rate. Large implementations, broad repository review, and long-running work remain unverified. See the [onboarding record](https://github.com/alterxyz/ahelpa/blob/main/docs/dsh-onboarding.md) for evidence and limits.
-
-**Candidate assignments**
-- Bounded implementation where the host has an independent oracle or acceptance check.
-- Independent semantic review of a frozen target against explicit rules; keep a correct control and permit zero findings.
-- Source-grounded discussion of a small set of options, with decision-bearing claims tied to supplied sources. This is a tentative assignment, not a demonstrated advantage over another helper.
-- It suggested gradually trying real tasks in isolation rather than freezing historical assignments. That is a proposal for further evaluation, not an observed capability.
-
-**Watch for**
-- In the initial five Chinese conversation turns, open questions produced long, polished answers; direct response-length feedback shortened them. It partly revised disputed views while retaining reasoned disagreement.
-- A precise-looking percentage was acknowledged as rhetoric when challenged. Ask for evidence behind consequential claims instead of inferring accuracy from fluency.
-- A later read-only onboarding discussion produced a 22,300-byte summary and created a script checking headings and line references. Such format checks are not evidence that the prose's meaning is correct; do not mechanically add verification scripts to prose tasks.
-- That discussion self-reported writing and then deleting a temporary log outside its allowed paths. The host confirmed final absence, but the final tree could not independently establish the transient write. Scope compliance in the parser fixtures is a local result, not evidence of general scope reliability; keep explicit path constraints and host checks.
-- Under an explicit short brief, a simulated page/unsupported-speedup discussion returned a 176-character reply (146 Han characters), one question, two directions, and a screenshot next step without claiming screen access or speed data. Its summary was 1,265 bytes; artifacts contained only `reply.md`, with no new checker. Inline length counting was required acceptance. This different task and prompt are not a controlled A/B comparison or evidence of lasting scope compliance.
-
-**Give it**
-- The ordinary worker or reviewer brief, plus only the task-specific response guidance needed from [the Flash working card](dsh.md#working-with-flash). Avoid making every small task produce a report or a fact/inference table.
-- Explicit replacement wording when a new condition supersedes an old one; require verification to follow the new rule and disclose changed assertions.
-- `--role reviewer` for the review-only contract; the preset uses the same `magpie:deepseek/deepseek-flash`/`high` settings as the default worker. Source-grounded discussion uses `worker`, since DSH has no `advisor` role.
-
-**Runtime quirks**
-- Uses a separate `ahelpa` profile and a session-local terminal app; native DSH session persistence supports resume.
-- Defaults to the local Magpie gateway. `--model <model>` keeps the profile provider; `<provider>:<model>` selects it, splitting at the first colon. Model IDs are provider-specific; effort is `off|low|high|max`.
-- No `--safe` or runtime model switching. See `dsh.md` for prerequisites, authentication, and profile behavior.
-
-## pi
-
-**Default for work that would have gone to DSH** (trial from 2026-10-30; DSH retired from default dispatch on 2026-11-06). DSH stays installed for named launches, comparison and rollback. Use `worker` (default) or `reviewer` with a bounded task and explicit acceptance checks. Neither role presets a model or effort: Pi’s native configuration applies unless the host selects `--model provider/id` or `--effort <level>`. `advisor`, `--safe`, and runtime model switching are unsupported.
+**API backup for [deepseek](#deepseek).** Configure official DeepSeek in CC-Switch and sync it to Pi so the `cc-switch-deep-seek` provider exists. Worker and reviewer default to `cc-switch-deep-seek/deepseek-flash` / `high`; explicit `--model provider/id` and `--effort <level>` override them. `advisor`, `--safe`, and runtime model switching are unsupported.
 
 **Observation status**
-- Same-condition comparison, 2026-10-30: Pi 1.4.0 and DSH 0.2.1-rc.5, both `deepseek-flash` / `high` on the official DeepSeek endpoint, launched together on five task types (bug fix with a failing test, cross-file change, seeded adversarial review, git-history research, resume with a changed requirement). One run per task and backend.
-- All 10 runs passed blind review; neither backend claimed false completion, stalled, or needed a nudge. Quality details split both ways, with no task type where DSH was clearly better.
-- Pi was faster and cheaper on every round: 681 s vs 921 s model-active wall clock, 93.6k vs 123.3k output tokens, 173 vs 233 model calls.
-- n=1 per task, small-to-medium tasks in one repository, at most about five minutes each. Long tasks, large repositories, and networked research are untested; small differences are not excluded.
-- Retirement review, 2026-11-06: during the trial week hosts kept naming DSH (38 launches, 37 clean, one 7-second error recovered by relaunch), and Pi ran 20 launches on 2026-11-06 alone with no stall, false completion, or error, on Pi 1.5.0 (ahelpa tested 1.4.0). The retirement rests on that short sample and the comparison above.
+- Pi 1.5.0 ran 20 launches on 2026-11-06 without a stall, false completion, or error; the ahelpa tested baseline is 1.4.0. This short sample does not establish long-task or broad-repository reliability.
 
 **Watch for**
 - Summaries longer than the requested length, and coverage claims slightly stronger than the tests support.
@@ -133,32 +91,32 @@ These observations were gathered on the `deepseek-official` route; the Magpie ro
 
 See [Pi setup and limits](pi.md) for version requirements, interrupt controls, session locking, and native takeover.
 
-## agy
+## gemini
 
 **New integration (2026-11-06). First choice for prose people will read, divergent ideation, and the generative half of strategy work; never the critical voice.** Google Antigravity CLI, default `gemini-4-argon` / `medium` (Gemini 4 Argon · medium). Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
 
 **Observation status**
-- Integration checks only: agy 1.5.2 smoke runs and the closure gate (completion, kill, native resume with context recalled). No task-quality comparison inside ahelpa yet.
-- Owner's assessment of Gemini 4 Argon (2026-11-06, from use outside ahelpa): a very good writer, best at text meant for people, and good at divergent thinking. Its clear weakness is agreeing with whatever it is given: it polishes the premise into being right and rarely raises a critical objection. The owner also expects it to suit strategy work, grand strategy especially. This is about the default model; agy's other models are not assessed.
+- Integration checks only: Antigravity 1.5.2 smoke runs and the closure gate (completion, kill, native resume with context recalled). No task-quality comparison inside ahelpa yet.
+- Owner's assessment of Gemini 4 Argon (2026-11-06, from use outside ahelpa): a very good writer, best at text meant for people, and good at divergent thinking. Its clear weakness is agreeing with whatever it is given: it polishes the premise into being right and rarely raises a critical objection. The owner also expects it to suit strategy work, grand strategy especially. This is about the default model; gemini's other models are not assessed.
 - Public reviews (read 2026-11-06, three weeks after release; anecdotes and vendor numbers, not ahelpa runs) agree on the writing: it ranks at or near the top of LMArena's creative-writing board and is praised as a structural editor. They add that one-shot first drafts tend to be dense, with long sentences and elevated wording, and that, in one review panel's words, it "generates more ideas than it verifies": it seldom goes back to check its own work. Some users call it sycophantic; Google's model card claims less sycophancy than earlier Gemini models, a comparison outside reviewers dispute. No one has measured strategy work directly; users credit it with long-horizon, open-ended reasoning when the prompt is well specified.
 
 **Watch for**
-- Headless agy never stops for approval. When the model asks itself a question, it gets an empty answer and carries on; a blocked helper only reaches you through `NEED_HELP`. Spell out when to stop and signal.
+- Headless Antigravity never stops for approval. When the model asks itself a question, it gets an empty answer and carries on; a blocked helper only reaches you through `NEED_HELP`. Spell out when to stop and signal.
 - Agreement is not evidence. An Argon summary that endorses the brief's premise says little about whether the premise holds; look for what it actually checked.
 - The model may decline a destructive command on its own and report it as skipped (seen with `git push --force`). Read the summary for skipped steps, not only the exit status.
-- Per agy's 1.5.2 changelog (not reproduced by ahelpa), commands on its protected list still go through agy's usual checks under `--dangerously-skip-permissions`, and headless runs deny what would need approval, so the helper sees a refusal instead of a prompt.
+- Per Antigravity's 1.5.2 changelog (not reproduced by ahelpa), commands on its protected list still go through Antigravity's usual checks under `--dangerously-skip-permissions`, and headless runs deny what would need approval, so the helper sees a refusal instead of a prompt.
 
 **Give it**
 - Prose for people to read: explanations, docs, announcements, drafts. Give it the facts and the sources and let it hold the pen; have a different model check its claims against the sources before the text ships. Ask for plain wording and short sentences, since first drafts run dense.
 - Divergent work: brainstorming, alternatives, framings, naming. Ask for many options with their trade-offs, not a verdict; the host or another model chooses.
 - Strategy, grand strategy included: mapping the landscape, long-horizon scenarios, alternative paths, and the write-up people will read. Give it the goals, constraints, and facts, and ask for several strategies, each with its assumptions and how it could fail. Then have a different model attack those assumptions, and leave the choice to the owner. Strategies usually fail on a wrong premise, and going along with the premise is this model's known weakness, so it must never be the only voice.
-- Not adversarial review, verdicts, ship decisions, or "is this right?" questions: it sides with the premise. Use the `reviewer` role on another model (codex or claude-code), even though agy accepts `--role reviewer`.
+- Not adversarial review, verdicts, ship decisions, or "is this right?" questions: it sides with the premise. Use the `reviewer` role on another model (codex or claude), even though gemini accepts `--role reviewer`.
 - Choose the effort with `--effort low|medium|high`; a suffixed `--model` needs the matching `--effort`.
 
 **Runtime quirks**
-- Each helper is one agy process in headless stream-json mode behind a bridge; resume reopens the same agy conversation. See [agy setup and limits](agy.md).
+- Each helper is one Antigravity process in headless stream-json mode behind a bridge; resume reopens the same Antigravity conversation. See [gemini setup and limits](agy.md).
 
-## vibe
+## mistral
 
 **Observation status:** new; not yet observed in real use; not in default dispatch (2026-11-06). The Vibe 3.1.0 spike establishes protocol, resume, permission and thinking configuration only; no task-quality or reliability claim follows from it.
 
@@ -176,20 +134,24 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 - `worker` (default) and `reviewer` use `mistral-large-4-0-3` / `high`. No `advisor`, `--safe`, or runtime model switching.
 - The tmux bridge and native session persist; each turn starts a new headless child with native resume. Model/thinking come from a session agent file. See [Vibe setup and limits](vibe.md).
 
+## deepseek
+
+Uses the Vibe harness and Mistral subscription, with `deepseek-v4-1-flash-1017` / `high` for both `worker` and `reviewer`. The subscription must include the model. This is the subscription-first DeepSeek route; use `deepseek-pi` as the API backup when the first turn reports model unavailability or authentication failure. The Vibe path has no real-task quality assessment yet; Pi observations do not establish its task quality. It shares [mistral](#mistral)'s bridge and limits. The bridge writes the full model definition per session, without editing global Vibe config; see [DeepSeek setup](vibe.md#deepseek-through-the-mistral-subscription).
+
 ## Task type to helper
 
 | Task | Helper | Role | Contract emphasis |
 | --- | --- | --- | --- |
 | Implementation | codex | worker | Failing-first test, forbidden list, final-diff verification with exit codes and `-count=1`-style cache off |
-| Adversarial review | a different model than the implementer, not agy (it sides with the premise) (archive: mostly codex with mutation testing; claude for judgment-heavy review) | reviewer | Built-in reviewer contract (review-only, verdict first, findings with `path:line` and P1/P2, reruns with exit codes and cache off, at least 3 reverted mutations, unchecked list); add host-supplied commands to rerun |
+| Adversarial review | a different model than the implementer, not gemini (it sides with the premise) (archive: mostly codex with mutation testing; claude for judgment-heavy review) | reviewer | Built-in reviewer contract (review-only, verdict first, findings with `path:line` and P1/P2, reruns with exit codes and cache off, at least 3 reverted mutations, unchecked list); add host-supplied commands to rerun |
 | Rework after review | codex | worker | Map each finding to a change; no new tests that only mirror the fix; full-suite rerun after the last edit |
 | Focused re-review | same choice as the adversarial review | reviewer | Built-in reviewer contract; check only the delta plus regressions; do not assume the rework's own claims |
-| Read-only investigation | claude-code | advisor | Question, scope limits, `file:line` evidence, "not examined" section |
+| Read-only investigation | claude | advisor | Question, scope limits, `file:line` evidence, "not examined" section |
 | Mutation testing | codex | worker | Report mutants tried, killed, survived; survivors become tests. Mutant copies go under `$AHELPA_SCRATCH`; `artifacts/` gets each mutant's patch and the test log, never a tree copy |
-| Prose for people to read (explanations, docs, drafts) | agy | worker | Facts and source files to cite, no code changes; a different model checks the claims against the sources |
-| Brainstorming and alternatives | agy | worker | Many options with trade-offs, not a verdict; the host or another model chooses |
-| Strategy (landscape, scenarios, options, the write-up) | agy, then a red-team pass on a different model | worker | Goals, constraints, and facts; several strategies, each with assumptions and failure modes; the other model attacks the assumptions; the owner decides |
-| Docs that must match code exactly | claude-code | worker (or advisor if judgment-heavy) | Source files to cite, no code changes |
+| Prose for people to read (explanations, docs, drafts) | gemini | worker | Facts and source files to cite, no code changes; a different model checks the claims against the sources |
+| Brainstorming and alternatives | gemini | worker | Many options with trade-offs, not a verdict; the host or another model chooses |
+| Strategy (landscape, scenarios, options, the write-up) | gemini, then a red-team pass on a different model | worker | Goals, constraints, and facts; several strategies, each with assumptions and failure modes; the other model attacks the assumptions; the owner decides |
+| Docs that must match code exactly | claude | worker (or advisor if judgment-heavy) | Source files to cite, no code changes |
 
 ## What the host must do regardless
 

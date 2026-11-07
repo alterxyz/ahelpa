@@ -14,9 +14,7 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未被信任时，会在输入提示符之前询问一次（"Folder access"）。ahelpa 通过按一次 Enter 应答，但只在高亮的第一项是 **Trust and continue** 时才会这样做；任何其他选项，或根目录被标为 `untrusted` 时出现的受限目录界面，都不会被应答，launch 随之失败。随后 Codex 把 `[projects."<root>"]` 及 `trust_level = "trusted"` 持久写入 `CODEX_HOME/config.toml`。这个根目录是仓库根目录（linked worktree 对应主 checkout），可能比 `--project` 范围更大；该信任在 helper 结束后仍然有效，也适用于你自己在那里运行的 `codex`。受信任的目录允许 Codex 加载项目配置、hooks 和 exec 策略，项目配置还可以声明 MCP server 和模型 provider。该步骤在默认模式和 `--safe` 模式下都会执行，所以 `--safe` 不会让不可信仓库变得安全。launch 结果以 `codexTrust` 报告被信任的根目录；之后若 launch 失败，错误信息会写出 "Folder access was accepted for <root>"，因为该信任已经保存；`ahelpa doctor codex` 会提前提示，而在项目中先运行一次 `codex`（或自己把该表加入配置）也能不经过 ahelpa 完成应答。
 
-DSH 以 `DSH_PERMISSION_MODE=danger-full-access` 启动。其终端适配器没有原生审批界面，因此 launch 和 resume 都拒绝 `--safe`。它创建独立的 `ahelpa` profile，不覆盖现有 profile 或凭据。会话 overlay 关闭 session-log 贡献，`DSH_TELEMETRY_DISABLED=1` 关闭 OTel 上传；正常模型请求仍会发送给 provider。共享 home 级 DSH 配置仍然生效。详见 [DSH 接入说明](../../skill/references/dsh.md)。
-
-Pi 以 `--approve --no-extensions --no-mcp --offline` 运行，launch／resume 都拒绝 `--safe`。Skills 和上下文文件仍会加载，工具保留本地用户权限；`--offline` 不会阻止模型请求，也不是沙箱。桥接对扩展 select／confirm／input／editor 请求仅返回 cancelled，再停止工作并标记 needs_attention，不自动同意。
+`deepseek-pi` 使用的 Pi harness 以 `--approve --no-extensions --no-mcp --offline` 运行，launch／resume 都拒绝 `--safe`。Skills 和上下文文件仍会加载，工具保留本地用户权限；`--offline` 不会阻止模型请求，也不是沙箱。桥接对扩展 select／confirm／input／editor 请求仅返回 cancelled，再停止工作并标记 needs_attention，不自动同意。
 
 Pi 的 stderr、RPC 错误字段与 retry／compaction／extension 错误不原样输出，只显示固定错误类别。会话内容仍由 Pi 原生持久化。UUID 锁只协调 ahelpa 管理的 Pi 进程；原生 `pi -r` 不遵守该锁，必须等 helper 及其子进程退出后再接管。遗留锁会给出路径并拒绝恢复；确认没有写入者后才可人工删除，不能依靠 PID 自动清锁。详见 [Pi 说明](../../skill/references/pi.md)。
 
@@ -24,7 +22,7 @@ Pi 的 stderr、RPC 错误字段与 retry／compaction／extension 错误不原�
 
 agy 以 headless 方式运行并带 `--dangerously-skip-permissions`，launch／resume 都拒绝 `--safe`。Headless agy 从不请求批准：需要批准的操作会直接放行，agy 受保护的命令则由 agy 自己的检查拒绝（据 agy 1.5.2 changelog）；它的提问工具只会拿到空答案。ahelpa 不写 agy 的设置、信任记录、hook 或 `.agents/` 文件；agy 的 stderr 可能带有登录账号，所以桥接只输出固定错误类别。agy 本身仍会加载工作区自定义内容：print 模式下，它会运行一个从未被信任过的目录里的 `.agents/hooks.json`，因此项目自带的 hook 可能在 agy helper 下运行。agy 的对话保存在它自己的历史记录里。详见 [agy 参考](../../skill/references/agy.md)。
 
-Vibe 通过会话目录内的 `ahelpa-helper.toml` 设置 `safety = "yolo"` 和 `bypass_tool_permissions = true`，launch／resume 都拒绝 `--safe`。每次调用传 `--trust`，不持久写入受信任目录，也不修改 `~/.vibe` 配置。agent 文件及每回合 prompt 文件权限为 0600。桥接为每个子进程设置 `VIBE_ENABLE_AUTO_UPDATE=false`、`VIBE_ENABLE_UPDATE_CHECKS=false`；stderr 可能含账号信息，只输出固定错误类别。Vibe 自己保存原生会话历史。详见 [Vibe 参考](../../skill/references/vibe.md)。
+`mistral` 和 `deepseek` 使用的 Vibe harness 通过会话目录内的 `ahelpa-helper.toml` 设置 `safety = "yolo"` 和 `bypass_tool_permissions = true`，launch／resume 都拒绝 `--safe`。每次调用传 `--trust`，不持久写入受信任目录，也不修改 `~/.vibe` 配置。agent 文件及每回合 prompt 文件权限为 0600。桥接为每个子进程设置 `VIBE_ENABLE_AUTO_UPDATE=false`、`VIBE_ENABLE_UPDATE_CHECKS=false`；stderr 可能含账号信息，只输出固定错误类别。Vibe 自己保存原生会话历史。详见 [Vibe 参考](../../skill/references/vibe.md)。
 
 ## 会话回合 Hooks
 

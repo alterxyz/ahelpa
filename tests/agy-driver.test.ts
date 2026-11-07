@@ -28,7 +28,7 @@ function fakeAgy(dir: string, version = "1.5.2") {
 }
 
 test("agy is registered with the Gemini 4 Argon medium default", () => {
-  expect(getDriver("agy")).toBe(driver);
+  expect(getDriver("agy")).toBe(getDriver("gemini"));
   expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model: "gemini-4-argon", effort: "medium" });
   expect(resolveLaunchProfile(driver, { role: "reviewer", effort: "high" })).toEqual({ role: "reviewer", model: "gemini-4-argon", effort: "high" });
   expect(() => resolveLaunchProfile(driver, { role: "advisor" })).toThrow('does not support role "advisor"');

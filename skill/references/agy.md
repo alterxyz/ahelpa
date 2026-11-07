@@ -1,10 +1,12 @@
 # agy (Antigravity CLI)
 
-agy is Google's Antigravity CLI. It is an opt-in helper: launch it by name (see [profiles](profiles.md#agy)). Install the standalone `agy` CLI ≥ 1.5.2 and Node.js, and run `agy` once interactively to sign in. Version 1.5.2 is the tested baseline; newer releases are accepted, older ones are refused with an upgrade message. `ahelpa doctor agy` reads the version embedded in the binary without executing it, checks for Node.js, and reports when more than one `agy` is on `PATH` (a desktop app can ship its own). agy keeps its sign-in in the OS keychain, which doctor does not open, so sign-in stays `unknown` until launch.
+Public name: `gemini`. Nicknames `agy` and `antigravity` use the same profile and prefix.
+
+agy is Google's Antigravity CLI. It is an opt-in helper: launch it by name (see [profiles](profiles.md#gemini)). Install the standalone `agy` CLI ≥ 1.5.2 and Node.js, and run `agy` once interactively to sign in. Version 1.5.2 is the tested baseline; newer releases are accepted, older ones are refused with an upgrade message. `ahelpa doctor gemini` reads the version embedded in the binary without executing it, checks for Node.js, and reports when more than one `agy` is on `PATH` (a desktop app can ship its own). agy keeps its sign-in in the OS keychain, which doctor does not open, so sign-in stays `unknown` until launch.
 
 ```bash
-ahelpa launch agy --file ./task.md --project /path/to/project
-ahelpa launch agy --role reviewer --effort high --file ./review.md
+ahelpa launch gemini --file ./task.md --project /path/to/project
+ahelpa launch gemini --role reviewer --effort high --file ./review.md
 ```
 
 ## Model and effort

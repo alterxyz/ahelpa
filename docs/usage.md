@@ -17,16 +17,15 @@ ahelpa doctor
 ahelpa doctor codex --project /path/to/project
 ```
 
-`doctor [agent] [--project <path>]` checks all registered drivers, or one of `claude-code`, `codex`, `kimi`, `dsh`, `pi`, `agy`, and `vibe`. The project defaults to the current directory; relative paths resolve from the caller's directory and must name an existing directory.
+`doctor [agent] [--project <path>]` checks all registered drivers, or one of `claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, and `deepseek`. The project defaults to the current directory; relative paths resolve from the caller's directory and must name an existing directory.
 
 The JSON result has `project`, `tmux: {present, executable}`, and `agents` keyed by driver name. Each agent has `executable`, `version` (or `null` when unavailable), `locally_ready: true|false|"unknown"`, and `reasons: [...]`. Missing tmux or a missing agent binary makes that agent not ready. A definite blocker takes precedence over an unknown probe. A completed check exits 0 even if an agent is not ready; invalid arguments or a missing project directory exit 1. Consumers should inspect `locally_ready`; a ready agent can still list informational `reasons`.
 
-The driver probes inspect local state only. Agent executables are never run, even for `--version`: versions come from matching package metadata (Codex/Claude/DSH/Vibe) or recognized embedded build metadata (Claude/Kimi/agy). Other distributions report `version: null` and unknown readiness unless a definite blocker is found.
+The driver probes inspect local state only. Agent executables are never run, even for `--version`: versions come from matching package metadata (Codex/Claude/Vibe) or recognized embedded build metadata (Claude/Kimi/agy). Other distributions report `version: null` and unknown readiness unless a definite blocker is found.
 
 - Claude checks workspace trust in `.claude.json`, using NFC-normalized trust keys and the canonical common repository root for worktrees, then trusted ancestors within the Git root. Legacy `.config.json`, `CLAUDE_CONFIG_DIR`, and the custom OAuth trust file are respected. Worktree/submodule ancestor trust is `unknown` when its canonical Git boundary cannot be established.
 - Codex uses the same executable resolver as launch, and checks supported API-key/token auth-file shapes under `CODEX_HOME` (default `~/.codex`). A selected configured provider with `requires_openai_auth = false` needs no OpenAI login; a configured `env_key` must be present. Profile selection, additional system/project config layers, unsupported provider options, keyring/auto/ephemeral storage, and unrecognized or unreadable auth state are `unknown` when their effective state cannot be confirmed read-only. It also reads `[projects."<root>"].trust_level` from the same config and, when the repository root is not trusted yet, adds `repository root not trusted by Codex: <root> (launch accepts the prompt)` without changing `locally_ready`. The root is the nearest ancestor holding a `.git` entry (the main checkout for a linked worktree); keys are matched against the real path exactly, with no NFC or symlink spelling, and the first entry with a `trust_level` wins: the project directory's, then the nearest `.git` directory's (a linked worktree's own), then the root's. A root or directory marked `untrusted` makes Codex show a restricted-folder screen that launch does not answer, so that case sets `locally_ready: false`. A `trust_level` other than `trusted` or `untrusted`, in any project entry, makes Codex refuse the config, so it reports `unknown` (`config field types unrecognized`). Outside a git repository nothing is reported.
 - Kimi checks the default model/provider and local API-key or file OAuth presence under `KIMI_CODE_HOME` (default `~/.kimi-code`), including model environment overrides. Models require a model name and positive integer `max_context_size`; provider API keys and OAuth are mutually exclusive. Incomplete or conflicting config, keyring and service-identity state are `unknown`.
-- DSH checks the installed package version and only the presence of `DEEPSEEK_API_KEY`, `$DSH_HOME/.env`, or `$DSH_HOME/.credentials.yaml` (`DSH_HOME` defaults to `~/.dsh`). It never reads those files' credential contents. It also checks the profile patch text for a `magpie:` provider key, reporting an `unknown` note if absent; this is not YAML or gateway validation. Authentication remains `unknown` until DSH validates it at runtime.
 - agy reads the version string embedded in its Go binary, requires Node.js for its bridge, and refuses versions older than the tested 1.5.2. It lists every distinct `agy` on `PATH` when more than one exists, naming the one that shadows the others and whether it sits inside a desktop `.app` bundle. agy keeps its sign-in in the OS keychain, which doctor does not open, so sign-in stays `unknown` until launch.
 - Vibe checks `vibe` and Node.js on PATH and reads the installed `mistral-vibe` dist-info metadata, flagging versions older than the tested 3.1.0 baseline. Doctor does not read the keychain; sign-in stays `unknown` until the first turn.
 
@@ -53,7 +52,7 @@ No content hashes are computed. Symlink targets are not traversed; hardlinks are
 ## Launch a Helper
 
 ```bash
-result=$(ahelpa launch claude-code --task "Review src/parser.ts for edge cases")
+result=$(ahelpa launch claude --task "Review src/parser.ts for edge cases")
 session_id=$(echo "$result" | jq -r .sessionId)
 token=$(echo "$result" | jq -r .ownerToken)
 ```
@@ -90,45 +89,29 @@ command -v kimi
 ahelpa launch kimi --project /path/to/project --task "Review the CLI parser"
 ```
 
-**DeepSeek Harness (DSH)**
-
-Install the currently targeted release and check it without starting a model call:
-
-```bash
-npm install -g @deepseek-ai/dsh@0.2.1-rc.2
-ahelpa doctor dsh --project /path/to/project
-ahelpa launch dsh --project /path/to/project --task "Review the CLI parser"
-```
-
-DSH requires Node.js, pnpm for profile/plugin management, and its official native sandbox/PTY components. For Magpie, configure a provider key through `apiKeyEnv` in `$DSH_HOME/.env`, which DSH loads at launch. DSH Web credentials or `DEEPSEEK_API_KEY` remain available for the corresponding provider. Configure the Magpie route as shown in the [DSH reference](../skill/references/dsh.md#magpie-route) and start the local gateway before launching. ahelpa preserves the shared `DSH_HOME` (default `~/.dsh`), existing Desktop/Web profiles, and credentials.
-
-On launch, ahelpa creates `DSH_HOME/profiles/ahelpa` from the base bundle if absent, then writes a terminal app and a `--patch` overlay in the session's delivery directory. The official CLI has Web, headless, SDK, and ACP profiles but no built-in TUI. The adapter uses DSH's public Agent/Session APIs inside one persistent DSH process for multiple turns, and native session persistence for `resume`; it does not add an ACP/SDK transport or a third-party TUI. `task`, `wait`, `check`, and `kill` use the usual workflow.
-
-DSH defaults to `worker`, `magpie:deepseek/deepseek-flash`, and `high` effort; `reviewer` uses the same model/effort and the review-only contract. The default route uses the local Magpie gateway. `--model <model>` keeps the profile's default provider; `--model <provider>:<model>` selects a provider, splitting at the first colon only. Model IDs are provider-specific: Magpie uses `deepseek/deepseek-v4-pro`, while `deepseek-official` uses `deepseek-flash`; availability depends on the configured route and account. `--effort` accepts `off|low|high|max`. `--safe` and runtime `ahelpa model` switching fail explicitly. The profile runs with full local permissions and disables the adapter session's session-log contributor and OTel upload; model requests still reach the provider. This new integration is under observation, and future DSH versions are unverified. See [DSH setup and limitations](../skill/references/dsh.md).
-
 **Antigravity CLI (agy)**
 
 Sign in by running `agy` once, then check and launch:
 
 ```bash
-ahelpa doctor agy --project /path/to/project
-ahelpa launch agy --project /path/to/project --task "Review the CLI parser"
+ahelpa doctor gemini --project /path/to/project
+ahelpa launch gemini --project /path/to/project --task "Review the CLI parser"
 ```
 
 agy 1.5.2 is the tested baseline; older versions are refused. ahelpa runs agy headless (`--input-format stream-json --output-format stream-json --dangerously-skip-permissions`) under a small Node bridge in tmux, so there is no trust dialog and nothing is written to agy's global settings or the project. One agy process serves every task of the helper and keeps the conversation. `resume` reopens the same conversation with `--conversation <id>` and fails if agy opens a different one. `task`, `wait`, `check`, and `kill` use the usual workflow.
 
 agy defaults to `worker` with `--model gemini-4-argon --effort medium`, which agy resolves to `gemini-4-argon-medium` (Gemini 4 Argon · medium); `reviewer` uses the same model and the review-only contract. agy model IDs carry their effort: `--effort high` alone gives `gemini-4-argon-high`, and a suffixed `--model` such as `gemini-3.8-flash-low` needs a matching `--effort low` or the family name with `--effort`. `agy models` lists what your account offers. `--safe` and runtime `ahelpa model` switching fail explicitly. See [agy setup and limitations](../skill/references/agy.md).
 
-**Mistral Vibe CLI**
+**Mistral / DeepSeek (Vibe)**
 
-Complete Vibe sign-in, run `ahelpa doctor vibe`, then launch with `ahelpa launch vibe --file ./task.md --project /path/to/project`. The tested baseline is 3.1.0 and Node.js is required. `worker` (default) and `reviewer` both select `mistral-large-4-0-3` / `high`. `--model` accepts an alias; `--effort off|low|medium|high|max` sets that model’s thinking through a session-local agent TOML. Levels vary by model; see `ahelpa models vibe`.
+Complete Vibe sign-in, run `ahelpa doctor mistral`, then launch with `ahelpa launch mistral --file ./task.md --project /path/to/project`. The tested baseline is 3.1.0 and Node.js is required. `worker` (default) and `reviewer` both select `mistral-large-4-0-3` / `high`. `--model` accepts an alias; `--effort off|low|medium|high|max` sets that model’s thinking through a session-local agent TOML. Levels vary by model; see `ahelpa models mistral`.
 
-The bridge persists in tmux, starting a new headless child per turn with `--resume <sessionId>` to retain the native session. `--trust` applies to the invocation only; global Vibe configuration is untouched and update checks and automatic updates are disabled. Exit code plus assistant-text sentinel settle the turn; unknown resume IDs fail explicitly. `advisor`, `--safe`, and runtime model switching are refused. See [Vibe setup](../skill/references/vibe.md).
+The bridge persists in tmux, starting a new headless child per turn with `--resume <sessionId>` to retain the native session. `--trust` applies to the invocation only; global Vibe configuration is untouched and update checks and automatic updates are disabled. Exit code plus assistant-text sentinel settle the turn; unknown resume IDs fail explicitly. `advisor`, `--safe`, and runtime model switching are refused. Use `ahelpa launch deepseek --file ./task.md` for `deepseek-v4-1-flash-1017` / `high` through the Mistral subscription. The bridge writes a full per-session model definition without relying on global config; the subscription must include it or the turn reports model unavailability with a subscription hint. `deepseek-pi` is the API backup, defaulting to `cc-switch-deep-seek/deepseek-flash` / `high`; configure DeepSeek in CC-Switch and sync to Pi first. The host chooses this fallback after a subscription model-unavailable or authentication failure; the runtime never switches routes automatically. See the [name directory](../skill/references/names.md) for nicknames, stored harness IDs, and all fallback policies. See [Vibe setup](../skill/references/vibe.md).
 
 Use `--label` to tag sessions for easier identification:
 
 ```bash
-ahelpa launch claude-code --task "Fix auth bug" --label "auth-fix"
+ahelpa launch claude --task "Fix auth bug" --label "auth-fix"
 ```
 
 Use `--check` to give the helper an acceptance command, and let ahelpa verify it independently:
@@ -150,7 +133,7 @@ ahelpa launch codex --file ./task.md --scope "src/parser/**,tests/parser/**"
 Use `--after <id>` to chain hands. The new task file starts with an `## ahelpa previous hand` section. For an explicit `--role reviewer`, it defaults to blind review: only the previous hand's `ask.md` path and the diff target (the previous hand's base commit, falling back to current HEAD if unavailable, and the new launch's target fingerprint) are supplied; its full `task.md`, `summary.md`, and `artifacts/` paths are withheld. `ask.md` contains only host-written task text, including follow-ups, without generated handoff, contract, signal, or result-path sections. For older sessions without `ask.md`, the handoff explicitly says the ask is unavailable; it does not fall back to `task.md`. The reviewer forms a verdict from the ask and the code; the host compares that verdict with the author's claims afterward. Add `--unblind` to supply the previous hand's full task, summary, and artifacts when a reviewer needs those notes. `--unblind` is rejected without `--role reviewer`. Other roles keep the full previous-hand paths and the instruction to treat claims as claims, so a rework worker can read the review. `--after` alone records lineage and that handoff; it adds no review target or fingerprint. An unknown ID makes `launch` fail. The link is stored as `afterId` on the session.
 
 ```bash
-ahelpa launch claude-code --role reviewer --after "$impl_id" --file ./review.md
+ahelpa launch claude --role reviewer --after "$impl_id" --file ./review.md
 ```
 
 In a git project, only launches with an explicit `--role reviewer` record `targetFingerprint = {head, treeHash}` in the session and task file. `head` is the launch HEAD; `treeHash` is SHA-256 over `git status --porcelain -z --untracked-files=all` and tracked-file `git diff` plus `git diff --cached`, recursively including each initialized submodule's own HEAD, status, and staged/unstaged binary diffs. Untracked files contribute names only, so edits to their contents alone are not detected. The entire reviewer result directory (`.ahelpa/<id>/`, including `ask.md`, `task.md`, `summary.md`, `artifacts/`, and `check.log`; in a linked worktree also the link to it) is excluded so handoff and result writes do not change the target. `resume` preserves the original fingerprint and carries forward `targetResultDirs`, excluding the original reviewer and every resumed reviewer's handoff directory. Other `.ahelpa/` paths remain eligible for git evidence; the whole directory is not excluded. Outside git, the fingerprint is omitted. Calculation has an absolute deadline (10 seconds at launch, the remaining budget in `wait`) and stops at a repeated physical repository or 128 repositories; an incomplete launch snapshot is stored as `{incomplete: "<reason>"}` and the reviewer still launches.
@@ -169,7 +152,7 @@ Use `--job <id>` to group the hands of one change, so they can be checked and aw
 
 ```bash
 impl=$(ahelpa launch codex --job ahelpa-issue-14-parser-fix --file ./impl.md | jq -r .sessionId)
-rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)   # inherits the job
+rev=$(ahelpa launch claude --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)   # inherits the job
 ahelpa check --job ahelpa-issue-14-parser-fix
 ahelpa wait --job ahelpa-issue-14-parser-fix --all
 ```
@@ -223,7 +206,7 @@ Use `--safe` to omit or bound the default danger flags:
 ahelpa launch codex --safe --project /path/to/project --task "Review this change"
 ```
 
-Safe mode is a lower-permission launch posture, not a separate OS user or VM. ahelpa records this posture and preserves it across `resume`; passing `resume --safe` can upgrade a default-posture record, but omission never downgrades an already-safe session. DSH rejects `--safe` on both launch and resume because its approval UI requires DSH Web. See [Security](security.md) for the other drivers' exact behavior.
+Safe mode is a lower-permission launch posture, not a separate OS user or VM. ahelpa records this posture and preserves it across `resume`; passing `resume --safe` can upgrade a default-posture record, but omission never downgrades an already-safe session. See [Security](security.md) for the other drivers' exact behavior.
 
 Kimi launches as `KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` by default (Kimi Code 2.x; older CLIs lack `--auto`). The canonical update flag prevents a CLI self-update from interrupting the persistent tmux session. On the first launch in a directory, ahelpa automatically selects **Trust and continue**. Kimi persists that trust and may then start project MCP servers from the directory. This automatic trust step also runs with `--safe`: Kimi safe mode only switches to `--yolo` (Ask When Needed); it is not a sandbox.
 
@@ -231,17 +214,17 @@ Codex 0.163 and later ask once, before the prompt, when the git repository root 
 
 ## Choose a Model at Launch
 
-Choose the role first. Claude defaults to `advisor` for analysis, planning, and review. Use `--role worker` for implementation or other execution with a clear objective. Use `--role reviewer` for read-only adversarial review (Claude, Codex, and DSH). Codex and DSH support `worker` and `reviewer`, and reject `advisor`, regardless of which model you explicitly choose.
+`ahelpa models` and unknown-name errors use the same complete directory: public names, nicknames, harness names, model/effort defaults, routes, prerequisites, and fallback policies. Use `ahelpa models <name>` for model options. Fallback is for the host to decide, never automatic. Database records store only the internal harness ID; resume preserves the old prefix and recorded settings.
+
+Choose the role first. Claude defaults to `advisor` for analysis, planning, and review. Use `--role worker` for implementation or other execution with a clear objective. Use `--role reviewer` for read-only adversarial review (`claude`, `codex`, `gemini`, `mistral`, `deepseek`, and `deepseek-pi`). All names except `claude` and `kimi` support `worker` and `reviewer`, and reject `advisor`, regardless of which model you explicitly choose.
 
 | Launch | Effective defaults |
 | --- | --- |
 | `launch codex` | `worker`, `gpt-6-astra`, `medium` |
-| `launch claude-code` | `advisor`, `claude-opus-5-5`, `xhigh` |
-| `launch claude-code --role worker` | `worker`, `claude-sonnet-5-5`, `high` |
-| `launch claude-code --role reviewer` | `reviewer`, `claude-opus-5-5`, `xhigh` |
+| `launch claude` | `advisor`, `claude-opus-5-5`, `xhigh` |
+| `launch claude --role worker` | `worker`, `claude-sonnet-5-5`, `high` |
+| `launch claude --role reviewer` | `reviewer`, `claude-opus-5-5`, `xhigh` |
 | `launch codex --role reviewer` | `reviewer`, `gpt-6-astra`, `medium` |
-| `launch dsh` | `worker`, `magpie:deepseek/deepseek-flash`, `high` |
-| `launch dsh --role reviewer` | `reviewer`, `magpie:deepseek/deepseek-flash`, `high` |
 
 `xhigh` is the CLI spelling for the intended extra-high effort; `extra` is not an accepted Claude effort value. The full Claude model IDs pin 5.5 instead of relying on provider-specific `opus` and `sonnet` aliases. Both models support `high` and `xhigh`. See [Claude model configuration](https://code.claude.com/docs/en/model-config).
 
@@ -251,11 +234,10 @@ Explicit `--model` and `--effort` override defaults independently. Roles do not 
 ahelpa models
 ahelpa models codex
 ahelpa launch codex --file ./task.md
-ahelpa launch claude-code --role worker --file ./implementation.md
+ahelpa launch claude --role worker --file ./implementation.md
 ahelpa launch codex --model gpt-6-astra --effort ultra --task "Review this change"
 ahelpa launch codex --model gpt-5.6 --effort high --task "Review this change"
-ahelpa launch claude-code --model sonnet --task "Review this change"
-ahelpa launch dsh --model magpie:deepseek/deepseek-flash --effort high --file ./task.md
+ahelpa launch claude --model sonnet --task "Review this change"
 ```
 
 `models [agent]` prints the model catalog known to this ahelpa release. For Codex, `gpt-5.6` is a stable convenience alias that launches `gpt-5.6-sol`; use `gpt-5.6-terra` or `gpt-5.6-luna` explicitly when you want those variants. For Kimi, omit `--model` by default so the CLI uses the default from its `config.toml`. If you pass `--model`, the value must exactly match a complete alias already configured in that file; a display name alone may fail. `--effort` is passed through when the selected agent supports launch-time effort settings; Kimi rejects `--effort`. `resume` reuses a launch-time model alias when one was explicitly supplied.
@@ -273,7 +255,7 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 
 The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. If unrelated config changes are detected, it preserves the current file and reports that defaults could not be restored. Add `--persist` when you want Codex's new model to remain the default. Successful switches update the model and explicit effort that `resume` reuses; omitting effort lets the resumed CLI choose its default.
 
-Runtime `ahelpa model` switching is not supported for Kimi or DSH. Choose the model at launch instead. DSH accepts provider-specific model IDs as `<model>` or `<provider>:<model>` and `off|low|high|max` effort; it does not translate Codex or Claude model aliases.
+Runtime `ahelpa model` switching is unsupported for `kimi`, `gemini`, `mistral`, `deepseek`, and `deepseek-pi`. Choose settings at launch.
 
 Claude Code rejects runtime `--effort` and `--persist`; set its effort at launch. Model switches require a new confirmation matching the selected model, and failures close the model menu before returning an error.
 
@@ -336,11 +318,11 @@ For important changes, chain independent hands and read each diff yourself:
 ```bash
 impl=$(ahelpa launch codex --file ./impl.md --check "go test -count=1 ./..." | jq -r .sessionId)
 ahelpa wait "$impl"                                   # read evidence.check, not just the summary
-rev=$(ahelpa launch claude-code --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)
+rev=$(ahelpa launch claude --role reviewer --after "$impl" --file ./review.md | jq -r .sessionId)
 ahelpa wait "$rev"
 fix=$(ahelpa launch codex --after "$rev" --file ./rework.md --check "go test -count=1 ./..." | jq -r .sessionId)
 ahelpa wait "$fix"
-final=$(ahelpa launch claude-code --role reviewer --after "$fix" --file ./recheck.md | jq -r .sessionId)
+final=$(ahelpa launch claude --role reviewer --after "$fix" --file ./recheck.md | jq -r .sessionId)
 ahelpa wait "$final"
 ```
 
@@ -408,7 +390,6 @@ ahelpa logs "$session_id" --token "$token"
 
 If `check` shows an `agentResumeId`, the agent conversation can be reconnected in a new helper session. For Kimi, the `session_*` ID does not exist at initial startup; ahelpa captures it after submitting the first task message, then reconnects with `kimi --session <id>`.
 
-DSH records its native session ID and restores that session in a new terminal app using the same `DSH_HOME`. Resume preserves the recorded model and effort, including a provider named in `<provider>:<model>`; send the follow-up with `send` or `task` after resume returns. DSH also rejects resume while its old terminal is draining, and rejects `resume --safe`.
 
 With the current settle/drain lifecycle, `resume` is rejected while the old Kimi helper is still draining. Either wait until `ahelpa check` reports it as `idle` and its terminal is gone, or reclaim it explicitly for the quickest path:
 

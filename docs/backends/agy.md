@@ -72,3 +72,5 @@ Onboarding on a fresh install, protected-command checks under skip-permissions, 
 
 - 2026-11-06: card created while the driver was being built elsewhere.
 - 2026-11-06: driver merged; spike results, Grid and funnel status replaced with measured values.
+
+- 2026-11-06: the public helper name is now `gemini`, with nicknames `agy` and `antigravity`; database records continue to store harness ID `agy`, and resume preserves original session prefixes.

@@ -10,7 +10,7 @@ afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gateDsh = "", gatePi = "", piModel = "", piEffort = "", gateAgy = "", gateVibe = "") {
+async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gatePi = "", piModel = "", piEffort = "", gateAgy = "", gateVibe = "", gateDeepseek = "") {
   const root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-closure-test-"));
   fixtureRoots.push(root);
   const binDir = join(root, "bin");
@@ -40,20 +40,20 @@ switch (command) {
   case "daemon": break;
   case "launch": {
     const roleIndex = args.indexOf("--role");
-    const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : ["codex", "dsh", "pi", "agy", "vibe"].includes(args[0]) ? "worker" : null)
+    const role = roleIndex === -1 ? (args[0] === "claude" ? "advisor" : ["codex", "deepseek-pi", "gemini", "mistral", "deepseek"].includes(args[0]) ? "worker" : null)
       : args[roleIndex + 1];
-    const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : args[0] === "claude-code" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
-      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "magpie:deepseek/deepseek-flash" : args[0] === "agy" ? "gemini-4-argon" : args[0] === "vibe" ? "mistral-large-4-0-3" : null;
-    const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude-code" && role === "advisor" ? "xhigh" : ["kimi", "pi"].includes(args[0]) ? null : ["codex", "agy"].includes(args[0]) ? "medium" : "high";
+    const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : args[0] === "claude" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
+      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "gemini" ? "gemini-4-argon" : args[0] === "mistral" ? "mistral-large-4-0-3" : args[0] === "deepseek" ? "deepseek-v4-1-flash-1017" : args[0] === "deepseek-pi" ? "cc-switch-deep-seek/deepseek-flash" : null;
+    const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude" && role === "advisor" ? "xhigh" : args[0] === "kimi" ? null : ["codex", "gemini"].includes(args[0]) ? "medium" : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
     const task = args[args.indexOf("--task") + 1];
     const marker = task.match(/Remember this context marker for our next turn: ([a-f0-9-]+)\./)?.[1];
     const completionMarker = task.match(/Write exactly ([^ ]+) followed by a newline/)?.[1];
-    sessions[id] = { id, project, task, marker, role, model, effort, status: scenario === "reaped" ? "idle" : "draining",
-      agentResumeId: scenario === "missing-native-id" ? null : ["pi", "agy", "vibe"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
+    sessions[id] = { id, agent: args[0], harness: ["mistral", "deepseek"].includes(args[0]) ? "vibe" : args[0] === "deepseek-pi" ? "pi" : args[0] === "claude" ? "claude-code" : args[0] === "gemini" ? "agy" : args[0], project, task, marker, role, model, effort, status: scenario === "reaped" ? "idle" : "draining",
+      agentResumeId: scenario === "missing-native-id" ? null : ["deepseek-pi", "gemini", "mistral", "deepseek"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
     save();
-    if (args[0] === "pi") {
+    if (args[0] === "deepseek-pi") {
       const encoded = "--" + resolve(project).replace(/^[/\\\\]/, "").replace(/[/\\\\:]/g, "-") + "--";
       const directory = join(process.env.PI_CODING_AGENT_DIR, "sessions", encoded);
       mkdirSync(directory, { recursive: true });
@@ -72,9 +72,9 @@ switch (command) {
       mkdirSync(join(project, ".ahelpa", id), { recursive: true });
       writeFileSync(join(project, ".ahelpa", id, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
     }
-    if (["agy", "vibe"].includes(args[0])) {
+    if (["gemini", "mistral", "deepseek"].includes(args[0])) {
       mkdirSync(join(project, ".ahelpa", id), { recursive: true });
-      writeFileSync(join(project, ".ahelpa", id, args[0] + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
+      writeFileSync(join(project, ".ahelpa", id, sessions[id].harness + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
     }
     // A linked worktree keeps its results in the main checkout and a link in the project.
     const delivery = scenario === "linked-results" ? join(root, "main", ".ahelpa", id) : join(project, ".ahelpa", id);
@@ -111,7 +111,7 @@ switch (command) {
   case "check": {
     if (scenario === "malformed-check") { console.log("not JSON"); break; }
     console.log(JSON.stringify(Object.values(sessions).map((entry) => ({
-      id: entry.id, agentResumeId: entry.agentResumeId,
+      id: entry.id, agentType: entry.harness, agentResumeId: entry.agentResumeId,
       role: scenario === "check-role-drift" ? "incorrect" : entry.role,
       model: scenario === "check-model-drift" ? "incorrect" : entry.model,
       effort: scenario === "check-effort-drift" ? "incorrect" : entry.effort,
@@ -127,20 +127,20 @@ switch (command) {
     break;
   }
   case "resume": {
-    const id = sessionId.split("-")[0] + (sessionId === "vibe-resumed-fixture" ? "-midturn-fixture" : "-resumed-fixture");
+    const id = session.agent + (sessionId === session.agent + "-resumed-fixture" ? "-midturn-fixture" : "-resumed-fixture");
     sessions[id] = { ...session, id, status: scenario === "resume-not-ready" ? "running" : "needs_attention",
       agentResumeId: scenario === "pi-resume-id-drift" ? "ffffffff-ffff-4fff-8fff-ffffffffffff" : session.agentResumeId };
     save();
-    if (sessionId.startsWith("pi-")) {
+    if (session.harness === "pi") {
       const directory = join(session.project, ".ahelpa", id);
       mkdirSync(directory, { recursive: true });
       const encoded = "--" + resolve(session.project).replace(/^[/\\\\]/, "").replace(/[/\\\\:]/g, "-") + "--";
       const lockPath = join(...(scenario === "pi-lock-wrong-directory" ? [root, "wrong-directory"] : [process.env.PI_CODING_AGENT_DIR, "sessions", encoded]), ".ahelpa-" + sessions[id].agentResumeId + ".lock");
       writeFileSync(join(directory, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
     }
-    if (sessionId.startsWith("agy-") || sessionId.startsWith("vibe-")) {
+    if (session.harness === "agy" || session.harness === "vibe") {
       mkdirSync(join(session.project, ".ahelpa", id), { recursive: true });
-      writeFileSync(join(session.project, ".ahelpa", id, sessionId.split("-")[0] + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
+      writeFileSync(join(session.project, ".ahelpa", id, session.harness + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
     }
     console.log(JSON.stringify({ sessionId: id, ownerToken: "fixture-token" }));
     break;
@@ -149,8 +149,8 @@ switch (command) {
     if (scenario === "resumed-task-failure") process.exit(2);
     const taskFile = args[args.indexOf("--file") + 1];
     session.task = readFileSync(taskFile, "utf8");
-    session.midturn = sessionId.startsWith("vibe-") && session.task.includes("sleep 120");
-    if (sessionId.startsWith("vibe-")) {
+    session.midturn = session.harness === "vibe" && session.task.includes("sleep 120");
+    if (session.harness === "vibe") {
       session.childPid = session.midturn ? 93005 : 93004;
       writeFileSync(join(session.project, ".ahelpa", sessionId, "vibe-process.json"), JSON.stringify({ bridgePid: 93001, childPid: session.childPid }));
     }
@@ -159,7 +159,7 @@ switch (command) {
     const delivery = join(session.project, ".ahelpa", sessionId);
     mkdirSync(delivery, { recursive: true });
     if (!session.midturn && scenario !== "stale-first-turn") {
-      writeFileSync(join(delivery, "summary.md"), "gate-" + sessionId.split("-")[0] + "-resumed:" +
+      writeFileSync(join(delivery, "summary.md"), "gate-" + session.agent + "-resumed:" +
         (scenario === "resumed-extra-space" ? " " : "") +
         (scenario === "context-loss" ? "wrong" : session.marker) + "\\n");
     }
@@ -176,8 +176,8 @@ if (process.argv.includes("command=")) {
   if (scenario === "pi-self-match") console.log("bun -e --mode rpc 01234567-89ab-4cde-8012-3456789abcde");
   // Pi hides its RPC argv behind its native process title.
   if (scenario === "pi-child-alive") console.log("pi");
-} else if (sessions.some(session => (session.id.startsWith("agy-") || session.id.startsWith("vibe-")) && session.status !== "dead")) {
-  const live = sessions.find(session => (session.id.startsWith("agy-") || session.id.startsWith("vibe-")) && session.status !== "dead");
+} else if (sessions.some(session => (session.harness === "agy" || session.harness === "vibe") && session.status !== "dead")) {
+  const live = sessions.find(session => (session.harness === "agy" || session.harness === "vibe") && session.status !== "dead");
   if (scenario === "vibe-bridge-gone") process.exit(0);
   console.log(scenario === "agy-bridge-gone" || (scenario === "vibe-child-gone" && !live.midturn) ? "93001 1" : "93001 1\\n" + (live.childPid ?? 93002) + " 93001");
   if (live.midturn) console.log("93006 93005 sleep");
@@ -185,7 +185,7 @@ if (process.argv.includes("command=")) {
   console.log("93006 1 sleep");
 } else if (["agy-child-alive", "vibe-child-alive"].includes(scenario)) {
   console.log("93002 1");
-} else if (sessions.some(session => session.id.startsWith("pi-") && session.status !== "dead")) {
+} else if (sessions.some(session => session.harness === "pi" && session.status !== "dead")) {
   console.log("91001 1\\n91002 91001\\n91003 91002");
 } else if (scenario === "pi-child-alive") {
   console.log("91002 1");
@@ -194,7 +194,7 @@ if (process.argv.includes("command=")) {
 }
 `, { mode: 0o755 });
   writeFileSync(join(binDir, "tmux"), `#!/usr/bin/env bash
-if [ "$1" = "list-panes" ]; then case "$3" in agy-*|vibe-*) echo 93001 ;; *) echo 91001 ;; esac; exit 0; fi
+if [ "$1" = "list-panes" ]; then case "$3" in gemini-*|mistral-*|deepseek-worker-*|deepseek-resumed-*|deepseek-midturn-*) echo 93001 ;; *) echo 91001 ;; esac; exit 0; fi
 if [ "$CLOSURE_TEST_SCENARIO" = "tmux-alive" ]; then exit 0; fi
 exit 1
 `, { mode: 0o755 });
@@ -214,12 +214,12 @@ exit 1
       AHELPA_TMP_DIR: "/unused-inherited-ahelpa-runtime",
       TMPDIR: root,
       AHELPA_GATE_KIMI: gateKimi,
-      AHELPA_GATE_DSH: gateDsh,
       AHELPA_GATE_PI: gatePi,
       AHELPA_GATE_PI_MODEL: piModel,
       AHELPA_GATE_PI_EFFORT: piEffort,
       AHELPA_GATE_AGY: gateAgy,
       AHELPA_GATE_VIBE: gateVibe,
+      AHELPA_GATE_DEEPSEEK: gateDeepseek,
       PI_CODING_AGENT_DIR: join(root, "pi-agent"),
     },
     stdout: "pipe",
@@ -237,7 +237,7 @@ exit 1
 
 describe("closure gate", () => {
   test.each(["pi-lock-wrong-directory", "pi-history-ambiguous", "pi-history-wrong-id", "pi-history-malformed"])("Pi snapshot rejects %s", async scenario => {
-    const result = await runFixture(scenario, "pi");
+    const result = await runFixture(scenario, "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("Cannot snapshot Pi process tree and lock before kill");
     if (scenario === "pi-lock-wrong-directory") {
@@ -245,42 +245,39 @@ describe("closure gate", () => {
     }
   }, 20000);
   test("Pi reclamation ignores the checker command line matching its UUID", async () => {
-    expect((await runFixture("pi-self-match", "pi")).exitCode).toBe(0);
+    expect((await runFixture("pi-self-match", "deepseek-pi")).exitCode).toBe(0);
   }, 20000);
   test.each(["pi-child-alive", "pi-grandchild-alive"])("Pi reclamation detects %s by recorded PID despite hidden argv", async scenario => {
-    const result = await runFixture(scenario, "pi");
+    const result = await runFixture(scenario, "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("Pi child or session lock remains after kill");
-    expect(readFileSync(join(result.evidenceDir, "pids-pi-worker.txt"), "utf8")).toBe("91001\n91002\n91003\n");
+    expect(readFileSync(join(result.evidenceDir, "pids-deepseek-pi-worker.txt"), "utf8")).toBe("91001\n91002\n91003\n");
   }, 20000);
 
-  test("Pi gate accepts native defaults and verifies resume continuity", async () => {
-    const result = await runFixture("success", "pi");
+  test("Pi gate accepts standard defaults and verifies resume continuity", async () => {
+    const result = await runFixture("success", "deepseek-pi");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("pass > pi resume readiness, new turn, and context continuity");
+    expect(result.stdout).toContain("pass > deepseek-pi resume readiness, new turn, and context continuity");
     expect(result.calls.filter(call => call.command === "kill")).toHaveLength(2);
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--effort");
   });
-  test.each(["launch-model-missing", "launch-effort-missing"])("Pi native defaults accept %s", async (scenario) => {
-    expect((await runFixture(scenario, "pi")).exitCode).toBe(0);
-  });
-  test.each(["launch-role-drift", "launch-model-drift", "launch-effort-drift", "check-model-drift", "check-effort-drift"])("Pi gate rejects %s", async (scenario) => {
-    const result = await runFixture(scenario, "pi");
+  test.each(["launch-role-drift", "launch-model-drift", "launch-effort-drift", "launch-model-missing", "launch-effort-missing", "check-model-drift", "check-effort-drift"])("Pi gate rejects %s", async (scenario) => {
+    const result = await runFixture(scenario, "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("expected role/model/effort");
   });
-  test("Pi gate passes explicit model and effort without presets", async () => {
-    const result = await runFixture("success", "pi", false, "", "", "", "", "test/model", "low");
+  test("Pi gate accepts explicit overrides of the standard model and effort", async () => {
+    const result = await runFixture("success", "deepseek-pi", false, "", "", "", "test/model", "low");
     expect(result.exitCode).toBe(0);
     expect(result.calls.find(call => call.command === "launch")?.args.slice(-4))
       .toEqual(["--model", "test/model", "--effort", "low"]);
   });
   test("Pi live gate is opt-in", async () => {
-    const result = await runFixture("success", "codex", true, "", "", "", "1");
+    const result = await runFixture("success", "codex", true, "", "", "1");
     expect(result.exitCode).toBe(0);
     expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
-      .toEqual(["claude-code", "claude-code", "codex", "pi"]);
+      .toEqual(["claude", "claude", "codex", "deepseek-pi"]);
   });
   test.each([
     ["missing-native-id", "Pi did not retain a native session UUID"],
@@ -289,105 +286,94 @@ describe("closure gate", () => {
     ["pi-lock-remains", "Pi child or session lock remains after kill"],
     ["pi-resume-id-drift", "Pi resume changed the native session UUID"],
   ])("Pi gate rejects %s", async (scenario, message) => {
-    const result = await runFixture(scenario, "pi");
+    const result = await runFixture(scenario, "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(message);
   }, 20000);
 
-  test("agy gate checks the Argon default, native resume, context continuity and reclamation", async () => {
-    const result = await runFixture("success", "agy");
+  test("gemini gate checks the Argon default, native resume, context continuity and reclamation", async () => {
+    const result = await runFixture("success", "gemini");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("pass > agy resume readiness, new turn, and context continuity");
+    expect(result.stdout).toContain("pass > gemini resume readiness, new turn, and context continuity");
     expect(result.calls.filter(call => call.command === "kill")).toHaveLength(2);
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
-    expect(readFileSync(join(result.evidenceDir, "pids-agy-worker.txt"), "utf8")).toBe("93001\n93002\n");
-    expect(readFileSync(join(result.evidenceDir, "pids-agy-resumed.txt"), "utf8")).toBe("93001\n93002\n");
+    expect(readFileSync(join(result.evidenceDir, "pids-gemini-worker.txt"), "utf8")).toBe("93001\n93002\n");
+    expect(readFileSync(join(result.evidenceDir, "pids-gemini-resumed.txt"), "utf8")).toBe("93001\n93002\n");
   }, 20000);
   test.each([
-    ["agy-child-alive", "agy bridge or child remains after kill"],
-    ["agy-bridge-gone", "Cannot snapshot agy bridge and child of a live helper"],
-    ["missing-native-id", "agy did not retain a native session UUID"],
-    ["pi-resume-id-drift", "agy resume changed the native session UUID"],
+    ["agy-child-alive", "gemini bridge or child remains after kill"],
+    ["agy-bridge-gone", "Cannot snapshot gemini bridge and child of a live helper"],
+    ["missing-native-id", "gemini did not retain a native session UUID"],
+    ["pi-resume-id-drift", "gemini resume changed the native session UUID"],
     ["check-effort-drift", "expected role/model/effort"],
     ["context-loss", "missing or incorrect summary"],
-  ])("agy gate rejects %s", async (scenario, message) => {
-    const result = await runFixture(scenario, "agy");
+  ])("gemini gate rejects %s", async (scenario, message) => {
+    const result = await runFixture(scenario, "gemini");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(message);
   }, 20000);
-  test("agy live gate is opt-in", async () => {
+  test("gemini live gate is opt-in", async () => {
     const skipped = await runFixture("success", "codex", true);
-    expect(skipped.stdout).toContain("skip > agy (set AHELPA_GATE_AGY=1 to include)");
-    const result = await runFixture("success", "codex", true, "", "", "", "", "", "", "1");
+    expect(skipped.stdout).toContain("skip > gemini (set AHELPA_GATE_AGY=1 to include)");
+    const result = await runFixture("success", "codex", true, "", "", "", "", "", "1");
     expect(result.exitCode).toBe(0);
     expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
-      .toEqual(["claude-code", "claude-code", "codex", "agy"]);
+      .toEqual(["claude", "claude", "codex", "gemini"]);
   }, 30000);
 
-  test("Vibe gate completes normally, recalls context on resume, then resumes again for mid-turn kill", async () => {
-    const result = await runFixture("success", "vibe");
+  test.each(["mistral", "deepseek"])("%s gate completes normally, recalls context on resume, then resumes again for mid-turn kill", async agent => {
+    const result = await runFixture("success", agent);
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("pass > vibe resume readiness, new turn, and context continuity");
+    expect(result.stdout).toContain(`pass > ${agent} resume readiness, new turn, and context continuity`);
     expect(result.calls.filter(call => ["launch", "wait", "resume", "task", "send", "kill"].includes(call.command)).map(call => call.command))
       .toEqual(["launch", "wait", "kill", "resume", "task", "wait", "kill", "resume", "task", "kill"]);
     expect(result.calls.find(call => call.command === "launch")?.args.join(" ")).not.toContain("NEED_HELP");
-    expect(readFileSync(join(result.evidenceDir, "vibe-resume-task.md"), "utf8")).not.toContain("NEED_HELP");
-    expect(readFileSync(join(result.evidenceDir, "vibe-midturn-task.md"), "utf8")).toContain("sleep 120");
-    expect(JSON.parse(readFileSync(join(result.evidenceDir, "wait-vibe-worker.json"), "utf8")).status).toBe("idle");
-    expect(JSON.parse(readFileSync(join(result.evidenceDir, "wait-vibe-resumed.json"), "utf8")).status).toBe("idle");
+    expect(readFileSync(join(result.evidenceDir, `${agent}-resume-task.md`), "utf8")).not.toContain("NEED_HELP");
+    expect(readFileSync(join(result.evidenceDir, `${agent}-midturn-task.md`), "utf8")).toContain("sleep 120");
+    expect(JSON.parse(readFileSync(join(result.evidenceDir, `wait-${agent}-worker.json`), "utf8")).status).toBe("idle");
+    expect(JSON.parse(readFileSync(join(result.evidenceDir, `wait-${agent}-resumed.json`), "utf8")).status).toBe("idle");
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
-    expect(readFileSync(join(result.evidenceDir, "result-vibe-worker", "summary.md"), "utf8")).toBe("gate-vibe-worker\n");
-    expect(readFileSync(join(result.evidenceDir, "result-vibe-resumed", "summary.md"), "utf8")).toMatch(/^gate-vibe-resumed:[a-f0-9-]+\n$/);
-    expect(readFileSync(join(result.evidenceDir, "pids-vibe-resumed.txt"), "utf8")).toBe("93001\n93002\n93004\n");
-    expect(readFileSync(join(result.evidenceDir, "pids-vibe-midturn.txt"), "utf8")).toBe("93001\n93002\n93004\n93005\n93006\n");
+    expect(readFileSync(join(result.evidenceDir, `result-${agent}-worker`, "summary.md"), "utf8")).toBe(`gate-${agent}-worker\n`);
+    expect(readFileSync(join(result.evidenceDir, `result-${agent}-resumed`, "summary.md"), "utf8")).toMatch(new RegExp(`^gate-${agent}-resumed:[a-f0-9-]+\\n$`));
+    expect(readFileSync(join(result.evidenceDir, `pids-${agent}-resumed.txt`), "utf8")).toBe("93001\n93002\n93004\n");
+    expect(readFileSync(join(result.evidenceDir, `pids-${agent}-midturn.txt`), "utf8")).toBe("93001\n93002\n93004\n93005\n93006\n");
   }, 20000);
   test.each([
-    ["vibe-child-alive", "vibe bridge or child remains after kill"],
-    ["vibe-bridge-gone", "Cannot snapshot vibe bridge and child of a live helper"],
-    ["vibe-tool-alive", "vibe bridge or child remains after kill"],
-    ["missing-native-id", "vibe did not retain a native session UUID"],
-    ["pi-resume-id-drift", "vibe resume changed the native session UUID"],
+    ["vibe-child-alive", "mistral bridge or child remains after kill"],
+    ["vibe-bridge-gone", "Cannot snapshot mistral bridge and child of a live helper"],
+    ["vibe-tool-alive", "mistral bridge or child remains after kill"],
+    ["missing-native-id", "mistral did not retain a native session UUID"],
+    ["pi-resume-id-drift", "mistral resume changed the native session UUID"],
     ["context-loss", "missing or incorrect summary"],
   ])("Vibe gate rejects %s", async (scenario, message) => {
-    const result = await runFixture(scenario, "vibe");
+    const result = await runFixture(scenario, "mistral");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(message);
   }, 20000);
   test("Vibe snapshots tolerate an already-exited child on ordinary turns", async () => {
-    const result = await runFixture("vibe-child-gone", "vibe");
+    const result = await runFixture("vibe-child-gone", "mistral");
     expect(result.exitCode).toBe(0);
-    expect(readFileSync(join(result.evidenceDir, "pids-vibe-midturn.txt"), "utf8")).toBe("93001\n93005\n93006\n");
+    expect(readFileSync(join(result.evidenceDir, "pids-mistral-midturn.txt"), "utf8")).toBe("93001\n93005\n93006\n");
   }, 20000);
   test("Vibe live gate is opt-in", async () => {
     const skipped = await runFixture("success", "codex", true);
-    expect(skipped.stdout).toContain("skip > vibe (set AHELPA_GATE_VIBE=1 to include)");
+    expect(skipped.stdout).toContain("skip > mistral (set AHELPA_GATE_VIBE=1 to include)");
+    const result = await runFixture("success", "codex", true, "", "", "", "", "", "", "1");
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
+      .toEqual(["claude", "claude", "codex", "mistral"]);
+  }, 30000);
+
+  test("DeepSeek live gate is opt-in and uses the Vibe scenario", async () => {
+    const skipped = await runFixture("success", "codex", true);
+    expect(skipped.stdout).toContain("skip > deepseek (set AHELPA_GATE_DEEPSEEK=1 to include)");
     const result = await runFixture("success", "codex", true, "", "", "", "", "", "", "", "1");
     expect(result.exitCode).toBe(0);
     expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
-      .toEqual(["claude-code", "claude-code", "codex", "vibe"]);
+      .toEqual(["claude", "claude", "codex", "deepseek"]);
+    expect(result.calls.filter(call => call.command === "resume")).toHaveLength(2);
   }, 30000);
 
-  test("DSH gate checks profile, native resume, context continuity and reclamation", async () => {
-    const result = await runFixture("success", "dsh");
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("pass > dsh resume readiness, new turn, and context continuity");
-    expect(result.calls.filter(call => call.command === "kill")).toHaveLength(2);
-    expect(result.calls.find(call => call.command === "resume")).toBeDefined();
-    expect(readFileSync(join(result.evidenceDir, "result-dsh-resumed", "summary.md"), "utf8"))
-      .toMatch(/^gate-dsh-resumed:[a-f0-9-]+\n$/);
-  });
-  test("DSH gate rejects context loss and cleans its resumed helper", async () => {
-    const result = await runFixture("context-loss", "dsh");
-    expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("missing or incorrect summary");
-    expect(result.calls.at(-1)?.args[0]).toBe("dsh-resumed-fixture");
-  });
-  test("live DSH gate is opt-in and has isolated evidence", async () => {
-    const result = await runFixture("success", "codex", true, "", "", "1");
-    expect(result.exitCode).toBe(0);
-    expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
-      .toEqual(["claude-code", "claude-code", "codex", "dsh"]);
-  });
   test("requires file delivery and checks completion and reclamation", async () => {
     const result = await runFixture("success");
     expect(result.exitCode).toBe(0);
@@ -412,13 +398,13 @@ describe("closure gate", () => {
   });
 
   test("exercises Claude worker explicitly with independent evidence", async () => {
-    const result = await runFixture("success", "claude-code", false, "worker");
+    const result = await runFixture("success", "claude", false, "worker");
     expect(result.exitCode).toBe(0);
     const launch = result.calls.find((call) => call.command === "launch")!;
     expect(launch.args.slice(-2)).toEqual(["--role", "worker"]);
-    expect(result.stdout).toContain("pass > claude-code-worker");
-    expect(readFileSync(join(result.evidenceDir, "result-claude-code-worker", "summary.md"), "utf8"))
-      .toBe("gate-claude-code-worker\n");
+    expect(result.stdout).toContain("pass > claude-worker");
+    expect(readFileSync(join(result.evidenceDir, "result-claude-worker", "summary.md"), "utf8"))
+      .toBe("gate-claude-worker\n");
   });
 
   test.each([
@@ -503,23 +489,23 @@ describe("closure gate", () => {
     const result = await runFixture("success", "codex", true);
     expect(result.exitCode).toBe(0);
     expect(result.calls.filter((call) => call.command === "launch").map((call) => call.args[0]))
-      .toEqual(["claude-code", "claude-code", "codex"]);
+      .toEqual(["claude", "claude", "codex"]);
     expect(result.stdout).toContain("skip > kimi");
-    expect(result.stdout).toContain("skip > pi");
+    expect(result.stdout).toContain("skip > deepseek-pi");
   });
 
   test("checks three role profiles and Kimi with private runtime roots and distinct evidence", async () => {
     const result = await runFixture("success", "codex", true, "", "1");
     expect(result.exitCode).toBe(0);
     expect(result.calls.filter((call) => call.command === "launch").map((call) => call.args[0]))
-      .toEqual(["claude-code", "claude-code", "codex", "kimi"]);
+      .toEqual(["claude", "claude", "codex", "kimi"]);
     const launches = result.calls.filter((call) => call.command === "launch");
     expect(launches[0].args).not.toContain("--role");
     expect(launches[1].args.slice(-2)).toEqual(["--role", "worker"]);
     expect(launches[2].args).not.toContain("--role");
     for (const [label, role, model, effort] of [
-      ["claude-code-advisor", "advisor", "claude-opus-5-5", "xhigh"],
-      ["claude-code-worker", "worker", "claude-sonnet-5-5", "high"],
+      ["claude-advisor", "advisor", "claude-opus-5-5", "xhigh"],
+      ["claude-worker", "worker", "claude-sonnet-5-5", "high"],
       ["codex-worker", "worker", "gpt-6-astra", "medium"],
     ]) {
       expect(readFileSync(join(result.evidenceDir, `result-${label}`, "summary.md"), "utf8"))

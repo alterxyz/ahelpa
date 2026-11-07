@@ -76,23 +76,29 @@ run_gate() (
   # Bash 3 discards function-local variables before an EXIT trap after a
   # nested function exits, so cleanup state belongs to this subshell scope.
   agent="$1"
+  harness="$agent"
+  case "$agent" in
+    claude) harness="claude-code" ;;
+    gemini) harness="agy" ;;
+    mistral | deepseek) harness="vibe" ;;
+    deepseek-pi) harness="pi" ;;
+  esac
   agent_name="$agent"
-  if [ "$agent" = "kimi" ]; then agent_name="Kimi"; fi
-  if [ "$agent" = "dsh" ]; then agent_name="DSH"; fi
-  if [ "$agent" = "pi" ]; then agent_name="Pi"; fi
+  if [ "$harness" = "kimi" ]; then agent_name="Kimi"; fi
+  if [ "$harness" = "pi" ]; then agent_name="Pi"; fi
   uuid_resume=0
-  if [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || [ "$agent" = "vibe" ]; then uuid_resume=1; fi
+  if [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then uuid_resume=1; fi
   requested_role="${2:-}"
   expected_role=""
   expected_model=""
   expected_effort=""
   case "$agent:$requested_role" in
-    claude-code: | claude-code:advisor)
+    claude: | claude:advisor)
       expected_role="advisor"
       expected_model="claude-opus-5-5"
       expected_effort="xhigh"
       ;;
-    claude-code:worker)
+    claude:worker)
       expected_role="worker"
       expected_model="claude-sonnet-5-5"
       expected_effort="high"
@@ -102,24 +108,24 @@ run_gate() (
       expected_model="gpt-6-astra"
       expected_effort="medium"
       ;;
-    dsh: | dsh:worker)
+    deepseek-pi: | deepseek-pi:worker)
       expected_role="worker"
-      expected_model="magpie:deepseek/deepseek-flash"
-      expected_effort="high"
+      expected_model="${AHELPA_GATE_PI_MODEL:-cc-switch-deep-seek/deepseek-flash}"
+      expected_effort="${AHELPA_GATE_PI_EFFORT:-high}"
       ;;
-    pi: | pi:worker)
-      expected_role="worker"
-      expected_model="${AHELPA_GATE_PI_MODEL:-}"
-      expected_effort="${AHELPA_GATE_PI_EFFORT:-}"
-      ;;
-    agy: | agy:worker)
+    gemini: | gemini:worker)
       expected_role="worker"
       expected_model="gemini-4-argon"
       expected_effort="medium"
       ;;
-    vibe: | vibe:worker)
+    mistral: | mistral:worker)
       expected_role="worker"
       expected_model="mistral-large-4-0-3"
+      expected_effort="high"
+      ;;
+    deepseek: | deepseek:worker)
+      expected_role="worker"
+      expected_model="deepseek-v4-1-flash-1017"
       expected_effort="high"
       ;;
     kimi:) ;;
@@ -131,7 +137,7 @@ run_gate() (
   task="Write exactly $expected_marker followed by a newline to summary.md in your assigned result directory. Then output [AHELPA:DONE] on its own line."
   task="$task Only read the assigned task file and write within the assigned result directory; do not inspect other projects, home directories, or global ahelpa state."
   project="${GATE_FIXTURE_PROJECT:-$GATE_DIR/project-$label}"
-  if [ "$agent" = "claude-code" ] && [ -n "${GATE_CLAUDE_PROJECT:-}" ]; then
+  if [ "$harness" = "claude-code" ] && [ -n "${GATE_CLAUDE_PROJECT:-}" ]; then
     project="$GATE_CLAUDE_PROJECT"
   fi
   session_id=""
@@ -143,7 +149,7 @@ run_gate() (
   pi_lock=""
   pi_pids=""
   wait_seconds=180
-  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || [ "$agent" = "vibe" ]; then
+  if [ "$harness" = "kimi" ] || [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then
     context_marker="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
     task="Remember this context marker for our next turn: $context_marker. $task"
     wait_seconds=500
@@ -227,7 +233,7 @@ run_gate() (
   }
 
   snapshot_pi_processes() {
-    [ "$agent" = "pi" ] || return 0
+    [ "$harness" = "pi" ] || return 0
     local pane_pids pi_snapshot
     pane_pids="$(tmux list-panes -t "$session_id" -F '#{pane_pid}')" || return 1
     pi_snapshot="$(ps -axo pid=,ppid= | bun -e '
@@ -276,7 +282,7 @@ run_gate() (
   # Graceful drain stops the child before the gate's kill, so record bridge and child
   # while the helper is live; kill must leave none of those PIDs behind.
   snapshot_agy_processes() {
-    [ "$agent" = "agy" ] || [ "$agent" = "vibe" ] || return 0
+    [ "$harness" = "agy" ] || [ "$harness" = "vibe" ] || return 0
     local pane_pids observed_pids running_output=""
     if [ "${1:-}" = "midturn" ]; then
       running_output="$("$CLI" logs "$session_id" --token "$owner_token")" || return 1
@@ -310,10 +316,10 @@ run_gate() (
         }
         process.stdout.write([...pids].join("\n"));
       } catch { process.exit(1); }
-    ' "$pane_pids" "$delivery/$agent-process.json" "$agent" "${1:-}" "$running_output")" || return 1
+    ' "$pane_pids" "$delivery/$harness-process.json" "$harness" "${1:-}" "$running_output")" || return 1
     [ -n "$observed_pids" ] || return 1
     # Vibe starts a child per turn; retain every observed turn for reclamation.
-    if [ "$agent" = "vibe" ] && [ -n "$pi_pids" ]; then
+    if [ "$harness" = "vibe" ] && [ -n "$pi_pids" ]; then
       pi_pids="$(printf '%s\n%s\n' "$pi_pids" "$observed_pids" | sort -nu)"
     else
       pi_pids="$observed_pids"
@@ -323,9 +329,9 @@ run_gate() (
   }
 
   verify_pi_reclaimed() {
-    [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || [ "$agent" = "vibe" ] || return 0
+    [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ] || return 0
     [ -n "$pi_pids" ] || return 1
-    if [ "$agent" = "pi" ] && [ -z "$pi_lock" ]; then return 1; fi
+    if [ "$harness" = "pi" ] && [ -z "$pi_lock" ]; then return 1; fi
     local attempt
     for attempt in {1..20}; do
       # Process titles may hide RPC arguments; compare only the recorded PIDs.
@@ -370,7 +376,7 @@ run_gate() (
       fail "check still reports an active $agent session after kill"
     fi
     if ! verify_pi_reclaimed; then
-      if [ "$agent" = "agy" ] || [ "$agent" = "vibe" ]; then fail "$agent bridge or child remains after kill"; fi
+      if [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then fail "$agent bridge or child remains after kill"; fi
       fail "Pi child or session lock remains after kill"
     fi
     cleaned=1
@@ -382,9 +388,9 @@ run_gate() (
   mkdir -p "$project"
   launch_args=(launch "$agent" --task "$task" --project "$project")
   if [ -n "$requested_role" ]; then launch_args+=(--role "$requested_role"); fi
-  if [ "$agent" = "pi" ]; then
-    if [ -n "$expected_model" ]; then launch_args+=(--model "$expected_model"); fi
-    if [ -n "$expected_effort" ]; then launch_args+=(--effort "$expected_effort"); fi
+  if [ "$harness" = "pi" ]; then
+    if [ -n "${AHELPA_GATE_PI_MODEL:-}" ]; then launch_args+=(--model "$expected_model"); fi
+    if [ -n "${AHELPA_GATE_PI_EFFORT:-}" ]; then launch_args+=(--effort "$expected_effort"); fi
   fi
   launch_output="$("$CLI" "${launch_args[@]}")"
   take_session "$launch_output"
@@ -394,19 +400,19 @@ run_gate() (
     fail "launch did not report expected role/model/effort for $label session $session_id"
   fi
   verify_completion
-  if [ "$agent" = "kimi" ] && ! check_kimi_resume_id "$check_output" "$session_id"; then
+  if [ "$harness" = "kimi" ] && ! check_kimi_resume_id "$check_output" "$session_id"; then
     fail "Kimi did not retain a native session resume ID"
   fi
   if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$check_output"; fi
   reclaim_session
 
-  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || [ "$agent" = "vibe" ]; then
+  if [ "$harness" = "kimi" ] || [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then
     prior_session="$session_id"
     resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
     label="$agent-resumed"
     take_session "$resume_output"
     if [ "$session_id" = "$prior_session" ]; then fail "$agent_name resume reused the old helper ID"; fi
-    if [ "$agent" != "vibe" ] && ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
+    if [ "$harness" != "vibe" ] && ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
     resume_check="$("$CLI" check)"
     if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$resume_check"; fi
     if ! check_session_status "$resume_check" "$session_id" ready; then
@@ -420,24 +426,24 @@ TASK
     sed "s/gate-kimi-resumed:/gate-$agent-resumed:/" "$GATE_DIR/$agent-resume-task.md" >"$GATE_DIR/$agent-task.md"
     mv "$GATE_DIR/$agent-task.md" "$GATE_DIR/$agent-resume-task.md"
     "$CLI" task "$session_id" --file "$GATE_DIR/$agent-resume-task.md" --token "$owner_token" >"$GATE_DIR/task-$agent-resumed.txt"
-    if [ "$agent" = "vibe" ] && ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
+    if [ "$harness" = "vibe" ] && ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
     verify_completion
     reclaim_session
     echo "pass > $agent resume readiness, new turn, and context continuity"
   fi
-  if [ "$agent" = "vibe" ]; then
+  if [ "$harness" = "vibe" ]; then
     prior_session="$session_id"
     resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
-    label="vibe-midturn"
+    label="$agent-midturn"
     take_session "$resume_output"
     if [ "$session_id" = "$prior_session" ]; then fail "Vibe resume reused the old helper ID"; fi
     resume_check="$("$CLI" check)"
     retain_pi_identity "$resume_check"
     if ! check_session_status "$resume_check" "$session_id" ready; then fail "Vibe mid-turn resume did not become ready"; fi
-    cat >"$GATE_DIR/vibe-midturn-task.md" <<'TASK'
+    cat >"$GATE_DIR/$agent-midturn-task.md" <<'TASK'
 Run sleep 120 in the foreground using your shell tool and wait for it to finish. Do not run it in the background. Only after it finishes, print [AHELPA:DONE] on its own line.
 TASK
-    "$CLI" task "$session_id" --file "$GATE_DIR/vibe-midturn-task.md" --token "$owner_token" >"$GATE_DIR/task-$label.txt"
+    "$CLI" task "$session_id" --file "$GATE_DIR/$agent-midturn-task.md" --token "$owner_token" >"$GATE_DIR/task-$label.txt"
     observed=0
     for attempt in {1..60}; do
       if snapshot_agy_processes midturn; then observed=1; break; fi
@@ -471,30 +477,30 @@ run_integration_gate() (
   echo "evidence > $GATE_DIR"
   "$CLI" help >"$GATE_DIR/cli.txt"
   "$CLI" version >"$GATE_DIR/version.txt"
-  run_gate claude-code
-  run_gate claude-code worker
+  run_gate claude
+  run_gate claude worker
   run_gate codex
-  if [ "${AHELPA_GATE_DSH:-}" = 1 ]; then
-    run_gate dsh
-  else
-    echo "skip > dsh (set AHELPA_GATE_DSH=1 to include)"
-  fi
   if [ "${AHELPA_GATE_PI:-}" = 1 ]; then
-    run_gate pi
+    run_gate deepseek-pi
   else
-    echo "skip > pi (set AHELPA_GATE_PI=1 to include)"
+    echo "skip > deepseek-pi (set AHELPA_GATE_PI=1 to include)"
   fi
   if [ "${AHELPA_GATE_AGY:-}" = 1 ]; then
-    run_gate agy
+    run_gate gemini
   else
-    echo "skip > agy (set AHELPA_GATE_AGY=1 to include)"
+    echo "skip > gemini (set AHELPA_GATE_AGY=1 to include)"
   fi
   if [ "${AHELPA_GATE_VIBE:-}" = 1 ]; then
-    run_gate vibe
+    run_gate mistral
   else
-    echo "skip > vibe (set AHELPA_GATE_VIBE=1 to include)"
+    echo "skip > mistral (set AHELPA_GATE_VIBE=1 to include)"
   fi
-  # Like DSH, Kimi bills a metered provider, so its live run is opt-in.
+  if [ "${AHELPA_GATE_DEEPSEEK:-}" = 1 ]; then
+    run_gate deepseek
+  else
+    echo "skip > deepseek (set AHELPA_GATE_DEEPSEEK=1 to include)"
+  fi
+  # Kimi's live run is opt-in.
   if [ "${AHELPA_GATE_KIMI:-}" = 1 ]; then
     run_gate kimi
   else

@@ -26,6 +26,7 @@ Source: coordinating session's supplied spike results, measured 2026-11-06 on Vi
 - Observed levels: Large 4 (`mistral-large-4-0-3`) low/medium/high, default high; `mistral-medium-3.5` off/high; `glm-5-3` and `zai-glm-5-3-flash` low/high/max, both default high in the effective configuration. Unsupported levels may still be sent with a warning. The low/medium/high Large 4 probe used two small reasoning prompts: output tokens 125/161/176 and 97/178/205, all answers correct, 8–19 seconds per call. Reported cost was zero on that account; this is not a pricing claim.
 - SIGTERM exited 3 within a second and the spawned `sleep 30` was gone in one run. The bridge cleans the turn’s process group after natural and explicit exits, and snapshots descendants before stopping to also reap tools that create another session.
 - Stderr includes a macOS Keychain notice and may contain account data; the bridge prints fixed categories only. Sign-in remains unknown in doctor and is checked by the first turn. `vibe --version` was cheap and safe in the spike. The driver instead reads installed `mistral-vibe` dist-info metadata, preserving doctor’s no-execution contract; unrecognized distributions report an unknown version.
+- DeepSeek through the Mistral subscription (owner's session, 2026-11-06, Vibe 3.1.0/macOS): the model is absent from Vibe's built-in definitions, but a full `[models."deepseek-v4-1-flash-1017"]` table in the session agent file (`name`, `provider = "mistral"`, `thinking`, `thinking_levels = ["low", "high", "max"]`, `max_context_length = 1048576`, `max_output_tokens = 131072`) worked without touching `~/.vibe`. The built-in `mistral` provider already points at `https://api.mistral.ai/v1`; the key still comes from the Keychain. Three headless calls exited 0 without warnings, and Vibe's session log recorded `model_name` `deepseek-v4-1-flash-1017`. A trivial prompt at `high` used 0 reasoning tokens; a counting puzzle used 1622 at `low` and 1335 at `max`, both answering correctly (158, checked by hand). This shows reasoning is on and both levels are accepted. One sample does not show that the level changes reasoning depth.
 - First-party `vibe-acp` and `vibe-app-server` also exist. Per-turn headless was simpler and structured enough; those interfaces are upgrade candidates if the measured roughly 1–2 second per-turn startup becomes material.
 
 ## Grid
@@ -51,8 +52,32 @@ The owner requested Vibe alongside agy and Pi. The spike supplied file handoff, 
 
 The owner chose Large 4; the probe answered correctly at every level with modest latency differences and zero reported cost on this account, so its vendor default `high` (its highest level) was kept. Re-evaluate the level with real tasks.
 
+## Where model definitions live (decided and implemented 2026-11-06)
+
+A model Vibe does not know, such as DeepSeek through the Mistral subscription, needs a full model table somewhere. There are two places to put it.
+
+**Chosen: per session, from the driver.** The driver holds the full definition. On every launch and resume the bridge writes it into `.ahelpa/<session-id>/ahelpa-helper.toml` (mode 0600, no secrets; Vibe still reads the key from the Keychain), and every turn reads it through `VIBE_AGENT_PATHS` and `--agent`. `~/.vibe` is never written.
+
+- Works out of the box: after installing ahelpa and signing in to Vibe, `ahelpa launch deepseek` runs without learning Vibe's config format.
+- Every machine gets the same definition, so problems reproduce. Nothing is left in the user's global Vibe config, which keeps the driver's no-`~/.vibe`-writes rule.
+- Matches the existing Mistral setup, which already writes model and thinking this way.
+
+Costs and preconditions:
+
+- The model ID `deepseek-v4-1-flash-1017` is dated and lives in code. If Mistral renames or retires it, every install breaks together, and the fix is a code change and a release.
+- Out of the box only holds for subscriptions that include the model. The owner's Mistral subscription does; other plans and regions are unverified. Without it the first turn fails, so that failure should get a readable hint, for example that the Mistral subscription may not include the model.
+- Runtime overhead should be negligible: one small file write per launch, and Vibe reads the agent file every turn anyway. The real per-turn cost is the new Vibe process plus `--resume`, which does not depend on where the definition lives. Measured once after implementation: a resumed recall turn took 13 s on `deepseek` and 19 s on `mistral`, with about 1 s for `ahelpa resume` itself.
+
+**Kept as the alternative: the user's global `~/.vibe/config.toml`.** The definition persists, ahelpa passes only the model name, a manually started `vibe` can use DeepSeek too, and a model-version change is one local edit. Against it: it edits global configuration, every new machine must be configured again, it breaks the driver's no-`~/.vibe`-writes rule, and it does not work out of the box. Verified the same day: with the same table in `config.toml`, no agent file, and `active_model` unchanged, `vibe --model deepseek-v4-1-flash-1017` answered the counting puzzle correctly, and a `--resume` turn recalled the answer. Both generations recorded the DeepSeek model with reasoning effort `high`.
+
 ## History
 
 - 2026-11-06: integrated from the coordinating session's Vibe 3.1.0 spike; added the dated card and an opt-in profile.
 - 2026-11-06: review rework moved model/thinking configuration into bridge startup, bounded exit and pipe draining, added per-turn process-group cleanup, and retained delivered tasks when the native session ID is delayed; strengthened gate and regression coverage.
 - 2026-11-06: the gate's vibe scenario no longer depends on the model obeying an artificial `NEED_HELP` request (Large 4 answered `DONE` instead in one run). `AHELPA_GATE_VIBE=1 bun run closure:gate` then passed on macOS with vibe 3.1.0: launch, `wait`/`check`, native resume with context recall, and a mid-turn `kill` of a running `sleep 120` turn with bridge, child and tool reclaimed.
+- 2026-11-06: probed DeepSeek (`deepseek-v4-1-flash-1017`) through the Mistral subscription with a session agent file. Chose per-session model definitions over the global `~/.vibe/config.toml` (see “Where model definitions live”); implemented the same day, see the entries below.
+
+- 2026-11-06: implemented model-named types `mistral` and `deepseek` on the Vibe harness, retaining `vibe` as a hidden compatibility alias. DeepSeek now receives the full per-session model definition described above, with a fixed subscription-availability error category; real-model validation of this change remains for the owner.
+
+- 2026-11-06: finalized public names `mistral` (nickname `vibe`) and subscription-first `deepseek` (nickname `deepseek-vibe`), both storing harness ID `vibe`. The host may choose API backup `deepseek-pi` after subscription model-unavailable or authentication errors; no automatic fallback. Resume preserves stored settings and the original prefix.
+- 2026-11-06: owner-side live check from the source tree with real models. `deepseek` and `mistral` each read a 250-line file and reported the correct sum and maximum. After `ahelpa resume`, each recalled the sum without rereading. New IDs kept the `deepseek-` and `mistral-` prefixes, rows stored harness ID `vibe` with their own models, and a resumed turn took 13 s on DeepSeek and 19 s on Mistral (one sample each).

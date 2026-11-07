@@ -1,15 +1,17 @@
 # ahelpa on Claude Code
 
+Public name: `claude`. The `claude-code` nickname uses the same profile and prefix.
+
 Platform-specific guidance for using ahelpa inside Claude Code.
 
 ## Binary Mapping
 
-- `ahelpa launch claude-code ...` uses the `claude` CLI
+- `ahelpa launch claude ...` uses the `claude` CLI
 - `ahelpa launch codex ...` uses the `codex` CLI
 
 Verify with `command -v claude` or `command -v codex`, not `command -v claude-code`.
 
-Claude Code is launched with `--dangerously-skip-permissions --verbose` by default. Use `ahelpa launch claude-code --safe ...` to omit `--dangerously-skip-permissions`.
+Claude Code is launched with `--dangerously-skip-permissions --verbose` by default. Use `ahelpa launch claude --safe ...` to omit `--dangerously-skip-permissions`.
 
 The default role is `advisor`, using `claude-opus-5-5` with `xhigh` effort for analysis, plans, and review. For implementation against a clear objective, pass `--role worker` to use `claude-sonnet-5-5` with `high`. For read-only adversarial review, pass `--role reviewer` (`claude-opus-5-5`, `xhigh`); its task contract forbids modifying anything outside the result directory. Explicit model/effort options override those defaults; roles do not change permissions.
 
@@ -19,7 +21,7 @@ Launch and resume also pass `--settings` pointing to session-local `claude-setti
 
 ```bash
 # 1. Launch a helper
-result=$(ahelpa launch claude-code --role worker --task "Add unit tests for auth.ts" --project /path/to/project)
+result=$(ahelpa launch claude --role worker --task "Add unit tests for auth.ts" --project /path/to/project)
 session_id=$(echo $result | jq -r .sessionId)
 token=$(echo $result | jq -r .ownerToken)
 
