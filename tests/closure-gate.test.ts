@@ -10,7 +10,7 @@ afterEach(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gateDsh = "", gatePi = "", piModel = "", piEffort = "", gateAgy = "") {
+async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gateDsh = "", gatePi = "", piModel = "", piEffort = "", gateAgy = "", gateVibe = "") {
   const root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-closure-test-"));
   fixtureRoots.push(root);
   const binDir = join(root, "bin");
@@ -40,10 +40,10 @@ switch (command) {
   case "daemon": break;
   case "launch": {
     const roleIndex = args.indexOf("--role");
-    const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : ["codex", "dsh", "pi", "agy"].includes(args[0]) ? "worker" : null)
+    const role = roleIndex === -1 ? (args[0] === "claude-code" ? "advisor" : ["codex", "dsh", "pi", "agy", "vibe"].includes(args[0]) ? "worker" : null)
       : args[roleIndex + 1];
     const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : args[0] === "claude-code" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
-      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "magpie:deepseek/deepseek-flash" : args[0] === "agy" ? "gemini-4-argon" : null;
+      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "dsh" ? "magpie:deepseek/deepseek-flash" : args[0] === "agy" ? "gemini-4-argon" : args[0] === "vibe" ? "mistral-large-4-0-3" : null;
     const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude-code" && role === "advisor" ? "xhigh" : ["kimi", "pi"].includes(args[0]) ? null : ["codex", "agy"].includes(args[0]) ? "medium" : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
@@ -51,7 +51,7 @@ switch (command) {
     const marker = task.match(/Remember this context marker for our next turn: ([a-f0-9-]+)\./)?.[1];
     const completionMarker = task.match(/Write exactly ([^ ]+) followed by a newline/)?.[1];
     sessions[id] = { id, project, task, marker, role, model, effort, status: scenario === "reaped" ? "idle" : "draining",
-      agentResumeId: scenario === "missing-native-id" ? null : ["pi", "agy"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
+      agentResumeId: scenario === "missing-native-id" ? null : ["pi", "agy", "vibe"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
     save();
     if (args[0] === "pi") {
       const encoded = "--" + resolve(project).replace(/^[/\\\\]/, "").replace(/[/\\\\:]/g, "-") + "--";
@@ -72,9 +72,9 @@ switch (command) {
       mkdirSync(join(project, ".ahelpa", id), { recursive: true });
       writeFileSync(join(project, ".ahelpa", id, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
     }
-    if (args[0] === "agy") {
+    if (["agy", "vibe"].includes(args[0])) {
       mkdirSync(join(project, ".ahelpa", id), { recursive: true });
-      writeFileSync(join(project, ".ahelpa", id, "agy-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
+      writeFileSync(join(project, ".ahelpa", id, args[0] + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
     }
     // A linked worktree keeps its results in the main checkout and a link in the project.
     const delivery = scenario === "linked-results" ? join(root, "main", ".ahelpa", id) : join(project, ".ahelpa", id);
@@ -104,6 +104,7 @@ switch (command) {
   case "logs": {
     if (scenario === "logs-unavailable") process.exit(1);
     console.log(session.task);
+    if (session.midturn) console.log("[AHELPA_VIBE_STATE:running]");
     console.log(scenario === "account-error" ? "Your account does not have access to Claude Code" : "partial gate-codex output");
     break;
   }
@@ -126,7 +127,7 @@ switch (command) {
     break;
   }
   case "resume": {
-    const id = sessionId.split("-")[0] + "-resumed-fixture";
+    const id = sessionId.split("-")[0] + (sessionId === "vibe-resumed-fixture" ? "-midturn-fixture" : "-resumed-fixture");
     sessions[id] = { ...session, id, status: scenario === "resume-not-ready" ? "running" : "needs_attention",
       agentResumeId: scenario === "pi-resume-id-drift" ? "ffffffff-ffff-4fff-8fff-ffffffffffff" : session.agentResumeId };
     save();
@@ -137,9 +138,9 @@ switch (command) {
       const lockPath = join(...(scenario === "pi-lock-wrong-directory" ? [root, "wrong-directory"] : [process.env.PI_CODING_AGENT_DIR, "sessions", encoded]), ".ahelpa-" + sessions[id].agentResumeId + ".lock");
       writeFileSync(join(directory, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
     }
-    if (sessionId.startsWith("agy-")) {
+    if (sessionId.startsWith("agy-") || sessionId.startsWith("vibe-")) {
       mkdirSync(join(session.project, ".ahelpa", id), { recursive: true });
-      writeFileSync(join(session.project, ".ahelpa", id, "agy-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
+      writeFileSync(join(session.project, ".ahelpa", id, sessionId.split("-")[0] + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
     }
     console.log(JSON.stringify({ sessionId: id, ownerToken: "fixture-token" }));
     break;
@@ -148,11 +149,16 @@ switch (command) {
     if (scenario === "resumed-task-failure") process.exit(2);
     const taskFile = args[args.indexOf("--file") + 1];
     session.task = readFileSync(taskFile, "utf8");
-    session.status = "draining";
+    session.midturn = sessionId.startsWith("vibe-") && session.task.includes("sleep 120");
+    if (sessionId.startsWith("vibe-")) {
+      session.childPid = session.midturn ? 93005 : 93004;
+      writeFileSync(join(session.project, ".ahelpa", sessionId, "vibe-process.json"), JSON.stringify({ bridgePid: 93001, childPid: session.childPid }));
+    }
+    session.status = session.midturn ? "running" : "draining";
     save();
     const delivery = join(session.project, ".ahelpa", sessionId);
     mkdirSync(delivery, { recursive: true });
-    if (scenario !== "stale-first-turn") {
+    if (!session.midturn && scenario !== "stale-first-turn") {
       writeFileSync(join(delivery, "summary.md"), "gate-" + sessionId.split("-")[0] + "-resumed:" +
         (scenario === "resumed-extra-space" ? " " : "") +
         (scenario === "context-loss" ? "wrong" : session.marker) + "\\n");
@@ -170,9 +176,14 @@ if (process.argv.includes("command=")) {
   if (scenario === "pi-self-match") console.log("bun -e --mode rpc 01234567-89ab-4cde-8012-3456789abcde");
   // Pi hides its RPC argv behind its native process title.
   if (scenario === "pi-child-alive") console.log("pi");
-} else if (sessions.some(session => session.id.startsWith("agy-") && session.status !== "dead")) {
-  console.log(scenario === "agy-bridge-gone" ? "93001 1" : "93001 1\\n93002 93001");
-} else if (scenario === "agy-child-alive") {
+} else if (sessions.some(session => (session.id.startsWith("agy-") || session.id.startsWith("vibe-")) && session.status !== "dead")) {
+  const live = sessions.find(session => (session.id.startsWith("agy-") || session.id.startsWith("vibe-")) && session.status !== "dead");
+  if (scenario === "vibe-bridge-gone") process.exit(0);
+  console.log(scenario === "agy-bridge-gone" || (scenario === "vibe-child-gone" && !live.midturn) ? "93001 1" : "93001 1\\n" + (live.childPid ?? 93002) + " 93001");
+  if (live.midturn) console.log("93006 93005 sleep");
+} else if (scenario === "vibe-tool-alive" && sessions.some(session => session.midturn)) {
+  console.log("93006 1 sleep");
+} else if (["agy-child-alive", "vibe-child-alive"].includes(scenario)) {
   console.log("93002 1");
 } else if (sessions.some(session => session.id.startsWith("pi-") && session.status !== "dead")) {
   console.log("91001 1\\n91002 91001\\n91003 91002");
@@ -183,7 +194,7 @@ if (process.argv.includes("command=")) {
 }
 `, { mode: 0o755 });
   writeFileSync(join(binDir, "tmux"), `#!/usr/bin/env bash
-if [ "$1" = "list-panes" ]; then case "$3" in agy-*) echo 93001 ;; *) echo 91001 ;; esac; exit 0; fi
+if [ "$1" = "list-panes" ]; then case "$3" in agy-*|vibe-*) echo 93001 ;; *) echo 91001 ;; esac; exit 0; fi
 if [ "$CLOSURE_TEST_SCENARIO" = "tmux-alive" ]; then exit 0; fi
 exit 1
 `, { mode: 0o755 });
@@ -208,6 +219,7 @@ exit 1
       AHELPA_GATE_PI_MODEL: piModel,
       AHELPA_GATE_PI_EFFORT: piEffort,
       AHELPA_GATE_AGY: gateAgy,
+      AHELPA_GATE_VIBE: gateVibe,
       PI_CODING_AGENT_DIR: join(root, "pi-agent"),
     },
     stdout: "pipe",
@@ -310,6 +322,49 @@ describe("closure gate", () => {
     expect(result.exitCode).toBe(0);
     expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
       .toEqual(["claude-code", "claude-code", "codex", "agy"]);
+  }, 30000);
+
+  test("Vibe gate completes normally, recalls context on resume, then resumes again for mid-turn kill", async () => {
+    const result = await runFixture("success", "vibe");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("pass > vibe resume readiness, new turn, and context continuity");
+    expect(result.calls.filter(call => ["launch", "wait", "resume", "task", "send", "kill"].includes(call.command)).map(call => call.command))
+      .toEqual(["launch", "wait", "kill", "resume", "task", "wait", "kill", "resume", "task", "kill"]);
+    expect(result.calls.find(call => call.command === "launch")?.args.join(" ")).not.toContain("NEED_HELP");
+    expect(readFileSync(join(result.evidenceDir, "vibe-resume-task.md"), "utf8")).not.toContain("NEED_HELP");
+    expect(readFileSync(join(result.evidenceDir, "vibe-midturn-task.md"), "utf8")).toContain("sleep 120");
+    expect(JSON.parse(readFileSync(join(result.evidenceDir, "wait-vibe-worker.json"), "utf8")).status).toBe("idle");
+    expect(JSON.parse(readFileSync(join(result.evidenceDir, "wait-vibe-resumed.json"), "utf8")).status).toBe("idle");
+    expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
+    expect(readFileSync(join(result.evidenceDir, "result-vibe-worker", "summary.md"), "utf8")).toBe("gate-vibe-worker\n");
+    expect(readFileSync(join(result.evidenceDir, "result-vibe-resumed", "summary.md"), "utf8")).toMatch(/^gate-vibe-resumed:[a-f0-9-]+\n$/);
+    expect(readFileSync(join(result.evidenceDir, "pids-vibe-resumed.txt"), "utf8")).toBe("93001\n93002\n93004\n");
+    expect(readFileSync(join(result.evidenceDir, "pids-vibe-midturn.txt"), "utf8")).toBe("93001\n93002\n93004\n93005\n93006\n");
+  }, 20000);
+  test.each([
+    ["vibe-child-alive", "vibe bridge or child remains after kill"],
+    ["vibe-bridge-gone", "Cannot snapshot vibe bridge and child of a live helper"],
+    ["vibe-tool-alive", "vibe bridge or child remains after kill"],
+    ["missing-native-id", "vibe did not retain a native session UUID"],
+    ["pi-resume-id-drift", "vibe resume changed the native session UUID"],
+    ["context-loss", "missing or incorrect summary"],
+  ])("Vibe gate rejects %s", async (scenario, message) => {
+    const result = await runFixture(scenario, "vibe");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(message);
+  }, 20000);
+  test("Vibe snapshots tolerate an already-exited child on ordinary turns", async () => {
+    const result = await runFixture("vibe-child-gone", "vibe");
+    expect(result.exitCode).toBe(0);
+    expect(readFileSync(join(result.evidenceDir, "pids-vibe-midturn.txt"), "utf8")).toBe("93001\n93005\n93006\n");
+  }, 20000);
+  test("Vibe live gate is opt-in", async () => {
+    const skipped = await runFixture("success", "codex", true);
+    expect(skipped.stdout).toContain("skip > vibe (set AHELPA_GATE_VIBE=1 to include)");
+    const result = await runFixture("success", "codex", true, "", "", "", "", "", "", "", "1");
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
+      .toEqual(["claude-code", "claude-code", "codex", "vibe"]);
   }, 30000);
 
   test("DSH gate checks profile, native resume, context continuity and reclamation", async () => {

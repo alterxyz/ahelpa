@@ -81,7 +81,7 @@ run_gate() (
   if [ "$agent" = "dsh" ]; then agent_name="DSH"; fi
   if [ "$agent" = "pi" ]; then agent_name="Pi"; fi
   uuid_resume=0
-  if [ "$agent" = "pi" ] || [ "$agent" = "agy" ]; then uuid_resume=1; fi
+  if [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || [ "$agent" = "vibe" ]; then uuid_resume=1; fi
   requested_role="${2:-}"
   expected_role=""
   expected_model=""
@@ -117,6 +117,11 @@ run_gate() (
       expected_model="gemini-4-argon"
       expected_effort="medium"
       ;;
+    vibe: | vibe:worker)
+      expected_role="worker"
+      expected_model="mistral-large-4-0-3"
+      expected_effort="high"
+      ;;
     kimi:) ;;
     *) fail "Unsupported gate scenario: $agent $requested_role" ;;
   esac
@@ -138,7 +143,7 @@ run_gate() (
   pi_lock=""
   pi_pids=""
   wait_seconds=180
-  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ] || [ "$agent" = "agy" ]; then
+  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || [ "$agent" = "vibe" ]; then
     context_marker="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
     task="Remember this context marker for our next turn: $context_marker. $task"
     wait_seconds=500
@@ -268,36 +273,57 @@ run_gate() (
     printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
   }
 
-  # Graceful drain stops agy before the gate's kill, so record the bridge and agy
+  # Graceful drain stops the child before the gate's kill, so record bridge and child
   # while the helper is live; kill must leave none of those PIDs behind.
   snapshot_agy_processes() {
-    [ "$agent" = "agy" ] || return 0
-    local pane_pids
+    [ "$agent" = "agy" ] || [ "$agent" = "vibe" ] || return 0
+    local pane_pids observed_pids running_output=""
+    if [ "${1:-}" = "midturn" ]; then
+      running_output="$("$CLI" logs "$session_id" --token "$owner_token")" || return 1
+    fi
     pane_pids="$(tmux list-panes -t "$session_id" -F '#{pane_pid}')" || return 1
-    pi_pids="$(ps -axo pid=,ppid= | bun -e '
+    observed_pids="$(ps -axo pid=,ppid=,comm= | bun -e '
       try {
         const fs = require("fs");
-        const [panes, metadata] = process.argv.slice(1);
+        const [panes, metadata, agent, mode, output] = process.argv.slice(1);
         const info = JSON.parse(fs.readFileSync(metadata, "utf8"));
         const roots = panes.trim().split(/\s+/).map(Number);
         if (!roots.length || roots.some(pid => !Number.isSafeInteger(pid) || pid <= 0)) process.exit(1);
-        const rows = fs.readFileSync(0, "utf8").trim().split("\n").map(line => line.trim().split(/\s+/).map(Number));
+        const rows = fs.readFileSync(0, "utf8").trim().split("\n").map(line => {
+          const [pid, parent, ...command] = line.trim().split(/\s+/);
+          return [Number(pid), Number(parent), command.join(" ")];
+        });
+        if (roots.some(pid => !rows.some(row => row[0] === pid))) process.exit(1);
         const pids = new Set(roots);
         let prior;
         do {
           prior = pids.size;
           for (const [pid, parent] of rows) if (pids.has(parent)) pids.add(pid);
         } while (pids.size !== prior);
-        if (![info.bridgePid, info.childPid].every(pid => Number.isSafeInteger(pid) && pids.has(pid))) process.exit(1);
+        if (!Number.isSafeInteger(info.bridgePid) || !pids.has(info.bridgePid)) process.exit(1);
+        const childAlive = rows.some(row => row[0] === info.childPid);
+        if ((agent !== "vibe" || childAlive || mode === "midturn") &&
+          (!Number.isSafeInteger(info.childPid) || !pids.has(info.childPid))) process.exit(1);
+        if (mode === "midturn") {
+          const state = [...output.matchAll(/^\[AHELPA_VIBE_STATE:([a-z_]+)\]\s*$/gm)].at(-1)?.[1];
+          if (state !== "running" || !rows.some(([pid, , command]) => pids.has(pid) && /(?:^|\/)sleep$/.test(command))) process.exit(1);
+        }
         process.stdout.write([...pids].join("\n"));
       } catch { process.exit(1); }
-    ' "$pane_pids" "$delivery/agy-process.json")" || return 1
-    [ -n "$pi_pids" ] || return 1
+    ' "$pane_pids" "$delivery/$agent-process.json" "$agent" "${1:-}" "$running_output")" || return 1
+    [ -n "$observed_pids" ] || return 1
+    # Vibe starts a child per turn; retain every observed turn for reclamation.
+    if [ "$agent" = "vibe" ] && [ -n "$pi_pids" ]; then
+      pi_pids="$(printf '%s\n%s\n' "$pi_pids" "$observed_pids" | sort -nu)"
+    else
+      pi_pids="$observed_pids"
+    fi
     printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
+    if [ "${1:-}" = "midturn" ]; then printf '%s\n' "$running_output" >"$GATE_DIR/logs-$label.txt"; fi
   }
 
   verify_pi_reclaimed() {
-    [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || return 0
+    [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || [ "$agent" = "vibe" ] || return 0
     [ -n "$pi_pids" ] || return 1
     if [ "$agent" = "pi" ] && [ -z "$pi_lock" ]; then return 1; fi
     local attempt
@@ -344,7 +370,7 @@ run_gate() (
       fail "check still reports an active $agent session after kill"
     fi
     if ! verify_pi_reclaimed; then
-      if [ "$agent" = "agy" ]; then fail "agy bridge or child remains after kill"; fi
+      if [ "$agent" = "agy" ] || [ "$agent" = "vibe" ]; then fail "$agent bridge or child remains after kill"; fi
       fail "Pi child or session lock remains after kill"
     fi
     cleaned=1
@@ -362,7 +388,7 @@ run_gate() (
   fi
   launch_output="$("$CLI" "${launch_args[@]}")"
   take_session "$launch_output"
-  if ! snapshot_agy_processes; then fail "Cannot snapshot agy bridge and child of a live helper"; fi
+  if ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
   if [ -n "$expected_role" ] && ! check_session_profile "$launch_output" "$session_id" \
     "$expected_role" "$expected_model" "$expected_effort"; then
     fail "launch did not report expected role/model/effort for $label session $session_id"
@@ -374,13 +400,13 @@ run_gate() (
   if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$check_output"; fi
   reclaim_session
 
-  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ] || [ "$agent" = "agy" ]; then
+  if [ "$agent" = "kimi" ] || [ "$agent" = "dsh" ] || [ "$agent" = "pi" ] || [ "$agent" = "agy" ] || [ "$agent" = "vibe" ]; then
     prior_session="$session_id"
     resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
     label="$agent-resumed"
     take_session "$resume_output"
     if [ "$session_id" = "$prior_session" ]; then fail "$agent_name resume reused the old helper ID"; fi
-    if ! snapshot_agy_processes; then fail "Cannot snapshot agy bridge and child of a live helper"; fi
+    if [ "$agent" != "vibe" ] && ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
     resume_check="$("$CLI" check)"
     if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$resume_check"; fi
     if ! check_session_status "$resume_check" "$session_id" ready; then
@@ -394,9 +420,31 @@ TASK
     sed "s/gate-kimi-resumed:/gate-$agent-resumed:/" "$GATE_DIR/$agent-resume-task.md" >"$GATE_DIR/$agent-task.md"
     mv "$GATE_DIR/$agent-task.md" "$GATE_DIR/$agent-resume-task.md"
     "$CLI" task "$session_id" --file "$GATE_DIR/$agent-resume-task.md" --token "$owner_token" >"$GATE_DIR/task-$agent-resumed.txt"
+    if [ "$agent" = "vibe" ] && ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
     verify_completion
     reclaim_session
     echo "pass > $agent resume readiness, new turn, and context continuity"
+  fi
+  if [ "$agent" = "vibe" ]; then
+    prior_session="$session_id"
+    resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
+    label="vibe-midturn"
+    take_session "$resume_output"
+    if [ "$session_id" = "$prior_session" ]; then fail "Vibe resume reused the old helper ID"; fi
+    resume_check="$("$CLI" check)"
+    retain_pi_identity "$resume_check"
+    if ! check_session_status "$resume_check" "$session_id" ready; then fail "Vibe mid-turn resume did not become ready"; fi
+    cat >"$GATE_DIR/vibe-midturn-task.md" <<'TASK'
+Run sleep 120 in the foreground using your shell tool and wait for it to finish. Do not run it in the background. Only after it finishes, print [AHELPA:DONE] on its own line.
+TASK
+    "$CLI" task "$session_id" --file "$GATE_DIR/vibe-midturn-task.md" --token "$owner_token" >"$GATE_DIR/task-$label.txt"
+    observed=0
+    for attempt in {1..60}; do
+      if snapshot_agy_processes midturn; then observed=1; break; fi
+      sleep 1
+    done
+    if [ "$observed" -ne 1 ]; then fail "Vibe did not expose a running bridge, native child and sleep tool"; fi
+    reclaim_session
   fi
   echo "pass > $agent${expected_role:+-$expected_role} ($session_id)"
 )
@@ -440,6 +488,11 @@ run_integration_gate() (
     run_gate agy
   else
     echo "skip > agy (set AHELPA_GATE_AGY=1 to include)"
+  fi
+  if [ "${AHELPA_GATE_VIBE:-}" = 1 ]; then
+    run_gate vibe
+  else
+    echo "skip > vibe (set AHELPA_GATE_VIBE=1 to include)"
   fi
   # Like DSH, Kimi bills a metered provider, so its live run is opt-in.
   if [ "${AHELPA_GATE_KIMI:-}" = 1 ]; then
