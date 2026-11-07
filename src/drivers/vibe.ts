@@ -8,8 +8,9 @@ import type { AgentDriver, DriverRuntime, LaunchOptions, ReadinessRuntime, Resum
 export const VIBE_TESTED_VERSION = "3.1.0";
 const EFFORTS = ["off", "low", "medium", "high", "max"] as const;
 const STATE = /^\[AHELPA_VIBE_STATE:(ready|running|idle|error|needs_attention)\]\s*$/gm;
-const TURN = /^\[AHELPA_VIBE_TURN:([a-f0-9-]{36})\]\s*$/gm;
-const SESSION = /^\[AHELPA_VIBE_SESSION:([a-f0-9-]{36})\]\s*$/gm;
+// Case-insensitive like the bridge's UUID check, which prints Vibe's sessionId as received.
+const TURN = /^\[AHELPA_VIBE_TURN:([a-f0-9-]{36})\]\s*$/gim;
+const SESSION = /^\[AHELPA_VIBE_SESSION:([a-f0-9-]{36})\]\s*$/gim;
 
 function lastMatch(output: string, pattern: RegExp): RegExpMatchArray | undefined {
   return [...output.matchAll(new RegExp(pattern.source, pattern.flags))].at(-1);

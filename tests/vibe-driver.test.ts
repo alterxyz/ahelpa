@@ -77,6 +77,8 @@ test("vibe reads only the latest complete turn frame and current help tags", asy
   expect(driver.detectStatus(frame("idle") + `[AHELPA_VIBE_TURN:${second}]\n`)).toBe("running");
   for (const state of ["idle", "error", "needs_attention"] as const) expect(driver.detectStatus(frame(state))).toBe(state);
   expect(driver.extractResumeToken(frame("ready"))).toBe(id);
+  const upper = id.toUpperCase();
+  expect(driver.extractResumeToken(`[AHELPA_VIBE_SESSION:${upper}]\n[AHELPA_VIBE_TURN:${first.toUpperCase()}]\n[AHELPA_VIBE_STATE:idle]\n`)).toBe(upper);
   expect(driver.detectActivity("loading")).toBe("booting");
   expect(driver.detectActivity(frame("running"))).toBe("working");
   expect(driver.acceptsInput!(frame("running"))).toBe(false);
