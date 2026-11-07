@@ -24,6 +24,8 @@ Pi 的 stderr、RPC 错误字段与 retry／compaction／extension 错误不原�
 
 agy 以 headless 方式运行并带 `--dangerously-skip-permissions`，launch／resume 都拒绝 `--safe`。Headless agy 从不请求批准：需要批准的操作会直接放行，agy 受保护的命令则由 agy 自己的检查拒绝（据 agy 1.5.2 changelog）；它的提问工具只会拿到空答案。ahelpa 不写 agy 的设置、信任记录、hook 或 `.agents/` 文件；agy 的 stderr 可能带有登录账号，所以桥接只输出固定错误类别。agy 本身仍会加载工作区自定义内容：print 模式下，它会运行一个从未被信任过的目录里的 `.agents/hooks.json`，因此项目自带的 hook 可能在 agy helper 下运行。agy 的对话保存在它自己的历史记录里。详见 [agy 参考](../../skill/references/agy.md)。
 
+Vibe 通过会话目录内的 `ahelpa-helper.toml` 设置 `safety = "yolo"` 和 `bypass_tool_permissions = true`，launch／resume 都拒绝 `--safe`。每次调用传 `--trust`，不持久写入受信任目录，也不修改 `~/.vibe` 配置。agent 文件及每回合 prompt 文件权限为 0600。桥接为每个子进程设置 `VIBE_ENABLE_AUTO_UPDATE=false`、`VIBE_ENABLE_UPDATE_CHECKS=false`；stderr 可能含账号信息，只输出固定错误类别。Vibe 自己保存原生会话历史。详见 [Vibe 参考](../../skill/references/vibe.md)。
+
 ## 会话回合 Hooks
 
 Claude 通过 `--settings` 加载 `.ahelpa/<id>/claude-settings.json`，该会话设置文件还写入 `promptSuggestionEnabled: false`，关闭 helper 输入框内的建议文字。Codex 使用仅本次调用生效的 `notify` override。ahelpa 在 launch 和 resume 时自己不编辑 `~/.claude/settings.json` 或 `~/.codex/config.toml`。（ahelpa 应答 Codex 的 "Folder access" 界面后，由 Codex 自己写入信任记录，见上文。）Claude 现有 project/user hooks 仍会与会话 hooks 合并运行。Codex 的 notify override 会替换本次调用原有的 notify 命令；native hooks 及其信任设置不变。

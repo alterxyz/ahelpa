@@ -186,6 +186,8 @@ Pi 的真机 gate 通过 `AHELPA_GATE_PI=1` 启用，需要 Node.js、Pi ≥ 1.4
 
 agy 的真机 gate 通过 `AHELPA_GATE_AGY=1` 启用，需要 Node.js 和 agy ≥ 1.5.2（测试基线 1.5.2），并已在 `agy` 里登录过一次。它使用默认的 `gemini-4-argon`／`medium`，检查 launch／check 记录的设置、resume 后 conversation ID 不变、第二个回合记得之前的上下文，以及 helper 运行时记录下的 bridge 与 agy PID 在每次 kill 后都已消失。gate 产生的对话会留在 agy 自己的历史记录里。
 
+Vibe 的真机 gate 通过 `AHELPA_GATE_VIBE=1` 启用，需要 Node.js、vibe ≥ 3.1.0 及已有登录，使用 `mistral-large-4-0-3`／`high`。它通过 `wait`／`check` 检查正常 DONE 完成，再通过原生 resume 验证上下文记忆。第二次 resume 执行 `sleep 120`，gate 在运行中 kill，并确认记录的 bridge、原生子进程和工具进程全部消失。Vibe 自己保存原生会话历史。
+
 ## 添加 driver
 
 请先读 [Helper 后端](backends.md)。它回答一个候选到底该不该做成 driver（分类和准入漏斗）、三种接法里哪种合适、spike 清单，以及已评估候选的登记表。无论接不接，结论都要记进登记表。driver 是最后一步，不是第一步。

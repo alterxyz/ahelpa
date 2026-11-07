@@ -26,7 +26,7 @@ Instructions for agents working on the ahelpa codebase.
 - `src/cli.ts` — process entry point
 - `src/command-contract.ts` — command registry (single source of truth for CLI surface)
 - `src/commands/` — launch, wait, session-ops
-- `src/drivers/` — agent-specific adapters (claude-code, codex, kimi, dsh, pi, agy)
+- `src/drivers/` — agent-specific adapters (claude-code, codex, kimi, dsh, pi, agy, vibe)
 - `tests/` — Bun test suite
 - `scripts/` — build, deploy, packaging, closure gate
 - `skill/` — skill package source (docs + generated bundle during local packaging)
@@ -71,7 +71,7 @@ Before closing local runtime work:
 bun run closure:gate
 ```
 
-The gate runs tests, typechecks, builds, and launches Claude Code and Codex; DSH runs with `AHELPA_GATE_DSH=1`, Kimi runs with `AHELPA_GATE_KIMI=1`, Pi runs with `AHELPA_GATE_PI=1`, and agy runs with `AHELPA_GATE_AGY=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. DSH, Kimi, Pi, and agy also verify native resume and context continuity. Pi additionally checks child exit and session-lock release; it requires Node.js and Pi >= 1.4.0, using native model/effort defaults unless gate overrides are set. agy checks that its bridge and agy process, recorded while the helper is live, are gone after kill; it requires Node.js and agy >= 1.5.2 and uses the `gemini-4-argon` / `medium` default. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
+The gate runs tests, typechecks, builds, and launches Claude Code and Codex; DSH runs with `AHELPA_GATE_DSH=1`, Kimi runs with `AHELPA_GATE_KIMI=1`, Pi runs with `AHELPA_GATE_PI=1`, agy runs with `AHELPA_GATE_AGY=1`, and Vibe runs with `AHELPA_GATE_VIBE=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. DSH, Kimi, Pi, agy, and Vibe also verify native resume and context continuity. Pi additionally checks child exit and session-lock release; it requires Node.js and Pi >= 1.4.0, using native model/effort defaults unless gate overrides are set. agy checks that its bridge and agy process, recorded while the helper is live, are gone after kill; it requires Node.js and agy >= 1.5.2 and uses the `gemini-4-argon` / `medium` default. Vibe requires Node.js and vibe >= 3.1.0, uses `mistral-large-4-0-3` / `high`, and checks context across turns and native resume plus bridge/child cleanup. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
 
 ## Open Work
 

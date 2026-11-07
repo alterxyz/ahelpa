@@ -152,13 +152,13 @@ Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration �
 
 | 职责 | 示例 |
 | --- | --- |
-| Session prefix | `claude`、`codex`、`kimi`、`dsh`、`pi`、`agy` |
+| Session prefix | `claude`、`codex`、`kimi`、`dsh`、`pi`、`agy`、`vibe` |
 | Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
 | 提交后处理 | 必要时补 Enter；捕获新创建的原生 session ID |
-| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 DSH／Pi／agy 适配器状态标记 |
+| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 DSH／Pi／agy／Vibe 适配器状态标记 |
 
-当前支持 `claude-code`、`codex`、`kimi`、`dsh`、`pi` 和 `agy`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
+当前支持 `claude-code`、`codex`、`kimi`、`dsh`、`pi`、`agy` 和 `vibe`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
 
 `launch --safe` 会把 safe-mode hint 传给选定 driver，并把它写入 session 状态。原生 resume 会继承该姿态；`resume --safe` 可以升级默认姿态记录，但省略参数不会把 safe 记录降级。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`；Kimi 会用 `--yolo`（Ask When Needed）代替 `--auto`（Never Ask）。Kimi 在 safe mode 下仍会自动信任项目目录，因此它的 safe mode 不是 sandbox；Codex 的 "Folder access" 提示在 safe mode 下同样会被应答（见[安全说明](security.md)）。
 
@@ -188,6 +188,12 @@ DSH `0.2.1-rc.2` 提供 Web、headless、SDK 和 ACP 入口 profile，没有内�
 `agy.ts` 在交接目录生成 `agy-terminal.mjs`；`agy-terminal-source.ts` 中的 Node 桥接在 tmux 内独占一个 headless agy 子进程（`--input-format stream-json --output-format stream-json --dangerously-skip-permissions`），并设置 `AGY_CLI_DISABLE_AUTO_UPDATE=true`。每行任务变成一条 NDJSON 用户消息，每个回合以一个 `result` 事件结束；桥接串行处理本地 FIFO，输出与 Pi 桥接同类的会话／回合／状态标记。agy 在第一个任务之前就报告 conversation ID，因此 launch 时即记为 resume token；resume 传 `--conversation <id>`，若 agy 报告的 ID 不同（agy 遇到未知 ID 会这样做）则失败。默认 `gemini-4-argon`／`medium`。
 
 停止时发 SIGINT：stdin EOF 会让 agy 先跑完当前回合，SIGTERM 会留下工具进程。agy 把每个工具命令放在独立进程组里，它的 SIGINT 清理又与自身退出竞争，所以桥接在发信号前先快照 agy 的子孙进程（PID、父进程、进程组、启动时间），之后对身份仍然吻合的残留进程先发 TERM 再发 KILL。stderr 可能带有账号信息，只输出固定错误类别。桥接把 bridge／child PID 写进交付目录的 `agy-process.json`；gate 在 helper 存活时记录 pane 进程树，kill 后检查这些 PID。详见 [agy 参考](../../skill/references/agy.md)。
+
+### Vibe streaming 桥接
+
+`vibe.ts` 在交付目录生成 `vibe-terminal.mjs`，并在 launch／resume 时把 model／effort 参数传给桥接。桥接启动后、报告 ready 前，根据这些参数写入权限为 0600 的 `ahelpa-helper.toml`。Node 桥接驻留 tmux，串行处理输入行；每回合写一个 0600 prompt 文件，再启动 `vibe --prompt-file <file> --output streaming --trust --agent ahelpa-helper`。首个事件给出 sessionId，之后每回合加 `--resume <id>`；原生 resume 也沿用该 token。每回合子进程退出后桥接继续存活，原生会话保留上下文。
+
+退出码 0 加助手正文中的 DONE 暗号才是 idle；NEED_HELP 优先并带标签报 error；退出码 0 无暗号或 3（中断）是 needs_attention；其他退出报固定错误类别。桥接输出会话／回合／状态标记及运行心跳，引用助手伪造的保留标记。停止时向活跃子进程发 SIGTERM。子进程自然结束或被停止后，都对本回合进程组的残留成员先发 TERM 再发 KILL；显式停止时还快照子孙进程，按记录身份清理另建 session 的工具进程。根进程退出与管道排空分开等待，且均有时限。模型与 thinking 通过 `VIBE_AGENT_PATHS` 加载会话 agent 文件，每次 spawn 均关闭自动更新及检查；不改全局配置。详见 [Vibe 参考](../../skill/references/vibe.md)。
 
 ## Nesting
 
@@ -242,3 +248,5 @@ Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`�
 | `drivers/pi-terminal-source.ts` | Pi RPC 桥接与生命周期 |
 | `drivers/agy.ts` | agy driver |
 | `drivers/agy-terminal-source.ts` | agy stream-json 桥接与生命周期 |
+| `drivers/vibe.ts` | Vibe driver |
+| `drivers/vibe-terminal-source.ts` | Vibe streaming 桥接与生命周期 |

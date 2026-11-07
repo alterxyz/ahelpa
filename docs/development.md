@@ -185,6 +185,8 @@ Enable the live Pi gate with `AHELPA_GATE_PI=1`; it requires Node.js, Pi ≥ 1.4
 
 Enable the live agy gate with `AHELPA_GATE_AGY=1`; it requires Node.js and agy ≥ 1.5.2 (tested baseline: 1.5.2), signed in once in `agy`. It uses the `gemini-4-argon` / `medium` default and checks launch/check settings, the unchanged conversation ID after resume, remembered context on a second turn, and that the bridge and agy PIDs recorded while the helper ran are gone after each kill. agy keeps the gate's conversations in its own history.
 
+Enable the live Vibe gate with `AHELPA_GATE_VIBE=1`; it requires Node.js, vibe ≥ 3.1.0, and an existing sign-in, using `mistral-large-4-0-3` / `high`. It checks normal DONE completion through `wait`/`check`, then recalls context after native resume. A second resume runs `sleep 120`; the gate kills it while running and verifies that the recorded bridge, native child and tool processes are gone. Vibe retains its native session history.
+
 ## Adding a Driver
 
 Read [Helper backends](backends.md) first. It covers whether a candidate should be a driver at all (classification and the admission funnel), which of the three wiring shapes fits, the spike checklist, and the registry of candidates already evaluated. Record the outcome in the registry whether or not you build it. The driver is the last step, not the first.

@@ -158,6 +158,24 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 **Runtime quirks**
 - Each helper is one agy process in headless stream-json mode behind a bridge; resume reopens the same agy conversation. See [agy setup and limits](agy.md).
 
+## vibe
+
+**Observation status:** new; not yet observed in real use; not in default dispatch (2026-11-06). The Vibe 3.1.0 spike establishes protocol, resume, permission and thinking configuration only; no task-quality or reliability claim follows from it.
+
+**Best at**
+- No assignment claim yet. Launch by name for bounded trials with independent acceptance checks.
+
+**Watch for**
+- Exit 0 without the completion sentinel still needs attention; interruption (exit 3) also needs attention. Read the result before deciding to continue.
+- Thinking levels vary by model. The driver accepts `off|low|medium|high|max`; a level outside the model’s supported set can still be sent by Vibe with a warning.
+
+**Give it**
+- A narrow task, scope limits, a short expected result, and a check the host can rerun.
+
+**Runtime quirks**
+- `worker` (default) and `reviewer` use `mistral-large-4-0-3` / `high`. No `advisor`, `--safe`, or runtime model switching.
+- The tmux bridge and native session persist; each turn starts a new headless child with native resume. Model/thinking come from a session agent file. See [Vibe setup and limits](vibe.md).
+
 ## Task type to helper
 
 | Task | Helper | Role | Contract emphasis |

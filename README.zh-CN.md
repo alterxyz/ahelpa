@@ -94,8 +94,9 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `dsh` | `dsh`（DeepSeek Harness） |
 | `pi` | `pi` ≥ 1.4.0 + Node.js |
 | `agy` | `agy`（Antigravity CLI）≥ 1.5.2 + Node.js |
+| `vibe` | `vibe`（Mistral Vibe CLI） ≥ 3.1.0 + Node.js |
 
-检查依赖时请用 `command -v claude`、`command -v codex`、`command -v kimi`、`command -v dsh`、`command -v pi` 或 `command -v agy`。Claude 的 helper type 不是它的二进制名称。
+检查依赖时请用 `command -v claude`、`command -v codex`、`command -v kimi`、`command -v dsh`、`command -v pi`、`command -v agy` 或 `command -v vibe`。Claude 的 helper type 不是它的二进制名称。
 
 DSH 默认使用本地 Magpie 网关路由（`magpie:deepseek/deepseek-flash`）。DSH 接入面向 `@deepseek-ai/dsh@0.2.1-rc.2`。ahelpa 会创建独立的 `ahelpa` profile 和会话内的终端 app，保留已有 Desktop/Web profile 与凭据。可用 `ahelpa launch dsh --task "Review the parser" --project /path/to/project` 启动。安装、认证与原生恢复见 [DSH 接入说明](skill/references/dsh.md)。该接入仍待观察，目前不支持 `--safe` 和运行时模型切换。
 
@@ -104,6 +105,8 @@ DSH 默认使用本地 Magpie 网关路由（`magpie:deepseek/deepseek-flash`）
 Pi 是显式选择的后端，与 DSH 并存；需要 `@earendil-works/pi-coding-agent` ≥ 1.4.0（测试基线 1.4.0）及 Node.js。运行 `ahelpa launch pi --file ./task.md` 使用 Pi 配置中的默认模型和 thinking；可用 `--model provider/id`、`--effort <level>` 覆盖，启动时会核对实际生效值。Pi 的 `worker`／`reviewer` 不预设模型或 effort，拒绝 `advisor`、`--safe` 及运行时模型切换。`resume` 必须找到 UUID 对应的原生记录；helper 退出后可在同一项目运行 `pi -r` 接管。详见 [Pi 接入说明](skill/references/pi.md)。
 
 agy（Google Antigravity CLI）是显式选择的后端；需要 `agy` ≥ 1.5.2（测试基线 1.5.2）、先在 `agy` 里登录一次，以及 Node.js。运行 `ahelpa launch agy --file ./task.md` 使用 Gemini 4 Argon · medium。ahelpa 通过 tmux 里的桥接驱动 agy 的 headless stream-json 模式，因此不回答信任对话框，也不写 agy 设置或项目 hook；`resume` 重新打开同一段 agy 对话。不支持 `--safe` 和运行时模型切换。详见 [agy 接入说明](skill/references/agy.md)。
+
+Vibe（Mistral Vibe CLI）需要 `vibe` ≥ 3.1.0、Node.js 和已完成的登录。`ahelpa launch vibe --file ./task.md` 默认使用 `mistral-large-4-0-3`／`high`。tmux 内的桥接每回合启动一个 headless 子进程，以原生 `--resume` 保留上下文；模型和 thinking 由会话专属 agent 文件设置，不写全局配置。拒绝 `--safe` 和运行时模型切换。它尚未进入默认派工，详见 [Vibe 接入说明](skill/references/vibe.md)。
 
 ### 角色与默认值
 
@@ -118,8 +121,9 @@ agy（Google Antigravity CLI）是显式选择的后端；需要 `agy` ≥ 1.5.2
 | `dsh` | `reviewer` | `magpie:deepseek/deepseek-flash` | `high` |
 | `pi` | `worker`（默认）、`reviewer` | 原生默认值 | 原生默认值 |
 | `agy` | `worker`（默认）、`reviewer` | `gemini-4-argon` | `medium` |
+| `vibe` | `worker`（默认）、`reviewer` | `mistral-large-4-0-3` | `high` |
 
-Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `ahelpa launch claude-code --role worker --file ./task.md` 会选择 Sonnet。显式 `--model`、`--effort` 分别覆盖对应默认值。`reviewer` 用于只读的对抗式审阅，其任务合同禁止修改结果目录之外的文件；Codex、DSH、Pi 和 agy 拒绝 `advisor`。角色只选择启动设置，不改变权限或任务范围。Kimi 保持原生模型默认值，不接受 `--role`。`models` 展示预设，`check` 展示已记录的角色、模型和 effort；resume 保留已记录设置，旧会话没有角色时也不会套用新默认。
+Advisor 用于分析、方案和审阅；worker 按明确目标执行。例如 `ahelpa launch claude-code --role worker --file ./task.md` 会选择 Sonnet。显式 `--model`、`--effort` 分别覆盖对应默认值。`reviewer` 用于只读的对抗式审阅，其任务合同禁止修改结果目录之外的文件；Codex、DSH、Pi、agy 和 Vibe 拒绝 `advisor`。角色只选择启动设置，不改变权限或任务范围。Kimi 保持原生模型默认值，不接受 `--role`。`models` 展示预设，`check` 展示已记录的角色、模型和 effort；resume 保留已记录设置，旧会话没有角色时也不会套用新默认。
 
 ## 命令速览
 

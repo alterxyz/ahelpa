@@ -37,7 +37,7 @@ ahelpa **不是**：
 
 | 层 | 是什么 | 结论 | 例子 |
 | --- | --- | --- | --- |
-| **helper 后端** | 本身就是干活的 agent harness：读文件、改文件、跑命令、调模型。 | driver 候选，进入漏斗。 | `claude-code`、`codex`、`kimi`、`pi`、`agy`、`dsh`；候选 OpenCode |
+| **helper 后端** | 本身就是干活的 agent harness：读文件、改文件、跑命令、调模型。 | driver 候选，进入漏斗。 | `claude-code`、`codex`、`kimi`、`pi`、`agy`、`vibe`、`dsh`；候选 OpenCode |
 | **host 目标** | *调用* ahelpa 的 agent，对应 skill 安装目标，不是 driver。同一个 agent 可以两者都是。 | 是 skill 安装问题，不是 driver 问题。 | skill 目标 `codex`、`claude-code`、`kimi-code-cli`（三者同时也是 helper 后端） |
 | **模型／网关层** | 位于 driver 之下：provider 端点、路由、密钥代理，或无状态的模型 CLI。 | 是某个现有 driver 的配置，绝不是新 driver。 | Magpie（DSH 的路由）、Kimi `config.toml` 里的 provider、Pi 的 `provider/id` 模型、`gemini-api` |
 | **同行运行时** | 和 ahelpa 处在同一层的编排或管理工具。 | **参照，不是拒绝。** 吸取经验，必要时考虑互通，不写 driver。 | Raft、mngr、oar |
@@ -93,7 +93,7 @@ ahelpa **不是**：
 | 形态 | Driver | 怎么运作 | 什么时候选 | 代价 |
 | --- | --- | --- | --- | --- |
 | **TUI 抓屏加 hook** | `claude-code`、`codex`、`kimi` | driver 在 tmux 里启动厂商自己的 TUI，用 `send-keys` 输入，从 pane 抓屏读状态。上游接受单次调用 hook 的，driver 注册一个会话级 hook，经隐藏命令 `__turn-hook` 往 `.ahelpa/<id>/turns.log` 追加记录（Claude：`--settings` 文件；Codex：`-c notify=[...]`）。Kimi 没有 hook，靠不活动启发式。 | TUI 稳定、有会话级 hook，并且希望人能 attach 到真实界面。 | 每个对话框都是一个抓屏用例：信任提示、更新菜单、模型选择器、容量中止（`codex.ts` 处理了好几种）。上游界面一变，检测就坏。 |
-| **tmux 里的 RPC 桥接** | `pi` | 一个小桥接进程跑在 tmux 里，说上游的结构化 RPC 模式，对 ahelpa 呈现一个简单的行协议（输入行排队、`/abort`、`/exit`、暗号）。结算来自 RPC 事件，不看屏幕。 | 上游是闭源或界面变得快的 TUI，**同时**提供稳定的结构化模式（有回合结算事件和原生 session id）。优先桥接而不是抓屏。 | 桥接要自己维护：进程树清理、防并发写的锁、对无法回答的审批请求选择拒绝或取消。 |
+| **tmux 里的结构化桥接** | `pi`、`agy`、`vibe` | 一个小桥接进程跑在 tmux 里，说上游的结构化模式，对 ahelpa 呈现一个简单的行协议（输入行排队、`/exit`、暗号；Pi 另有 `/abort`）。结算来自结构化事件或子进程退出，不看屏幕。 | 上游是闭源或界面变得快的 TUI，**同时**提供稳定的结构化模式（有回合结算和原生 session id）。优先桥接而不是抓屏。 | 桥接要自己维护：进程树清理、防并发写的锁、对无法回答的审批请求选择拒绝或取消。 |
 | **进程内 app** | `dsh` | 上游是没有可用终端界面的框架。driver 生成一个终端 app，经上游的 patch／插件叠加层加载，直接调用它公开的 Agent/Session API，多轮共用一个进程。 | 上游可嵌入、有公开 API，且没有值得抓屏的 TUI。 | 与上游内部耦合最深；固定在一个 release candidate 版本。 |
 
 取舍：有 hook 且 TUI 稳定 → 抓屏加 hook。有结构化模式且 TUI 多变 → 桥接。没有 TUI 但有公开的进程内 API → 进程内 app。具体选哪种，在 [spike](#spike-清单) 里决定，不在之前。
@@ -107,20 +107,22 @@ ahelpa **不是**：
 - **能不能接？** 看硬门槛。
 - **接到哪一档？** 底线（只过门槛）→ 加结构化的回合结束信号 → 再加 model/effort、safe 姿态和运行时切换。缺少软能力只会降档，不会挡住准入。
 
+Vibe 也采用结构化桥接形态，每回合启动一个 headless 子进程；桥接和原生会话持续存在，后续子进程都恢复同一会话。子进程退出即结算回合，不依赖 RPC result 事件。
+
 ## Driver 能力矩阵
 
 2026-11-06 据 `src/drivers/*.ts` 和 `skill/references/*.md` 手写。同样的列也是新候选的打分格子：评估卡的「Grid」一节照此填写。
 
-| | `claude-code` | `codex` | `kimi` | `pi` | `dsh`（已退出默认派工） | `agy` |
-| --- | --- | --- | --- | --- | --- | --- |
-| 形态 | TUI + hook | TUI + hook | TUI，无 hook | RPC 桥接 | 进程内 app | stream-json 桥接（同 `pi`） |
-| 恢复 token（`resumeTokenAvailableAfterSubmit`） | 仅退出后可得（draining 期间捕获） | 仅退出后可得（draining 期间捕获） | 首次提交后立即可得（原生 `session_*` id） | 首次提交后立即可得（原生 UUID） | 首次提交后立即可得 | 首次提交后立即可得（`init` 事件里的会话 UUID，第一条消息之前就有）；agy 不认识的 id，桥接直接让 resume 失败 |
-| 回合结束信号 | 经 `--settings` 会话文件的 hook：`UserPromptSubmit`、`Stop`、`StopFailure` | 单次调用的 `-c notify=[...]` 覆盖（`agent-turn-complete`） | 无；不活动启发式加暗号 | RPC 的原生结算事件 | app 内状态标记 | stream-json 每回合一个 `result` 事件（`status`、`finished_reason`） |
-| `--safe` 的含义 | 去掉 `--dangerously-skip-permissions`，原生审批仍在；结果目录在项目外时加 `--add-dir` | `-s workspace-write -a never`（加 `--add-dir`） | 用 `--yolo` 取代 `--auto`（高风险动作仍会询问）；不是沙箱 | 拒绝 | 拒绝 | 拒绝 |
-| 信任是否持久化 | driver 不管；用户须先在项目里跑一次 `claude`，否则启动快速失败 | 是：回答「Folder access」（0.163+）会把仓库根写成受信任，保存在 Codex 配置里；hooks 信任提示用 Escape 暂时拒绝 | 是：两种模式都会选「Trust and continue」，由 Kimi 持久化 | 无信任提示；桥接传 `--approve --no-extensions --no-mcp --offline` | 无信任提示；`DSH_PERMISSION_MODE=danger-full-access` | print 模式无信任提示；不落盘 |
-| 自更新 | driver 未压制（上游行为未在此核实） | 更新对话框用「Skip」跳过；未压制 | `KIMI_CODE_NO_AUTO_UPDATE=1` | driver 未设置（传了 `--offline`，它对更新检查的影响树内无记载） | driver 不控制；遥测用 `DSH_TELEMETRY_DISABLED=1` 关闭 | `AGY_CLI_DISABLE_AUTO_UPDATE=true`（1.5.2 只认小写 `true`；设成 `1` 仍会拉起更新进程） |
-| 模型／effort | 启动时 `--model`、`--effort`；运行时经模型菜单切换 | `--model`、`-c model_reasoning_effort=`；运行时经模型菜单切换 | 只有 `--model <config.toml 别名>`；无 effort；不能运行时切换 | `--model provider/id`、`--effort`，启动时核实；不能运行时切换 | `--model [provider:]model`、`--effort off\|low\|high\|max`；不能运行时切换 | 默认 `--model gemini-4-argon --effort medium`；带后缀的 id（如 `gemini-4-argon-high`）须配同名 `--effort`；不能运行时切换 |
-| 最后验证的上游版本 | 树内未记录固定版本；`doctor` 报告已安装版本 | 0.163+（Folder access）；容量短语见于 0.154；更新对话框格式 ≤0.15x 与 0.160 | Kimi Code 2.x（`--auto` 需要） | ≥ 1.4.0，测试基线 1.4.0；2026-11-06 见过 1.5.0 | `@deepseek-ai/dsh@0.2.1-rc.2`；2026-10-30 对比中见过 rc.5 | 测试基线 1.5.2（2026-11-06） |
+| | `claude-code` | `codex` | `kimi` | `pi` | `dsh`（已退出默认派工） | `agy` | `vibe` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 形态 | TUI + hook | TUI + hook | TUI，无 hook | RPC 桥接 | 进程内 app | stream-json 桥接（同 `pi`） | 每回合 streaming 子进程，持续桥接 |
+| 恢复 token（`resumeTokenAvailableAfterSubmit`） | 仅退出后可得（draining 期间捕获） | 仅退出后可得（draining 期间捕获） | 首次提交后立即可得（原生 `session_*` id） | 首次提交后立即可得（原生 UUID） | 首次提交后立即可得 | 首次提交后立即可得（`init` 事件里的会话 UUID，第一条消息之前就有）；agy 不认识的 id，桥接直接让 resume 失败 | 首回合首个事件的 sessionId；`--resume`；未知 id 报错 |
+| 回合结束信号 | 经 `--settings` 会话文件的 hook：`UserPromptSubmit`、`Stop`、`StopFailure` | 单次调用的 `-c notify=[...]` 覆盖（`agent-turn-complete`） | 无；不活动启发式加暗号 | RPC 的原生结算事件 | app 内状态标记 | stream-json 每回合一个 `result` 事件（`status`、`finished_reason`） | 子进程退出码 + 助手正文暗号 |
+| `--safe` 的含义 | 去掉 `--dangerously-skip-permissions`，原生审批仍在；结果目录在项目外时加 `--add-dir` | `-s workspace-write -a never`（加 `--add-dir`） | 用 `--yolo` 取代 `--auto`（高风险动作仍会询问）；不是沙箱 | 拒绝 | 拒绝 | 拒绝 | 拒绝 |
+| 信任是否持久化 | driver 不管；用户须先在项目里跑一次 `claude`，否则启动快速失败 | 是：回答「Folder access」（0.163+）会把仓库根写成受信任，保存在 Codex 配置里；hooks 信任提示用 Escape 暂时拒绝 | 是：两种模式都会选「Trust and continue」，由 Kimi 持久化 | 无信任提示；桥接传 `--approve --no-extensions --no-mcp --offline` | 无信任提示；`DSH_PERMISSION_MODE=danger-full-access` | print 模式无信任提示；不落盘 | `--trust` 仅本次调用，不持久化 |
+| 自更新 | driver 未压制（上游行为未在此核实） | 更新对话框用「Skip」跳过；未压制 | `KIMI_CODE_NO_AUTO_UPDATE=1` | driver 未设置（传了 `--offline`，它对更新检查的影响树内无记载） | driver 不控制；遥测用 `DSH_TELEMETRY_DISABLED=1` 关闭 | `AGY_CLI_DISABLE_AUTO_UPDATE=true`（1.5.2 只认小写 `true`；设成 `1` 仍会拉起更新进程） | `VIBE_ENABLE_AUTO_UPDATE=false`, `VIBE_ENABLE_UPDATE_CHECKS=false` |
+| 模型／effort | 启动时 `--model`、`--effort`；运行时经模型菜单切换 | `--model`、`-c model_reasoning_effort=`；运行时经模型菜单切换 | 只有 `--model <config.toml 别名>`；无 effort；不能运行时切换 | `--model provider/id`、`--effort`，启动时核实；不能运行时切换 | `--model [provider:]model`、`--effort off\|low\|high\|max`；不能运行时切换 | 默认 `--model gemini-4-argon --effort medium`；带后缀的 id（如 `gemini-4-argon-high`）须配同名 `--effort`；不能运行时切换 | 会话 agent TOML：默认 `mistral-large-4-0-3` / `high`；不能运行时切换 |
+| 最后验证的上游版本 | 树内未记录固定版本；`doctor` 报告已安装版本 | 0.163+（Folder access）；容量短语见于 0.154；更新对话框格式 ≤0.15x 与 0.160 | Kimi Code 2.x（`--auto` 需要） | ≥ 1.4.0，测试基线 1.4.0；2026-11-06 见过 1.5.0 | `@deepseek-ai/dsh@0.2.1-rc.2`；2026-10-30 对比中见过 rc.5 | 测试基线 1.5.2（2026-11-06） | 测试基线 3.1.0（2026-11-06） |
 
 ponytail: 手写会和代码漂移；漂移真正造成麻烦时，再改成从 `AgentDriver` 生成。
 
@@ -191,6 +193,7 @@ Spike 的结果决定接法形态和档次，并写进候选的评估卡。
 | `dsh` | helper 后端 | 已从默认派工退役（2026-11-06）；安装和 driver 保留；点名启动仍可用 | 不适用 | [档案](../../skill/references/profiles.md)、[入职记录](dsh-onboarding.md) |
 | Gemini CLI | helper 后端 | **不接（2026-11-06）**：不再服务个人账号 | 第 2 步 | [gemini-cli](../backends/gemini-cli.md) |
 | `agy`（Antigravity CLI） | helper 后端 | 已接入（2026-11-06），走 stream-json 桥接；默认 `gemini-4-argon` / `medium` | 不适用 | [agy](../backends/agy.md)、`skill/references/agy.md` |
+| `vibe` (Mistral Vibe CLI) | helper 后端 | 已接入（2026-11-06）；持续桥接 + 原生 resume；默认 `mistral-large-4-0-3` / `high` | 不适用 | [vibe](../backends/vibe.md)、`skill/references/vibe.md` |
 | OpenCode | helper 后端 | **候选**：通过第 1、2 步；第 3、4 步仅读文档，未做 spike | 第 4 步，仅文档 | [opencode](../backends/opencode.md) |
 | dimAgent | helper 后端（CLI），属于更大的产品族 | **暂缓（2026-11-06）**：两个 CLI 都在变动，其中一个仍是 alpha | 第 2 步 | [dimagent](../backends/dimagent.md) |
 | Raft（原 Slock） | 同行运行时 | **参照**；不写 driver | 第 1 步 | [raft](../backends/raft.md) |
