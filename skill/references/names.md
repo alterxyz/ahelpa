@@ -35,24 +35,24 @@ Explicit `--model` and `--effort` independently override role defaults. `claude`
 
 ## Startup timing
 
-Measured 2026-11-06 on one macOS machine with ahelpa 0.11.0, using each name's default role and model. The task only asked the helper to write `ok` into `summary.md`. Each name ran 3 times, one helper at a time; the table shows the median and the range. All times are seconds from the start of `ahelpa launch`.
+Measured 2026-11-07 on one macOS machine, after the daemon poll fix, with each name's default role and model. The task only wrote `ok` into `summary.md`. The table gives the median and range of 3 runs, in seconds from the start of `ahelpa launch`. The reference value for `launch` is 4.5 s; a name that stays above 6 s may have regressed.
 
 | Name | Default model / effort | `launch` returned | Helper wrote `summary.md` | `wait` returned |
 | --- | --- | --- | --- | --- |
-| `claude` | `claude-opus-5-5` / `xhigh` (advisor) | 4.4 (4.4–4.4) | 7.8 (7.7–8.4) | 11.0 (10.5–11.3) |
-| `codex` | `gpt-6-astra` / `medium` | 5.0 (4.9–5.0) | 12.9 (11.4–15.0) | 19.6 (15.2–20.3) |
-| `gemini` | `gemini-4-argon` / `medium` | 4.1 (3.9–5.1) | 21.2 (19.7–22.2) | 30.5 (30.2–30.9) |
-| `kimi` | native | 2.9 (2.9–2.9) | 14.6 (14.0–18.4) | 20.5 (19.7–24.6) |
-| `mistral` | `mistral-large-4-0-3` / `high` | 4.9 (4.4–4.9) | 13.6 (11.4–16.5) | 20.4 (20.2–24.8) |
-| `deepseek` | `deepseek-v4-1-flash-1017` / `high` | 4.4 (4.4–5.0) | 7.7 (7.5–12.6) | 10.6 (9.9–14.9) |
-| `deepseek-pi` | `cc-switch-deep-seek/deepseek-flash` / `high` | 0.8 (0.8–0.8) | 4.1 (3.3–4.3) | 10.0 (9.9–26.5) |
+| `claude` | `claude-opus-5-5` / `xhigh` (advisor) | 4.3 (4.3–4.4) | 8.4 (8.0–9.7) | 12.3 (12.1–12.6) |
+| `codex` | `gpt-6-astra` / `medium` | 5.0 (4.9–5.1) | 11.8 (11.8–15.4) | 15.3 (15.3–21.4) |
+| `gemini` | `gemini-4-argon` / `medium` | 3.9 (3.4–3.9) | 16.0 (15.6–21.6) | 24.8 (24.5–33.8) |
+| `kimi` | native | 2.9 (2.9–2.9) | 10.3 (10.3–14.5) | 15.3 (12.3–18.4) |
+| `mistral` | `mistral-large-4-0-3` / `high` | 4.9 (4.5–4.9) | 13.5 (11.2–18.0) | 21.4 (15.3–24.5) |
+| `deepseek` | `deepseek-v4-1-flash-1017` / `high` | 4.9 (4.4–5.5) | 7.4 (7.3–7.9) | 12.3 (9.2–12.3) |
+| `deepseek-pi` | `cc-switch-deep-seek/deepseek-flash` / `high` | 1.4 (0.8–1.4) | 4.4 (4.0–5.2) | 6.3 (6.2–9.2) |
 
 - **`launch` returned:** the helper is up and has confirmed the task.
-- **Helper wrote `summary.md`:** about when the model finished the work.
-- **`wait` returned:** also includes the model's closing message, process exit, and the daemon noticing completion. The daemon polls every 3 seconds, so these values cluster near multiples of 3–5 seconds.
-- Real tasks add their own work on top of these numbers. A file-reading task on `deepseek` took about 20 seconds end to end.
-- Read the table as orders of magnitude, not guarantees. Network and provider load move every column.
-- A helper that has not returned from `wait` within a minute of a trivial task is slower than usual, not necessarily hung. Check `check` before you kill it.
+- **Helper wrote `summary.md`:** roughly when the model finished the work.
+- **`wait` returned:** also includes the model's closing message and exit, then at most one daemon poll of about 3 s.
+- Real tasks add their own work time. On four bounded real tasks, `deepseek` took 2.6–5.7 min per task and `deepseek-pi` 2.6–8.8 min. On the same adversarial review, `deepseek` took 9 min and `deepseek-pi` 25 min. So `deepseek-pi`'s fast startup does not make real work faster.
+- Read the numbers as orders of magnitude. Network and provider load move every column.
+- If a trivial task has not returned from `wait` within a minute, the helper is slower than usual, not necessarily hung. Run `check` before you kill it.
 
 ## Compatibility
 

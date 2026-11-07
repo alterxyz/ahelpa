@@ -168,6 +168,7 @@ For architecture, usage workflows, contributor guide, and security notes:
 - [Development](docs/development.md) / [开发指南](docs/zh-CN/development.md)
 - [Security](docs/security.md) / [安全说明](docs/zh-CN/security.md)
 - [Helper backends](docs/backends.md) / [Helper 后端](docs/zh-CN/backends.md)
+- [Performance](docs/performance.md) / [性能](docs/zh-CN/performance.md)
 
 ## Credits
 

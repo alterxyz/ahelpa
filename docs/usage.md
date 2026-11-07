@@ -148,22 +148,7 @@ ahelpa creates `<parent of project>/<project name>-worktrees/<session-id>` on br
 
 ### How long startup takes
 
-Measured 2026-11-06 on one macOS machine with ahelpa 0.11.0, using each name's default role and model. The task only asked for `ok` in `summary.md`. Each name ran 3 times, one helper at a time. The table shows median seconds from the start of `ahelpa launch`.
-
-| Name | `launch` returned | Helper wrote the result | `wait` returned |
-| --- | --- | --- | --- |
-| `claude` | 4.4 | 7.8 | 11.0 |
-| `codex` | 5.0 | 12.9 | 19.6 |
-| `gemini` | 4.1 | 21.2 | 30.5 |
-| `kimi` | 2.9 | 14.6 | 20.5 |
-| `mistral` | 4.9 | 13.6 | 20.4 |
-| `deepseek` | 4.4 | 7.7 | 10.6 |
-| `deepseek-pi` | 0.8 | 4.1 | 10.0 |
-
-- `launch` returns once the helper is up and has confirmed the task.
-- `wait` also covers the model's closing message, process exit, and the daemon noticing completion. The daemon polls every 3 seconds.
-- Real tasks add their own work time. Network and provider load move every column.
-- Ranges and per-name defaults are in [helper names](../skill/references/names.md#startup-timing).
+`launch` usually returns in 1–5 s, once the helper is up and has confirmed the task. The reference value is 4.5 s. After a helper finishes, `wait` returns within about one daemon poll (about 3 s) of the helper exiting. Per-name numbers, the benchmark script, and the `deepseek`/`deepseek-pi` comparison are in [Performance](performance.md).
 
 ### Group hands into a job
 

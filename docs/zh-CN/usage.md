@@ -149,22 +149,7 @@ ahelpa 会在 `<project 的父目录>/<project 名>-worktrees/<session-id>` 创�
 
 ### 启动要多久
 
-2026-11-06 在一台 macOS 机器上用 ahelpa 0.11.0 实测，每个名字都用默认 role 和默认模型。任务只要求在 `summary.md` 里写一行 `ok`。每个名字跑 3 次，一次只跑一个 helper。下表是中位数，单位是秒，从执行 `ahelpa launch` 开始算。
-
-| 名字 | `launch` 返回 | helper 写完结果 | `wait` 返回 |
-| --- | --- | --- | --- |
-| `claude` | 4.4 | 7.8 | 11.0 |
-| `codex` | 5.0 | 12.9 | 19.6 |
-| `gemini` | 4.1 | 21.2 | 30.5 |
-| `kimi` | 2.9 | 14.6 | 20.5 |
-| `mistral` | 4.9 | 13.6 | 20.4 |
-| `deepseek` | 4.4 | 7.7 | 10.6 |
-| `deepseek-pi` | 0.8 | 4.1 | 10.0 |
-
-- `launch` 返回时，helper 已经起来，并确认收到了任务。
-- `wait` 返回的时间里，还包括模型的收尾消息、进程退出，以及 daemon 察觉到完成。daemon 每 3 秒轮询一次。
-- 真实任务还要另加干活的时间。网络和服务商负载会影响每一列。
-- 波动范围和各名字的默认模型见 [helper names](../../skill/references/names.md#startup-timing)。
+`launch` 通常在 1–5 秒内返回，这时 helper 已经起来，并确认收到了任务。参考值是 4.5 秒。helper 做完后，从它退出算起，`wait` 大约在一个 daemon 轮询周期（约 3 秒）内返回。各名字的具体数字、计时脚本，以及 `deepseek` 和 `deepseek-pi` 的对比，见[性能](performance.md)。
 
 ### 把多个 hand 归入一个 job
 

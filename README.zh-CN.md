@@ -168,6 +168,7 @@ bun run closure:gate           # 端到端 gate，见开发指南
 - [开发指南](docs/zh-CN/development.md) / [Development](docs/development.md)
 - [安全说明](docs/zh-CN/security.md) / [Security](docs/security.md)
 - [Helper 后端](docs/zh-CN/backends.md) / [Helper backends](docs/backends.md)
+- [性能](docs/zh-CN/performance.md) / [Performance](docs/performance.md)
 
 ## 致谢
 
