@@ -146,6 +146,25 @@ ahelpa launch codex --worktree --file ./task.md --project /path/to/project
 
 ahelpa creates `<parent of project>/<project name>-worktrees/<session-id>` on branch `ahelpa/<session-id>`, branching from `HEAD` (uncommitted changes are not included). The helper's `projectPath` is that worktree, but its results do not land there: `git worktree remove` deletes a worktree's ignored `.ahelpa/` with it, so they go to the source repository's `.ahelpa/<id>/` (the task names that absolute path). A link at `<worktree>/.ahelpa/<id>` points to them while the worktree lives, so the usual relative path keeps working. The session records where its results are, so `wait` evidence, `--after` and `task` keep finding them after the worktree is gone (`resume` still needs the worktree directory to exist). The project must be a git repository, otherwise `launch` fails. ahelpa never deletes a worktree it handed over (a launch that fails before returning rolls its own worktree back); when done, `git worktree remove <path> && git branch -D ahelpa/<session-id>` removes only the link, and the results stay in the source repository. Keep `.ahelpa/` git-ignored: otherwise the link is an untracked file and `git worktree remove` without `--force` refuses. The same applies when `--project` is a linked worktree you created yourself. Sessions launched before this behavior, and projects whose main checkout git metadata cannot place (a submodule, a bare repository or `--separate-git-dir`, a main checkout that has moved), keep their results in `<projectPath>/.ahelpa/<id>/`; if you move the source repository, sessions already started still point at its old location. Under `--safe`, Codex, Claude, and Kimi are granted that one result directory with `--add-dir`. A fresh worktree has no installed dependencies, so put the install step in the task or at the front of `--check`.
 
+### How long startup takes
+
+Measured 2026-11-06 on one macOS machine with ahelpa 0.11.0, using each name's default role and model. The task only asked for `ok` in `summary.md`. Each name ran 3 times, one helper at a time. The table shows median seconds from the start of `ahelpa launch`.
+
+| Name | `launch` returned | Helper wrote the result | `wait` returned |
+| --- | --- | --- | --- |
+| `claude` | 4.4 | 7.8 | 11.0 |
+| `codex` | 5.0 | 12.9 | 19.6 |
+| `gemini` | 4.1 | 21.2 | 30.5 |
+| `kimi` | 2.9 | 14.6 | 20.5 |
+| `mistral` | 4.9 | 13.6 | 20.4 |
+| `deepseek` | 4.4 | 7.7 | 10.6 |
+| `deepseek-pi` | 0.8 | 4.1 | 10.0 |
+
+- `launch` returns once the helper is up and has confirmed the task.
+- `wait` also covers the model's closing message, process exit, and the daemon noticing completion. The daemon polls every 3 seconds.
+- Real tasks add their own work time. Network and provider load move every column.
+- Ranges and per-name defaults are in [helper names](../skill/references/names.md#startup-timing).
+
 ### Group hands into a job
 
 Use `--job <id>` to group the hands of one change, so they can be checked and awaited together. Job IDs share a global namespace across projects and worktrees in the runtime's SQLite database. Choose a unique ID for each change, for example one that includes the repository and issue number:

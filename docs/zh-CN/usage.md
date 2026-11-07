@@ -146,6 +146,26 @@ ahelpa launch codex --worktree --file ./task.md --project /path/to/project
 
 ahelpa 会在 `<project 的父目录>/<project 名>-worktrees/<session-id>` 创建 worktree，分支为 `ahelpa/<session-id>`，从 `HEAD` 分出（未提交的改动不在其中）。helper 的 `projectPath` 就是该 worktree，但结果不落在那里：`git worktree remove` 会连同 worktree 里被忽略的 `.ahelpa/` 一起删除，所以结果写到源仓库的 `.ahelpa/<id>/`（任务里写的是这个绝对路径）。worktree 存在期间，`<worktree>/.ahelpa/<id>` 处有一个指向结果的链接，惯用的相对路径照常可用。session 记录了结果所在位置，因此 worktree 删除后，`wait` evidence、`--after` 和 `task` 仍能找到它们（`resume` 仍要求 worktree 目录存在）。项目必须是 git 仓库，否则 `launch` 报错。ahelpa 不会删除已交付的 worktree（launch 在返回前失败时会回滚自己建的那个）；用完后执行 `git worktree remove <path> && git branch -D ahelpa/<session-id>`，这只会删掉链接，结果仍留在源仓库。请保持 `.ahelpa/` 被 git 忽略：否则链接是未跟踪文件，不带 `--force` 的 `git worktree remove` 会拒绝执行。`--project` 指向你自己创建的 linked worktree 时同样适用。此前启动的 session，以及 git 元数据无法定位主 checkout 的项目（子模块、bare 仓库或 `--separate-git-dir`、已被移动的主 checkout），结果仍在 `<projectPath>/.ahelpa/<id>/`；若移动了源仓库，已启动的 session 仍指向其旧位置。`--safe` 下，Codex、Claude 和 Kimi 通过 `--add-dir` 获得这一个结果目录的写权限。新 worktree 里没有安装依赖，安装步骤要写进任务或放在 `--check` 命令最前面。
 
+
+### 启动要多久
+
+2026-11-06 在一台 macOS 机器上用 ahelpa 0.11.0 实测，每个名字都用默认 role 和默认模型。任务只要求在 `summary.md` 里写一行 `ok`。每个名字跑 3 次，一次只跑一个 helper。下表是中位数，单位是秒，从执行 `ahelpa launch` 开始算。
+
+| 名字 | `launch` 返回 | helper 写完结果 | `wait` 返回 |
+| --- | --- | --- | --- |
+| `claude` | 4.4 | 7.8 | 11.0 |
+| `codex` | 5.0 | 12.9 | 19.6 |
+| `gemini` | 4.1 | 21.2 | 30.5 |
+| `kimi` | 2.9 | 14.6 | 20.5 |
+| `mistral` | 4.9 | 13.6 | 20.4 |
+| `deepseek` | 4.4 | 7.7 | 10.6 |
+| `deepseek-pi` | 0.8 | 4.1 | 10.0 |
+
+- `launch` 返回时，helper 已经起来，并确认收到了任务。
+- `wait` 返回的时间里，还包括模型的收尾消息、进程退出，以及 daemon 察觉到完成。daemon 每 3 秒轮询一次。
+- 真实任务还要另加干活的时间。网络和服务商负载会影响每一列。
+- 波动范围和各名字的默认模型见 [helper names](../../skill/references/names.md#startup-timing)。
+
 ### 把多个 hand 归入一个 job
 
 用 `--job <id>` 把同一次改动的多个 hand 归为一组，便于一起查看和等待。Job ID 在 runtime 的 SQLite 数据库中共享全局命名空间，跨项目和 worktree 生效。为每次改动选择唯一 ID，例如包含仓库名和 issue 编号：
