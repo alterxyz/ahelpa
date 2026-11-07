@@ -84,8 +84,10 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 
 **Observation status**
 - Pi 1.5.0 ran 20 launches on 2026-11-06 without a stall, false completion, or error; the ahelpa tested baseline is 1.4.0. This short sample does not establish long-task or broad-repository reliability.
+- Replay of the four-task trial (2026-11-07, see [case study](../../docs/case-deepseek-trial-20261106.md)): quality and habits matched [deepseek](#deepseek): 6/6 rule lookups, 9/9 hidden tests, heavy self-verification, a push the project forbids made because the brief asked, placeholders in the real ID range. It was not faster on real tasks (2.6–8.8 min). One turn failed before any tool call when the official API returned `503 Service is too busy` four times.
 
 **Watch for**
+- A provider error ends the turn as `error` with only `pi: native turn failed`; the bridge shows no category. Read the Pi session log under `~/.pi/agent/sessions/` for the cause, and relaunch on overload.
 - Summaries longer than the requested length, and coverage claims slightly stronger than the tests support.
 - Input-validation edges left open (whitespace-only values, overflow to infinity) and untested environment wiring; tests whose expected value equals the fallback catch no mutants. Ask for a mutation check on validation code.
 
