@@ -49,6 +49,14 @@ const repeatedLogs = new Map<string, { firstMs: number; lastMs: number; count: n
 // Inline refresh counts calls too; short-lived CLI processes start fresh.
 const REFRESH_MAX_SKIP = 99;
 const refreshFailures = new Map<string, { version: number; skip: number; nextSkip: number }>();
+// A failing snapshot silently degrades every refresh to per-session probes, so
+// the transition is logged once. The reconciliation in refreshSessionStatuses
+// drops every non-session key from repeatedLogs, so dedupe cannot live there.
+let livenessSnapshotFailed = false;
+
+export function resetLivenessSnapshotState(): void {
+  livenessSnapshotFailed = false;
+}
 
 function clearSessionFailures(sessionId: string): void {
   refreshFailures.delete(sessionId);
@@ -147,6 +155,26 @@ export async function refreshSessionStatuses(
   const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const targetIds = sessionIds ? new Set(sessionIds) : null;
   const nonDeadSessions = db.listSessions().filter((session) => session.status !== SESSION_STATUS.Dead);
+  // A row launched after this snapshot is not compared against it: reserveSession
+  // always writes launchPid, and the launcher short-circuit below skips the row
+  // while its launcher is alive inside the startup lease.
+  // A failed snapshot says nothing about liveness: retain the per-session
+  // probes for this refresh so a tmux connection error cannot settle all rows.
+  let liveSessions: Set<string> | undefined;
+  try {
+    liveSessions = await Tmux.liveSessionNames();
+    if (livenessSnapshotFailed) {
+      livenessSnapshotFailed = false;
+      log("liveness snapshot recovered");
+    }
+  } catch (error) {
+    if (!livenessSnapshotFailed) {
+      livenessSnapshotFailed = true;
+      log(`liveness snapshot failed, probing sessions individually: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const isAlive = (id: string): Promise<boolean> | boolean =>
+    liveSessions ? liveSessions.has(id) : Tmux.hasSession(id);
   const nonDeadIds = new Set(nonDeadSessions.map(session => session.id));
   // Host-side kill/clean can settle or remove rows without this monitor's
   // cleanup paths. Reconcile against the full list, even for targeted refresh.
@@ -174,7 +202,7 @@ export async function refreshSessionStatuses(
       // A failing liveness probe stays silent until the next scheduled retry.
       let alive: boolean;
       try {
-        alive = await Tmux.hasSession(session.id);
+        alive = await isAlive(session.id);
       } catch { continue; }
       if (!alive) {
         try {
@@ -203,7 +231,7 @@ export async function refreshSessionStatuses(
         if (!current) continue;
         session = current;
       }
-      const alive = await Tmux.hasSession(session.id);
+      const alive = await isAlive(session.id);
       if (!alive) {
         await finishMissingSession(db, archive, session);
         continue;
@@ -409,10 +437,11 @@ export async function refreshSessionStatuses(
       refreshFailures.set(session.id, { version: session.version, skip, nextSkip: Math.min(2 * skip + 1, REFRESH_MAX_SKIP) });
       pendingAttention.delete(session.id);
       log(`${session.id}: refresh failed: ${error instanceof Error ? error.message : String(error)}`);
-      // tmux can disappear between has-session and capture/kill. Reconcile
-      // that race immediately, before any backoff can delay recovery.
+      // Reconcile missing sessions using this refresh's snapshot. A terminal
+      // lost after the snapshot is noticed next refresh, including in backoff.
+      // When the snapshot failed, the fallback probe can notice it immediately.
       try {
-        if (!await Tmux.hasSession(session.id)) {
+        if (!await isAlive(session.id)) {
           const current = db.getSession(session.id);
           if (current) await finishMissingSession(db, archive, current);
         }

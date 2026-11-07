@@ -37,6 +37,7 @@ describe("wait", () => {
 
     spyOn(daemon, "isDaemonRunning").mockReturnValue(false);
     spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(row => row.id)));
     spyOn(Tmux, "capture").mockResolvedValue("[AHELPA:DONE]");
     spyOn(Tmux, "sendKeys").mockResolvedValue();
 

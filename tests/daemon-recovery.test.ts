@@ -19,6 +19,8 @@ describe("daemon recovery", () => {
   let layout: RuntimeLayout;
 
   beforeEach(() => {
+    // These probe/race fixtures exercise the per-session fallback path.
+    spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("snapshot unavailable"));
     root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-daemon-recovery-"));
     layout = new RuntimeLayout({ homeDir: root, tmpDir: root });
     db = new StateDB(":memory:");
@@ -46,8 +48,12 @@ describe("daemon recovery", () => {
     return { promise, resolve };
   }
 
+  // Every fixture here rejects the liveness snapshot, so the first refresh in
+  // the file also logs its one-time fallback transition. These assertions are
+  // about the per-session messages, so that line is not counted.
   function logLines() {
-    return readFileSync(join(root, "daemon.log"), "utf8").trim().split("\n");
+    return readFileSync(join(root, "daemon.log"), "utf8").trim().split("\n")
+      .filter((line) => !line.includes("liveness snapshot"));
   }
 
   // Draining catches token-capture failures locally, so these exercise log()

@@ -302,6 +302,7 @@ describe("peer mail adversarial regressions", () => {
     session("a"); const b = session("b");
     spyOn(daemon, "isDaemonRunning").mockReturnValue(false);
     spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(row => row.id)));
     spyOn(Tmux, "capture").mockImplementation(async (id) => id === "b" ? "[AHELPA:DONE]" : "• Working (14s • esc to interrupt)");
     spyOn(getDriver("codex"), "gracefulExit").mockResolvedValue();
     spyOn(defaultWakeup, "notify").mockResolvedValue();

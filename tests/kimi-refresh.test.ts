@@ -14,6 +14,7 @@ describe("Kimi daemon activity", () => {
   let db: StateDB;
 
   beforeEach(() => {
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
     scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-kimi-refresh-"));
     TEST_DB = join(scratch, "state.db");
   });

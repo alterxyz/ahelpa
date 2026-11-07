@@ -73,12 +73,14 @@ export class Tmux {
     }
   }
 
-  static async listSessions(): Promise<string[]> {
+  // Monitoring needs to distinguish an empty server from an inconclusive probe.
+  static async liveSessionNames(): Promise<Set<string>> {
     try {
-      const result = await $`tmux list-sessions -F '#{session_name}'`.text();
-      return result.trim().split("\n").filter(Boolean);
-    } catch {
-      return [];
+      const result = await $`tmux list-sessions -F '#{session_name}'`.quiet().text();
+      return new Set(result.split("\n").filter(Boolean));
+    } catch (error) {
+      if (isMissingTmuxSessionError(error)) return new Set();
+      throw error;
     }
   }
 }

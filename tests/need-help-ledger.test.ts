@@ -24,6 +24,7 @@ describe("need-help ledger refresh", () => {
     spyOn(defaultRuntimeLayout, "needHelpLedgerPath").mockReturnValue(layout.needHelpLedgerPath());
     spyOn(defaultRuntimeLayout, "daemonLogPath").mockReturnValue(layout.daemonLogPath());
     spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
     spyOn(defaultWakeup, "notify").mockResolvedValue();
     spyOn(defaultWakeup, "cleanup").mockReturnValue();
     db = new StateDB(join(root, "state.db"));
@@ -215,6 +216,7 @@ describe("need-help ledger refresh", () => {
   test("idle, needs_attention, dead and unsupported-model errors are not indexed", async () => {
     for (const id of ["done", "attention", "gone", "unsupported"]) createSession("codex", id);
     spyOn(Tmux, "hasSession").mockImplementation(async (id) => id !== "gone");
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id).filter(id => id !== "gone")));
     spyOn(Tmux, "capture").mockImplementation(async (id) => {
       if (id === "done") return "[AHELPA:DONE]";
       if (id === "unsupported") return [

@@ -25,6 +25,8 @@ let savedEnv: (string | undefined)[];
 let savedLayout: { ahelpaDir: string; tmpDir: string };
 
 beforeEach(() => {
+  // These liveness/lease races exercise per-row fallback probes.
+  spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("snapshot unavailable"));
   root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-pr6-"));
   project = join(root, "project");
   mkdirSync(project);

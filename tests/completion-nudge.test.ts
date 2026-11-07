@@ -28,6 +28,7 @@ describe("completion nudge", () => {
   let db: StateDB;
 
   beforeEach(() => {
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
     scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-nudge-"));
     TEST_DB = join(scratch, "state.db");
     PROJECT = join(scratch, "project");

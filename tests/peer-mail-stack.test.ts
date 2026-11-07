@@ -21,6 +21,7 @@ beforeEach(() => {
   process.env.AHELPA_PARENT_ID = "mail-stack-sender";
   spyOn(daemon, "isDaemonRunning").mockReturnValue(false);
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
+  spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(row => row.id)));
   spyOn(Tmux, "capture").mockResolvedValue("✻ Working… (1s)");
   spyOn(Tmux, "sendKeys").mockResolvedValue();
   for (const id of ["mail-stack-sender", "mail-stack-recipient"]) {

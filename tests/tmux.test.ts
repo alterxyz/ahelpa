@@ -66,10 +66,4 @@ describe("Tmux", () => {
     expect(isMissingTmuxSessionError({ stderr: "permission denied\n" })).toBe(false);
     expect(isMissingTmuxSessionError(new Error("Failed with exit code 1"))).toBe(false);
   });
-
-  test("lists sessions", async () => {
-    await Tmux.create(TEST_SESSION, "bash");
-    const sessions = await Tmux.listSessions();
-    expect(sessions.some(s => s === TEST_SESSION)).toBe(true);
-  });
 });

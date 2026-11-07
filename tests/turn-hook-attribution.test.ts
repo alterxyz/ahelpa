@@ -17,6 +17,7 @@ beforeEach(() => {
   mkdirSync(dir, { recursive: true });
   db = new StateDB(join(root, "state.db"));
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
+  spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
   spyOn(Tmux, "capture").mockResolvedValue("Working (1s • esc to interrupt)");
   spyOn(Tmux, "sendKeys").mockResolvedValue();
   spyOn(daemon, "isDaemonRunning").mockReturnValue(true);

@@ -27,7 +27,7 @@ describe("refreshSessionStatuses", () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "stale-idle", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
     db.updateStatus("stale-idle", "idle");
-    spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set());
 
     await refreshSessionStatuses(db);
 
@@ -39,7 +39,7 @@ describe("refreshSessionStatuses", () => {
     db.createSession({ id: "resumable-idle", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
     db.updateResumeId("resumable-idle", "session_abc-123");
     db.updateStatus("resumable-idle", "draining");
-    spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set());
 
     await refreshSessionStatuses(db);
 
@@ -51,7 +51,7 @@ describe("refreshSessionStatuses", () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "fresh-token", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
     db.updateStatus("fresh-token", "draining");
-    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
     spyOn(Tmux, "capture").mockResolvedValue(
       "To resume this session: kimi -r session_fresh-123",
     );
@@ -69,7 +69,7 @@ describe("refreshSessionStatuses", () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "recent-drain", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
     db.updateStatus("recent-drain", "draining");
-    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
     spyOn(Tmux, "capture").mockResolvedValue("Exiting…");
     const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
     const drainStartedAt = Date.parse(db.getSession("recent-drain")!.updatedAt);
@@ -84,7 +84,7 @@ describe("refreshSessionStatuses", () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "live-idle", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
     db.updateStatus("live-idle", "idle");
-    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
     const captureSpy = spyOn(Tmux, "capture").mockResolvedValue("anything");
 
     await refreshSessionStatuses(db);
@@ -96,7 +96,7 @@ describe("refreshSessionStatuses", () => {
   test("captures agent resume token after graceful exit enters draining", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "done-claude", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
     spyOn(Tmux, "sendKeys").mockResolvedValue();
     let captures = 0;
     spyOn(Tmux, "capture").mockImplementation(async () => {
@@ -115,7 +115,7 @@ describe("refreshSessionStatuses", () => {
   test("flags needs_attention after sustained idle (debounce = 4 polls)", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "stuck-codex", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
     spyOn(Tmux, "capture").mockResolvedValue(
       "Press enter to view hooks; esc to close\nSubagentStart hooks\nesc to go back",
     );
@@ -134,7 +134,7 @@ describe("refreshSessionStatuses", () => {
   test("settles a current-turn unsupported Codex model request as error", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "bad-model", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
     spyOn(Tmux, "capture").mockResolvedValue([
       "› Please read and complete the task described in /tmp/ahelpa/task.md.",
       "ERROR: {\"type\":\"error\",\"status\":400,\"error\":{\"message\":\"The 'gpt-5.6' model is not supported when using Codex with a ChatGPT account.\"}}",
@@ -149,7 +149,7 @@ describe("refreshSessionStatuses", () => {
   test("idle counter resets when agent resumes working", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "flaky", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
     let callCount = 0;
     spyOn(Tmux, "capture").mockImplementation(async () => {
       callCount++;

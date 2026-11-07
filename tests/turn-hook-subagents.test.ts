@@ -30,6 +30,7 @@ beforeEach(() => {
   const row = db.createSession({ id: "session-test", parentId: "host", agentType: "codex", task: "fixture", ownerToken: "tok", projectPath: root });
   db.beginTurn(row.id, row.version, input);
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
+  spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
   spyOn(Tmux, "capture").mockResolvedValue("Working (1s • esc to interrupt)");
   spyOn(Tmux, "sendKeys").mockResolvedValue();
 });

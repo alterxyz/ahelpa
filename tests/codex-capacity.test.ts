@@ -124,6 +124,7 @@ describe("capacity settlement and reporting", () => {
     spyOn(defaultRuntimeLayout, "archiveDir").mockReturnValue(join(root, "archive"));
     spyOn(daemon, "isDaemonRunning").mockReturnValue(false);
     spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
     spyOn(Tmux, "capture").mockResolvedValue(pane);
     spyOn(Tmux, "sendKeys").mockResolvedValue();
     spyOn(defaultWakeup, "notify").mockResolvedValue();

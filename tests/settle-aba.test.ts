@@ -37,6 +37,7 @@ describe("settle observed row version", () => {
     mkdirSync(layout.tmpDir, { recursive: true });
     setSystemTime(frozenNow);
     spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(row => row.id)));
     spyOn(Tmux, "sendKeys").mockResolvedValue();
     spyOn(getDriver("codex"), "afterTaskSubmitted").mockResolvedValue(true);
     spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
@@ -123,6 +124,8 @@ describe("settle observed row version", () => {
   }
 
   test("missing-session settle rejects a delayed liveness result after intervention rearm", async () => {
+    // Keep this race on the per-row fallback probe; snapshots are covered separately.
+    spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("snapshot unavailable"));
     hostDb = new StateDB(join(root, "state.db"));
     const checking = deferred<void>();
     const staleLiveness = deferred<boolean>();

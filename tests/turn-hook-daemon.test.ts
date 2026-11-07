@@ -29,6 +29,7 @@ beforeEach(() => {
   root = mkdtempSync(join(realpathSync(tmpdir()), "hook-daemon-test-"));
   db = new StateDB(join(root, "state.db"));
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
+  spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
   spyOn(Tmux, "capture").mockResolvedValue(READY);
   spyOn(Tmux, "sendKeys").mockResolvedValue();
 });

@@ -24,6 +24,7 @@ beforeEach(() => {
   mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
   db = new StateDB(join(root, "state.db"));
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
+  spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(row => row.id)));
   spyOn(Tmux, "capture").mockResolvedValue("✻ Working…\nWorking (1s • esc to interrupt)");
   spyOn(Tmux, "sendKeys").mockResolvedValue();
   spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
@@ -358,6 +359,8 @@ test("failed A after successful B cannot restore A over B", async () => {
 });
 
 test("an unconfirmed delivery cannot bypass the launch lease or block kill", async () => {
+  // Exercise the fallback probe so the existing lease/probe assertion remains meaningful.
+  spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("snapshot unavailable"));
   const row = db.createSession({ id: "session-test", parentId: "host", agentType: "codex", task: "fixture", ownerToken: "tok", projectPath: root, launchPid: process.pid });
   let release!: () => void, started!: () => void;
   const gate = new Promise<void>(r => release = r), pending = new Promise<void>(r => started = r);

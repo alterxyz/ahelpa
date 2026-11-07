@@ -48,6 +48,7 @@ test.each(["status", "check"])("%s refreshes retired DSH safely and continues mo
   const retired = session();
   const active = session("codex");
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
+  spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(row => row.id)));
   const captures = spyOn(Tmux, "capture").mockImplementation(async id => id === retired ? "old DSH output" : "[AHELPA:NEED_HELP]");
 
   const result = await cli([command]);
@@ -71,6 +72,7 @@ test("daemon refresh still reclaims a retired draining terminal without resolvin
   db.updateStatus(id, "draining");
   const since = Date.parse(db.getSession(id)!.updatedAt);
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
+  spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(row => row.id)));
   const capture = spyOn(Tmux, "capture").mockResolvedValue("old DSH output");
   const kill = spyOn(Tmux, "kill").mockResolvedValue();
 
@@ -103,6 +105,7 @@ test("retired DSH logs, kill, and clean remain usable without its driver", async
 test("missing retired DSH terminal settles dead and can be cleaned", async () => {
   const id = session();
   spyOn(Tmux, "hasSession").mockResolvedValue(false);
+  spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set());
   await daemon.refreshSessionStatuses(db);
   expect(db.getSession(id)?.status).toBe("dead");
   expect((await cli(["status"])).exitCode).toBe(0);

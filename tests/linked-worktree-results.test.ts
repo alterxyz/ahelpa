@@ -360,6 +360,7 @@ describe("where an existing session's results are", () => {
     writeFileSync(join(dir, "summary.md"), "written result");
     writeTurnHook(dir, "codex", JSON.stringify({ type: "agent-turn-complete", "thread-id": "main", "turn-id": "one", "input-messages": [TASK_PREFIX] }));
     spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(row => row.id)));
     spyOn(Tmux, "capture").mockResolvedValue(READY);
     await refreshSessionStatuses(db, [id]);
     expect(Tmux.sendKeys).toHaveBeenCalledWith(id, COMPLETION_NUDGE);
