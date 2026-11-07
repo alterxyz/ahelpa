@@ -437,11 +437,12 @@ export async function refreshSessionStatuses(
       refreshFailures.set(session.id, { version: session.version, skip, nextSkip: Math.min(2 * skip + 1, REFRESH_MAX_SKIP) });
       pendingAttention.delete(session.id);
       log(`${session.id}: refresh failed: ${error instanceof Error ? error.message : String(error)}`);
-      // Reconcile missing sessions using this refresh's snapshot. A terminal
-      // lost after the snapshot is noticed next refresh, including in backoff.
-      // When the snapshot failed, the fallback probe can notice it immediately.
+      // This row just failed, and the usual cause is the terminal vanishing
+      // after the snapshot was taken, so the snapshot would still call it live
+      // and defer recovery by a whole backoff. Probe this one row directly;
+      // only failing rows pay the extra probe.
       try {
-        if (!await isAlive(session.id)) {
+        if (!await Tmux.hasSession(session.id)) {
           const current = db.getSession(session.id);
           if (current) await finishMissingSession(db, archive, current);
         }

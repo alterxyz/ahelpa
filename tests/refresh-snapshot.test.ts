@@ -73,7 +73,8 @@ describe("refresh liveness snapshot", () => {
   test("backoff and capture recovery reuse the same snapshot", async () => {
     const live = create();
     const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([live]));
-    const has = spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    // The failing row's own probe still finds tmux, so only the snapshot decides.
+    const has = spyOn(Tmux, "hasSession").mockResolvedValue(true);
     const capture = spyOn(Tmux, "capture").mockRejectedValue(new Error("temporary capture failure"));
     await refreshSessionStatuses(db, [live]);
     await refreshSessionStatuses(db, [live]);
@@ -81,9 +82,39 @@ describe("refresh liveness snapshot", () => {
     snapshot.mockResolvedValue(new Set());
     await refreshSessionStatuses(db, [live]);
     expect(snapshot).toHaveBeenCalledTimes(3);
-    expect(has).not.toHaveBeenCalled();
+    expect(has).toHaveBeenCalledTimes(2);
     expect(capture).toHaveBeenCalledTimes(2);
     expect(db.getSession(live)?.status).toBe("dead");
+  });
+
+  test("a row inserted while the snapshot is taken is not judged dead by it", async () => {
+    const live = create();
+    let inserted: string | undefined;
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockImplementation(async () => {
+      // Rows are read before the snapshot, so this row is not compared against it.
+      inserted = create();
+      return new Set([live]);
+    });
+    const has = spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    await refreshSessionStatuses(db);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(inserted).toBeDefined();
+    expect(has).not.toHaveBeenCalled();
+    expect(db.getSession(inserted!)?.status).toBe("running");
+    expect(new Archive(join(root, "archive")).get(inserted!)).toBeNull();
+  });
+
+  test("a capture failure settles a row the snapshot still lists once tmux is gone", async () => {
+    const live = create();
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([live]));
+    const has = spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    spyOn(Tmux, "capture").mockRejectedValue(new Error("can't find session"));
+    await refreshSessionStatuses(db, [live]);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(has).toHaveBeenCalledTimes(1);
+    expect(has).toHaveBeenCalledWith(live);
+    expect(db.getSession(live)?.status).toBe("dead");
+    expect(new Archive(join(root, "archive")).get(live)?.reason).toBe("tmux session gone");
   });
 
   test("logs one line per snapshot failure/recovery transition", async () => {
