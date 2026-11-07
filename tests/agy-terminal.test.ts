@@ -3,7 +3,13 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { createInterface } from "node:readline";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { agyTerminalFactorySource, agyTerminalSource } from "../src/drivers/agy-terminal-source";
+import { agyDriver, prepareAgyFiles } from "../src/drivers/agy";
+import { shellEscape } from "../src/shell";
 
 const factory = new Function(`${agyTerminalFactorySource}\nreturn createAgyTerminal;`)();
 const cleanup: Array<() => void> = [];
@@ -129,3 +135,55 @@ test("the generated bridge runs agy headless with interruption-based cleanup", (
   expect(agyTerminalSource).toContain('signal("SIGINT")');
   expect(agyTerminalSource).not.toContain("child.stdin.end()");
 });
+
+// Real processes: a fake agy starts a tool that inherits its stdout/stderr and
+// outlives it, so the child's "close" never fires on its own.
+async function eventually(fn: () => boolean) {
+  const end = Date.now() + 8000;
+  while (!fn()) { if (Date.now() >= end) throw new Error("real-process fixture timeout"); await Bun.sleep(10); }
+}
+function alive(pid: number) {
+  const p = spawnSync("ps", ["-p", String(pid), "-o", "stat="], { encoding: "utf8" });
+  return p.status === 0 && !!p.stdout.trim() && !p.stdout.trim().startsWith("Z");
+}
+test.each(["/exit", "SIGHUP"])("stop reclaims a tool that holds agy's pipes after agy exits: %s", async method => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), "agy-process-test-"));
+  const toolFile = join(root, "tool.json"), ready = join(root, "tool-ready"), stub = join(root, "stub.mjs");
+  writeFileSync(stub, `import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+console.log(JSON.stringify({ event: 'init', conversation_id: ${JSON.stringify(id)} }));
+createInterface({ input: process.stdin }).on('line', () => {
+  // Like agy: the tool gets its own process group; it ignores SIGINT and SIGTERM.
+  const code = "const fs=require('fs');process.on('SIGINT',()=>{});process.on('SIGTERM',()=>{});fs.writeFileSync(process.argv[1],'ready');setInterval(()=>{},1000)";
+  const tool = spawn(process.execPath, ['-e', code, ${JSON.stringify(ready)}], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] });
+  writeFileSync(${JSON.stringify(toolFile)}, JSON.stringify({ tool: tool.pid, agy: process.pid }));
+});
+`);
+  writeFileSync(join(root, "agy"), `#!/bin/sh\nexec node ${shellEscape(stub)} "$@"\n`, { mode: 0o700 });
+  prepareAgyFiles({ cwd: root, deliveryDir: root });
+  const bridge = spawn("sh", ["-c", agyDriver.buildLaunchCommand({ cwd: root, deliveryDir: root })],
+    { cwd: root, env: { ...process.env, PATH: root + ":" + process.env.PATH }, stdio: ["pipe", "pipe", "pipe"], detached: true });
+  let output = "", exited = false;
+  bridge.stdout.on("data", chunk => { output += String(chunk); });
+  bridge.on("exit", () => { exited = true; });
+  cleanup.push(() => {
+    // Every fixture process carries the unique scratch path in its command line.
+    for (const row of (spawnSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" }).stdout ?? "").split("\n")) if (row.includes(root)) {
+      const pid = Number(row.trim().split(/\s/)[0]);
+      if (pid && pid !== process.pid) { try { process.kill(pid, "SIGKILL"); } catch {} }
+    }
+    try { process.kill(-bridge.pid!, "SIGKILL"); } catch {}
+    bridge.stdin.destroy(); bridge.stdout.destroy(); bridge.stderr.destroy();
+    rmSync(root, { recursive: true, force: true });
+  });
+  await eventually(() => output.includes("[AHELPA_AGY_STATE:ready]"));
+  bridge.stdin.write("task\n");
+  await eventually(() => existsSync(ready) && existsSync(toolFile));
+  const pids = JSON.parse(readFileSync(toolFile, "utf8"));
+  expect(alive(pids.agy)).toBe(true); expect(alive(pids.tool)).toBe(true);
+  if (method === "/exit") bridge.stdin.write("/exit\n");
+  else process.kill(JSON.parse(readFileSync(join(root, "agy-process.json"), "utf8")).bridgePid, "SIGHUP");
+  await eventually(() => exited);
+  expect(alive(pids.agy)).toBe(false); expect(alive(pids.tool)).toBe(false);
+}, 20000);

@@ -161,11 +161,14 @@ function openAgy(options) {
     // agy 1.5.2 honours exactly "true"; "1" still spawns its background updater.
     env: { ...process.env, AGY_CLI_DISABLE_AUTO_UPDATE: "true" } });
   let exited = false, closed = false, stopping;
-  child.once("exit", () => { exited = true; });
+  const exit = new Promise(done => {
+    child.once("exit", () => { exited = true; done(); });
+    child.once("error", () => { exited = true; done(); });
+  });
   const closure = new Promise(done => { child.once("close", () => { closed = true; done(); }); });
-  const wait = async ms => {
+  const wait = async (promise, ms) => {
     let timer;
-    await Promise.race([closure, new Promise(done => { timer = setTimeout(done, ms); })]); clearTimeout(timer);
+    await Promise.race([promise, new Promise(done => { timer = setTimeout(done, ms); })]); clearTimeout(timer);
   };
   // Until Node reports exit, the child PID is unreaped and cannot be reused.
   const signal = name => { if (!exited && !closed && child.pid) { try { process.kill(child.pid, name); } catch {} } };
@@ -208,8 +211,9 @@ function openAgy(options) {
       // Snapshot while agy is unreaped: afterwards its tools are reparented away.
       const tools = exited || closed ? [] : descendants();
       // stdin EOF lets agy finish the running turn first, so interrupt instead.
-      signal("SIGINT"); await wait(3000);
-      signal("SIGKILL"); if (child.pid) await closure;
+      // Wait on exit, not close: a tool may hold agy's inherited pipes open forever.
+      signal("SIGINT"); await wait(exit, 3000);
+      signal("SIGKILL"); await wait(exit, 1000);
       for (const name of ["SIGTERM", "SIGKILL"]) {
         let live = false;
         for (const record of tools) {
@@ -222,6 +226,9 @@ function openAgy(options) {
         if (!live) break;
         if (name === "SIGTERM") await new Promise(done => setTimeout(done, 1000));
       }
+      // Drain final output briefly, then release pipes held by escaped tools.
+      await wait(closure, 250);
+      child.stdout.destroy(); child.stderr.destroy();
     })();
     return stopping;
   }
