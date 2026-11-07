@@ -264,3 +264,15 @@ test("unknown exclusion IDs fail before scanning", async () => {
   expect(await runCli(undefined, ["du", "--exclude", "typo"], { print: () => {}, printError: text => errors.push(text) })).toBe(1);
   expect(errors[0]).toContain("Unknown disk usage category");
 });
+
+test("vibe runtime sessions attribute bridge and per-turn input files", () => {
+  const f = fixture();
+  const delivery = join(f.layout.ahelpaDir, "vibe-0123456789ab");
+  for (const name of ["vibe-terminal.mjs", "vibe-process.json", "ahelpa-helper.toml"]) file(join(delivery, name), 7);
+  file(join(delivery, "vibe-prompt-11111111-2222-3333-4444-555555555555.txt"), 11);
+  file(join(delivery, "summary.md"), 13);
+  const report = f.collect({ exclude: "runtime.other" });
+  expect(report.categories.find(category => category.id === "delivery.bridge")?.logicalBytes).toBe(21);
+  expect(report.categories.find(category => category.id === "delivery.inputs")?.logicalBytes).toBe(11);
+  expect(report.categories.find(category => category.id === "delivery.summary")?.logicalBytes).toBe(13);
+});

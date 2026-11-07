@@ -5,6 +5,7 @@ import { kimiDriver } from "./kimi";
 import { dshDriver } from "./dsh";
 import { piDriver } from "./pi";
 import { agyDriver } from "./agy";
+import { vibeDriver } from "./vibe";
 
 const registry = new Map<string, AgentDriver>([
   ["claude-code", claudeCodeDriver],
@@ -13,6 +14,7 @@ const registry = new Map<string, AgentDriver>([
   ["dsh", dshDriver],
   ["pi", piDriver],
   ["agy", agyDriver],
+  ["vibe", vibeDriver],
 ]);
 
 export function getDriver(name: string): AgentDriver {
