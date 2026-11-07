@@ -2,7 +2,7 @@
 
 Public names: `mistral` and `deepseek`. Their nicknames are `vibe` and `deepseek-vibe`, respectively.
 
-The `mistral` and `deepseek` types use the Vibe harness. `deepseek` is the subscription-first route with `deepseek-pi` as its API backup; `mistral` remains opt-in. Task quality on these Vibe routes has not yet been observed in real use (see [profiles](profiles.md#mistral)). Install `vibe` ≥ 3.1.0 and Node.js on PATH and complete Vibe sign-in first. Version 3.1.0 is the tested baseline. `ahelpa doctor mistral` checks both executables and reads the installed `mistral-vibe` dist-info metadata without executing Vibe, flagging older installs. Unrecognized distributions report an unknown version. Sign-in stays `unknown`: doctor does not read the OS keychain, and the first turn verifies authentication.
+The `mistral` and `deepseek` types use the Vibe harness. `deepseek` is the subscription-first route with `deepseek-pi` as its API backup; `mistral` remains opt-in. `deepseek` has one bounded task-quality trial and `mistral` none (see [profiles](profiles.md#deepseek)). Install `vibe` ≥ 3.1.0 and Node.js on PATH and complete Vibe sign-in first. Version 3.1.0 is the tested baseline. `ahelpa doctor mistral` checks both executables and reads the installed `mistral-vibe` dist-info metadata without executing Vibe, flagging older installs. Unrecognized distributions report an unknown version. Sign-in stays `unknown`: doctor does not read the OS keychain, and the first turn verifies authentication.
 
 ```bash
 ahelpa doctor mistral

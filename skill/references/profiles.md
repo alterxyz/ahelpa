@@ -136,7 +136,16 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 
 ## deepseek
 
-Uses the Vibe harness and Mistral subscription, with `deepseek-v4-1-flash-1017` / `high` for both `worker` and `reviewer`. The subscription must include the model. This is the subscription-first DeepSeek route; use `deepseek-pi` as the API backup when the first turn reports model unavailability or authentication failure. The Vibe path has no real-task quality assessment yet; Pi observations do not establish its task quality. It shares [mistral](#mistral)'s bridge and limits. The bridge writes the full model definition per session, without editing global Vibe config; see [DeepSeek setup](vibe.md#deepseek-through-the-mistral-subscription).
+Uses the Vibe harness and Mistral subscription, with `deepseek-v4-1-flash-1017` / `high` for both `worker` and `reviewer`. The subscription must include the model. This is the subscription-first DeepSeek route; use `deepseek-pi` as the API backup when the first turn reports model unavailability or authentication failure. Pi observations do not establish this route's task quality. It shares [mistral](#mistral)'s bridge and limits. The bridge writes the full model definition per session, without editing global Vibe config; see [DeepSeek setup](vibe.md#deepseek-through-the-mistral-subscription).
+
+**Observation status**
+- One bounded trial (2026-11-06), one run per task, same briefs as `codex` (`gpt-6-astra` / `medium`) and `claude --role worker` (`claude-sonnet-5-5` / `high`), each in an isolated clone of a large private repository with a 76 KB AGENTS.md, project skills, and repo CLI tools. Four tasks: six rule lookups across AGENTS.md; applying a project skill whose answers need its CLI; running a repo checker on a seeded draft and proposing compliant fixes; a small feature with a hidden 9-test acceptance suite. DeepSeek matched every expected answer, ran the skill's CLI the documented way (codex skipped it and read the table by hand), passed 9/9 hidden tests like both others, and checked more of its own claims than either, finding real tool defects. For bounded tasks its quality was on par with both. Not yet observed: long multi-file work, ambiguous tasks, rework after review, reliability across many runs. Full record: [case study](../../docs/case-deepseek-trial-20261106.md).
+
+**Watch for**
+- Slower: 2.6–5.7 min per task against about 1–3 min for codex and claude, and summaries about twice as long.
+- It obeyed a brief that broke a project rule (push to a remote the repository forbids), after noting the conflict in summary.md. Claude did the same; codex refused. Do not count on it to overrule a brief: keep such steps out of the task.
+- It wrote placeholder ticket numbers next to real ones, labelled as placeholders. Ask for obviously fake placeholders or none.
+- Vibe loads the whole AGENTS.md and skills from `.agents/skills`, `.vibe/skills`, `~/.agents/skills` and `~/.vibe/skills`, not `.claude/skills`, and runs no Claude Code hooks. Project rules enforced only by Claude hooks are not enforced for this helper.
 
 ## Task type to helper
 
