@@ -35,6 +35,7 @@ function createVibeTerminal(deps) {
       : help ? "error" : signals.some(match => match[1] === "DONE") ? "idle" : "needs_attention";
     if (code !== 0) {
       const category = code === 3 ? "interrupted" : /Session not found/i.test(turn.stderr) ? "resume session not found"
+        : /Invalid model|invalid_model/i.test(turn.stderr) ? "model unavailable (the Mistral subscription may not include it)"
         : /Unknown model/i.test(turn.stderr) ? "unknown model" : /not (logged|signed) in|not authenticated|sign in|(?:invalid|missing) api key/i.test(turn.stderr) ? "authentication failed" : "turn failed";
       write("vibe: " + category);
     }
@@ -137,7 +138,18 @@ function prepareVibeAgent(options) {
   const model = options.model ?? (options.effort === undefined ? undefined : "mistral-large-4-0-3");
   let agent = 'safety = "yolo"\nbypass_tool_permissions = true\n';
   if (model !== undefined) agent += 'active_model = ' + JSON.stringify(model) + "\n";
-  if (options.effort !== undefined) agent += '[models.' + JSON.stringify(model) + ']\nthinking = ' + JSON.stringify(options.effort) + "\n";
+  const knownModels = {
+    "deepseek-v4-1-flash-1017": {
+      name: "deepseek-v4-1-flash-1017", provider: "mistral",
+      thinking_levels: ["low", "high", "max"], max_context_length: 1048576, max_output_tokens: 131072,
+    },
+  };
+  const definition = Object.hasOwn(knownModels, model) ? knownModels[model] : undefined;
+  if (definition) {
+    agent += '[models.' + JSON.stringify(model) + ']\n';
+    for (const [key, value] of Object.entries(definition)) agent += key + " = " + JSON.stringify(value) + "\n";
+    if (options.effort !== undefined) agent += 'thinking = ' + JSON.stringify(options.effort) + "\n";
+  } else if (options.effort !== undefined) agent += '[models.' + JSON.stringify(model) + ']\nthinking = ' + JSON.stringify(options.effort) + "\n";
   writeFileSync(join(dirname(options.metadata), "ahelpa-helper.toml"), agent, { mode: 0o600 });
 }
 function openVibe(options) {

@@ -2,14 +2,14 @@ import { afterEach, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { vibeDriver, prepareVibeFiles } from "../src/drivers/vibe";
 import { shellEscape } from "../src/shell";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { StringDecoder } from "node:string_decoder";
 import { createInterface } from "node:readline";
-import { vibeTerminalFactorySource, vibeTerminalSource } from "../src/drivers/vibe-terminal-source";
+import { vibeNativeSource, vibeTerminalFactorySource, vibeTerminalSource } from "../src/drivers/vibe-terminal-source";
 const factory = new Function(`${vibeTerminalFactorySource}\nreturn createVibeTerminal;`)();
 const cleanup: Array<() => void> = [];
 afterEach(() => { for (const fn of cleanup.splice(0)) fn(); });
@@ -223,3 +223,33 @@ test.each(["/exit", "SIGTERM"])("stop escalates a TERM-resistant root and reaps 
   await eventually(f.exited);
   expect(alive(rootPid)).toBe(false); expect(alive(tool)).toBe(false);
 }, 15000);
+
+
+test.each([undefined, "low", "high", "max"])("DeepSeek private model table is complete with effort %s", effort => {
+  const root = mkdtempSync(join(realpathSync(tmpdir()), "vibe-model-table-"));
+  cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  const prepare = new Function("writeFileSync", "join", "dirname", `${vibeNativeSource}\nreturn prepareVibeAgent;`)(writeFileSync, join, dirname);
+  const model = "deepseek-v4-1-flash-1017";
+  prepare({ model, effort, metadata: join(root, "vibe-process.json") });
+  expect(Bun.TOML.parse(readFileSync(join(root, "ahelpa-helper.toml"), "utf8"))).toEqual({
+    safety: "yolo", bypass_tool_permissions: true, active_model: model,
+    models: { [model]: { name: model, provider: "mistral", thinking_levels: ["low", "high", "max"],
+      max_context_length: 1048576, max_output_tokens: 131072, ...(effort === undefined ? {} : { thinking: effort }) } },
+  });
+  for (const alias of ["mistral-large-4-0-3", "glm-5-3"]) {
+    prepare({ model: alias, effort, metadata: join(root, "vibe-process.json") });
+    expect(Bun.TOML.parse(readFileSync(join(root, "ahelpa-helper.toml"), "utf8"))).toEqual({
+      safety: "yolo", bypass_tool_permissions: true, active_model: alias,
+      ...(effort === undefined ? {} : { models: { [alias]: { thinking: effort } } }),
+    });
+  }
+});
+
+test.each(["Invalid model: private-model", '{"type":"invalid_model","message":"private"}'])("unavailable subscription models get a fixed private error: %s", async stderr => {
+  const f = new Fixture(); await f.start(); await f.task();
+  f.child.stderr.write(stderr); f.child.emit("close", 2);
+  await until(() => f.states().at(-1) === "error");
+  expect(f.output).toContain("vibe: model unavailable (the Mistral subscription may not include it)");
+  expect(f.output).not.toContain(stderr);
+  expect(f.output).not.toContain("private");
+});
