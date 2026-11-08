@@ -22,7 +22,7 @@ import { readTaskFile } from "../task-input";
 import { normalizeTurnInput } from "../turn-hooks";
 import { deliverTurn } from "../turn-delivery";
 import { settle } from "../settle";
-import { releaseInterventionLease, takeInterventionLease } from "../intervention-lease";
+import { releaseInterventionLease, renewInterventionLease, takeInterventionLease, type InterventionLease } from "../intervention-lease";
 import { resolveParentId } from "../caller-identity";
 
 interface AuthContext { db: StateDB; session: SessionRecord; }
@@ -151,7 +151,10 @@ const POLL_MS = 500;
 // ponytail: fixed bounds; a slower TUI only loses its resume ID, never the kill.
 const STOP_POLLS = 8;
 const EXIT_POLLS = 12;
-// The TUI prints its "interrupted" line just above the composer.
+// The ready check reads the bottom of the pane; the stop-line count reads more
+// of it, so an older stop line scrolling up is still counted.
+const READY_LINES = 80;
+const COUNT_LINES = 200;
 const STOP_TAIL_LINES = 15;
 
 type Driver = ReturnType<typeof getHarnessDriver>;
@@ -163,19 +166,42 @@ function composerReady(driver: Driver): ((output: string) => boolean) | undefine
   return driver.acceptsInputAfterTurn?.bind(driver) ?? driver.acceptsInput?.bind(driver);
 }
 
+function stopLines(output: string, stopped: RegExp): number {
+  return [...output.matchAll(new RegExp(stopped.source, stopped.flags.replace("g", "") + "g"))].length;
+}
+
+const tail = (output: string, lines: number) => output.split("\n").slice(-lines).join("\n");
+
+interface StopProof { stopped: RegExp; before: number }
+
 // A ready composer on two identical captures in a row. After an interrupt key
-// that is not enough (a reply can pause between chunks), so the TUI's own
-// "interrupted" line must also show near the bottom.
-async function settledScreen(sessionId: string, ready: (output: string) => boolean, stopped?: RegExp): Promise<string | null> {
+// that is not enough (a reply can pause between chunks): the TUI must also have
+// printed a new stop line of its own, near the bottom, since the key.
+async function settledScreen(
+  sessionId: string,
+  ready: (output: string) => boolean,
+  proof: StopProof | undefined,
+  lease: InterventionLease,
+): Promise<string | null> {
   let previous: string | null = null;
   for (let attempt = 0; attempt < STOP_POLLS; attempt++) {
     await Bun.sleep(POLL_MS);
-    const output = await Tmux.capture(sessionId, 80);
-    const shown = !stopped || stopped.test(output.split("\n").slice(-STOP_TAIL_LINES).join("\n"));
-    if (ready(output) && shown && output === previous) return output;
-    previous = output;
+    if (!renewInterventionLease(lease)) return null;
+    const output = await Tmux.capture(sessionId, COUNT_LINES);
+    const screen = tail(output, READY_LINES);
+    const shown = !proof || (stopLines(output, proof.stopped) > proof.before && proof.stopped.test(tail(output, STOP_TAIL_LINES)));
+    if (ready(screen) && shown && screen === previous) return screen;
+    previous = screen;
   }
   return null;
+}
+
+// Take the lease, and move the row version so that a refresh already past its
+// lease check cannot nudge or settle this turn with the version it read.
+function beginIntervention(db: StateDB, sessionId: string): InterventionLease | null {
+  const lease = takeInterventionLease(sessionId);
+  if (lease) db.bumpVersion(sessionId);
+  return lease;
 }
 
 export const interrupt = withAuth(async ({ db, session }) => {
@@ -190,10 +216,13 @@ export const interrupt = withAuth(async ({ db, session }) => {
   if (!(await Tmux.vendorAlive(session.id))) {
     throw new Error(`Session ${session.id} has no running ${session.agentType} in its pane; nothing to interrupt`);
   }
-  takeInterventionLease(session.id);
+  const lease = beginIntervention(db, session.id);
+  if (!lease) throw new Error(`Session ${session.id} is already being interrupted or killed`);
   try {
+    const turn = db.getSession(session.id)!;
+    const before = stopLines(await Tmux.capture(session.id, COUNT_LINES), driver.interrupt.stopped);
     await Tmux.sendKey(session.id, driver.interrupt.key);
-    const output = await settledScreen(session.id, ready, driver.interrupt.stopped);
+    const output = await settledScreen(session.id, ready, { stopped: driver.interrupt.stopped, before }, lease);
     if (output === null) {
       throw new Error(`Sent ${driver.interrupt.key} to ${session.id}, but it did not show that its turn stopped; it stays ${session.status}. Inspect it with \`capture\`.`);
     }
@@ -201,7 +230,7 @@ export const interrupt = withAuth(async ({ db, session }) => {
     const archive = new Archive(defaultRuntimeLayout.archiveDir());
     for (let attempt = 0; attempt < 3; attempt++) {
       const current = db.getSession(session.id);
-      if (!current || current.status !== session.status || current.turnStartedAt !== session.turnStartedAt) {
+      if (!current || current.status !== turn.status || current.turnStartedAt !== turn.turnStartedAt) {
         throw new Error(`Session ${session.id} changed to ${current?.status ?? "missing"} while it was interrupted; the interrupt key was sent`);
       }
       if (await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
@@ -214,7 +243,7 @@ export const interrupt = withAuth(async ({ db, session }) => {
     }
     throw new Error(`Session ${session.id} kept changing while it was interrupted; the interrupt key was sent`);
   } finally {
-    releaseInterventionLease(session.id);
+    releaseInterventionLease(lease);
   }
 });
 
@@ -222,8 +251,9 @@ export const interrupt = withAuth(async ({ db, session }) => {
 // Before a kill takes the terminal, stop the turn and exit the TUI the way a
 // person would, so the session stays resumable. Text plus Enter goes only into
 // the vendor's ready composer, never into a dialog or the shell left after the
-// CLI exits. The interrupt key goes only to a running turn that reads as work;
-// at a dialog that reads as work it can only cancel. Any doubt skips to the kill.
+// CLI exits. A running turn gets the interrupt key and must show a new stop
+// line; a settled turn gets no key. Any doubt, or any failure here, falls
+// through to the kill.
 async function preserveResumeId(db: StateDB, session: SessionRecord, screen?: string): Promise<void> {
   if (session.agentResumeId || session.launchPid) return;
   if (session.status !== SESSION_STATUS.Running && session.status !== SESSION_STATUS.NeedsAttention
@@ -232,26 +262,33 @@ async function preserveResumeId(db: StateDB, session: SessionRecord, screen?: st
   try { driver = getHarnessDriver(session.agentType); } catch { return; }
   const ready = composerReady(driver);
   if (driver.resumeTokenAvailableAfterSubmit || !driver.interrupt || !ready) return;
-  takeInterventionLease(session.id);
+  let lease: InterventionLease | null = null;
   try {
-    const output = screen ?? await Tmux.capture(session.id, 80);
-    // A settled turn has ended; its history rows are not work, and it gets no key.
-    const working = session.status === SESSION_STATUS.Running && driver.detectActivity(output) === "working";
-    if (!working && !ready(output)) return;
+    const running = session.status === SESSION_STATUS.Running;
+    // The kill's own archive capture, when there is one, serves as the screen before the key.
+    const output = tail(screen ?? await Tmux.capture(session.id, COUNT_LINES), COUNT_LINES);
+    if (!running && !ready(tail(output, READY_LINES))) return;
     if (!(await Tmux.vendorAlive(session.id))) return;
-    if (working) await Tmux.sendKey(session.id, driver.interrupt.key);
-    if (await settledScreen(session.id, ready, working ? driver.interrupt.stopped : undefined) === null) return;
+    lease = beginIntervention(db, session.id);
+    if (!lease) return;
+    let proof: StopProof | undefined;
+    if (running) {
+      proof = { stopped: driver.interrupt.stopped, before: stopLines(output, driver.interrupt.stopped) };
+      await Tmux.sendKey(session.id, driver.interrupt.key);
+    }
+    if (await settledScreen(session.id, ready, proof, lease) === null) return;
     if (!(await Tmux.vendorAlive(session.id))) return;
     await driver.gracefulExit(session.id, driverRuntime);
     for (let attempt = 0; attempt < EXIT_POLLS; attempt++) {
       await Bun.sleep(POLL_MS);
+      if (!renewInterventionLease(lease)) return;
       const resumeId = driver.extractResumeToken(await Tmux.capture(session.id, 50));
       if (resumeId) { db.updateResumeId(session.id, resumeId); return; }
     }
   } catch {
     // Best effort: the kill proceeds without a native ID.
   } finally {
-    releaseInterventionLease(session.id);
+    if (lease) { try { releaseInterventionLease(lease); } catch {} }
   }
 }
 

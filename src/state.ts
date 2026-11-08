@@ -396,6 +396,12 @@ export class StateDB {
       .run(status, new Date().toISOString(), id, expected, expectedVersion ?? null, expectedVersion ?? null).changes > 0;
   }
 
+  // Invalidates every compare-and-set prepared against the current row, such as
+  // a daemon refresh already past its lease check, without changing the row.
+  bumpVersion(id: string): void {
+    this.db.prepare("UPDATE sessions SET version = version + 1 WHERE id = ?").run(id);
+  }
+
   updateResumeId(id: string, agentResumeId: string): void {
     const now = new Date().toISOString();
     this.db.prepare("UPDATE sessions SET agent_resume_id = ?, updated_at = ?, version = version + 1 WHERE id = ?")

@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Archive } from "../src/archive";
 import { interrupt, kill } from "../src/commands/session-ops";
 import { refreshSessionStatuses } from "../src/daemon";
-import { interventionLeaseActive, takeInterventionLease } from "../src/intervention-lease";
+import { interventionLeaseActive, releaseInterventionLease, takeInterventionLease } from "../src/intervention-lease";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 import { SESSION_STATUS } from "../src/session-lifecycle";
 import { StateDB } from "../src/state";
@@ -76,19 +76,20 @@ test("kill stops a working TUI turn, exits it and keeps the native ID", async ()
   expect(archived.lastOutput).toContain("Generating");
 });
 
-test("kill exits a TUI that already waits at its composer", async () => {
+test("kill exits a settled TUI from its ready composer without a key", async () => {
   session("s");
+  db.updateStatus("s", SESSION_STATUS.NeedsAttention);
   screen = "ready";
   await kill(db, "s", "s-token");
   expect(keys).toEqual(["/exit"]);
   expect(db.getSession("s")!.agentResumeId).toBe(ID);
 });
 
-test("kill sends nothing to a dialog", async () => {
+test("kill only cancels a dialog on a running turn and never types into it", async () => {
   session("s");
   screen = "dialog";
   await kill(db, "s", "s-token");
-  expect(keys).toEqual([]);
+  expect(keys).toEqual(["Escape"]);
   expect(db.getSession("s")!.status).toBe(SESSION_STATUS.Dead);
   expect(db.getSession("s")!.agentResumeId ?? null).toBeNull();
 });
@@ -287,3 +288,74 @@ test("interrupt refuses a pane whose CLI already exited", async () => {
   expect(keys).toEqual([]);
   expect(db.getSession("s")!.status).toBe(SESSION_STATUS.Running);
 });
+
+test("kill still kills when the lease cannot be taken", async () => {
+  session("s");
+  writeFileSync(join(root, "not-a-dir"), "");
+  spyOn(defaultRuntimeLayout, "interventionLeasePath").mockImplementation((id) => join(root, "not-a-dir", id));
+  const killed = spyOn(Tmux, "kill");
+  await kill(db, "s", "s-token");
+  expect(killed).toHaveBeenCalledTimes(1);
+  expect(db.getSession("s")!.status).toBe(SESSION_STATUS.Dead);
+});
+
+test("an intervention moves the row version so an in-flight refresh cannot use it", async () => {
+  session("s");
+  const before = db.getSession("s")!.version;
+  let atKey = before;
+  spyOn(Tmux, "sendKey").mockImplementation(async (_id, key) => {
+    atKey = db.getSession("s")!.version;
+    keys.push(key);
+    screen = "ready";
+  });
+  await interrupt(db, "s", "s-token");
+  expect(atKey).toBeGreaterThan(before);
+});
+
+test("one intervention at a time, and only its holder releases the lease", async () => {
+  session("s");
+  const first = takeInterventionLease("s")!;
+  expect(takeInterventionLease("s")).toBeNull();
+  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("already being interrupted or killed");
+  releaseInterventionLease({ sessionId: "s", token: "someone-else" });
+  expect(interventionLeaseActive("s")).toBe(true);
+  releaseInterventionLease(first);
+  expect(interventionLeaseActive("s")).toBe(false);
+  expect(keys).toEqual([]);
+});
+
+test("the lease is renewed while a slow intervention polls", async () => {
+  session("s");
+  let now = Date.now();
+  spyOn(Date, "now").mockImplementation(() => now);
+  const active: boolean[] = [];
+  spyOn(Tmux, "capture").mockImplementation(async () => {
+    now += 15_000; // each tmux round trip takes 15 s
+    active.push(interventionLeaseActive("s", now));
+    return SCREENS[screen];
+  });
+  await interrupt(db, "s", "s-token");
+  expect(active.length).toBeGreaterThan(2);
+  expect(active.every(Boolean)).toBe(true);
+});
+
+test("an older stop line on screen does not prove that a newer turn stopped", async () => {
+  // A previous interrupt's line is still visible above a new running turn; Escape had no effect.
+  const screenWithOldStop = [RULE, "> First task", RULE, "Interrupted · What should Antigravity CLI do instead?", RULE, "> Second task", RULE, "partial reply", RULE, ">", RULE, "? for shortcuts      Gemini 4 Argon · medium"].join("\n");
+  spyOn(Tmux, "capture").mockResolvedValue(screenWithOldStop);
+  session("s");
+  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("did not show that its turn stopped");
+  session("k");
+  await kill(db, "k", "k-token");
+  expect(keys).not.toContain("/exit");
+}, 20000);
+
+test("a running turn that shows no work still needs a new stop line before kill exits it", async () => {
+  // A prose-only Codex reply: no spinner and no work rows, so Codex reads it as idle.
+  const prose = ["› Explain the design", "• Here is the first part of my answer", "› Ask Codex to do anything", "  GPT-6-Astra medium · ~/project"].join("\n");
+  spyOn(Tmux, "capture").mockResolvedValue(prose);
+  session("c", "codex");
+  await kill(db, "c", "c-token");
+  expect(keys).toEqual(["Escape"]);
+  expect(db.getSession("c")!.status).toBe(SESSION_STATUS.Dead);
+}, 15000);
