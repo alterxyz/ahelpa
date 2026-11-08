@@ -149,10 +149,15 @@ async function finishMissingSession(db: StateDB, archive: Archive, session: Sess
   cleanupSessionFiles(session.id);
 }
 
+// signalsOnly: a refresh between polls, after a turn-end hook woke the daemon.
+// It settles only on a sentinel; idle counts, nudges, hook settlements and
+// retry backoff keep the poll's pace, so a wake never spends another helper's
+// patience.
 export async function refreshSessionStatuses(
   db: StateDB,
   sessionIds?: string[],
   nowMs: number = Date.now(),
+  signalsOnly = false,
 ): Promise<void> {
   const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const targetIds = sessionIds ? new Set(sessionIds) : null;
@@ -198,6 +203,7 @@ export async function refreshSessionStatuses(
       clearSessionFailures(session.id);
       retry = undefined;
     }
+    if (signalsOnly && retry) continue;
     if (retry && retry.skip > 0) {
       retry.skip--;
       // Back off capture/diagnostics, never recognition of a vanished tmux.
@@ -308,7 +314,7 @@ export async function refreshSessionStatuses(
       const driver = getHarnessDriver(session.agentType);
       const outcome = outcomeFromCapture(output, driver);
       const newStatus = outcome.status;
-      if (flagged && newStatus !== SESSION_STATUS.Idle && newStatus !== SESSION_STATUS.Error) continue;
+      if ((flagged || signalsOnly) && newStatus !== SESSION_STATUS.Idle && newStatus !== SESSION_STATUS.Error) continue;
       if (newStatus === SESSION_STATUS.NeedsAttention) {
         const previous = pendingAttention.get(session.id);
         pendingAttention.set(session.id, { version: session.version, reason: outcome.reason });
@@ -464,28 +470,34 @@ const POLL_MS = 3000;
 // The hook can fire a moment before the TUI draws the frame that ends the turn.
 const WAKE_GRACE_MS = 250;
 
-// Wait for the next poll, or less when a turn-end hook writes to the wake pipe:
-// a finished turn is then read at once instead of up to 3 s later. Without the
-// pipe this is the plain 3 s poll.
-export async function waitForNextPoll(wakePath: string | undefined, pollMs = POLL_MS): Promise<boolean> {
+// Wait up to `ms`, returning early when a turn-end hook writes to the wake
+// pipe. Without the pipe it simply sleeps.
+export async function waitForWake(wakePath: string | undefined, ms: number): Promise<boolean> {
   const started = Date.now();
   let woke = false;
-  if (wakePath) try { woke = (await FIFO.read(wakePath, pollMs)) !== null; } catch {}
-  const rest = pollMs - (Date.now() - started);
-  await Bun.sleep(woke ? WAKE_GRACE_MS : Math.max(0, rest));
+  if (wakePath) try { woke = (await FIFO.read(wakePath, ms)) !== null; } catch {}
+  if (!woke) await Bun.sleep(Math.max(0, ms - (Date.now() - started)));
   return woke;
 }
 
 export async function daemonLoop(db: StateDB): Promise<void> {
   let wakePath: string | undefined = defaultRuntimeLayout.daemonWakePath();
   try { await FIFO.create(wakePath); } catch { wakePath = undefined; }
+  let nextPoll = 0;
   while (true) {
     const sessions = db.listActiveSessions();
     if (sessions.length === 0) break; // Auto-exit when no sessions
 
-    await refreshSessionStatuses(db);
-
-    await waitForNextPoll(wakePath);
+    if (Date.now() >= nextPoll) {
+      await refreshSessionStatuses(db);
+      nextPoll = Date.now() + POLL_MS;
+    }
+    // A finished turn is read at once instead of up to 3 s later; the full
+    // poll keeps its pace however many hooks fire.
+    if (await waitForWake(wakePath, nextPoll - Date.now())) {
+      await Bun.sleep(WAKE_GRACE_MS);
+      await refreshSessionStatuses(db, undefined, Date.now(), true);
+    }
   }
 }
 

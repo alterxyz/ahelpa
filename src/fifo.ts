@@ -1,4 +1,4 @@
-import { unlinkSync, lstatSync, openSync, closeSync, writeSync, readSync, constants } from "fs";
+import { unlinkSync, lstatSync, openSync, closeSync, fstatSync, writeSync, readSync, constants } from "fs";
 
 function hasFifo(path: string): boolean {
   let stat;
@@ -34,7 +34,10 @@ export class FIFO {
   static async tryWrite(path: string, data: string): Promise<boolean> {
     let fd: number | null = null;
     try {
-      fd = openSync(path, constants.O_WRONLY | constants.O_NONBLOCK);
+      // Never follow a link, and write only into a pipe: a regular file at the
+      // path would otherwise be overwritten.
+      fd = openSync(path, constants.O_WRONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+      if (!fstatSync(fd).isFIFO()) return false;
       writeSync(fd, `${data}\n`);
       return true;
     } catch (error) {
@@ -57,11 +60,13 @@ export class FIFO {
     const deadline = Date.now() + timeoutMs;
     let fd: number | null = null;
     try {
-      fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+      fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
     }
+    // A regular file would be read as the same message on every call.
+    if (!fstatSync(fd).isFIFO()) { closeSync(fd); return null; }
 
     const buffer = Buffer.alloc(4096);
     let collected = "";

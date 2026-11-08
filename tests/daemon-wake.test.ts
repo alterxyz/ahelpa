@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { waitForNextPoll } from "../src/daemon";
+import { daemonLoop, refreshSessionStatuses, waitForWake } from "../src/daemon";
 import { FIFO } from "../src/fifo";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
+import { StateDB } from "../src/state";
+import { Tmux } from "../src/tmux";
 import { writeTurnHook } from "../src/turn-hooks";
 
 let root: string;
@@ -19,7 +21,7 @@ afterEach(() => { mock.restore(); rmSync(root, { recursive: true, force: true })
 test("a turn-end hook cuts the daemon's wait short", async () => {
   await FIFO.create(wake);
   const started = Date.now();
-  const waiting = waitForNextPoll(wake, 3000);
+  const waiting = waitForWake(wake, 3000);
   await Bun.sleep(100);
   // The Codex notify payload, as the hook receives it at turn end.
   const dir = join(root, ".ahelpa", "codex-fixture");
@@ -43,7 +45,48 @@ test("a prompt event does not wake the daemon", () => {
 
 test("without the pipe the wait is the plain poll", async () => {
   const started = Date.now();
-  expect(await waitForNextPoll(undefined, 300)).toBe(false);
-  expect(await waitForNextPoll(join(root, "missing.wake"), 300)).toBe(false);
+  expect(await waitForWake(undefined, 300)).toBe(false);
+  expect(await waitForWake(join(root, "missing.wake"), 300)).toBe(false);
   expect(Date.now() - started).toBeGreaterThanOrEqual(580);
+});
+
+test("the wake path is used only as a pipe: never a regular file, never through a link", async () => {
+  writeFileSync(wake, "IMPORTANT FILE CONTENT");
+  expect(await FIFO.tryWrite(wake, "turn")).toBe(false);
+  const target = join(root, "target");
+  writeFileSync(target, "ORIGINAL");
+  const link = join(root, "link.wake");
+  symlinkSync(target, link);
+  await expect(FIFO.tryWrite(link, "turn")).rejects.toThrow();
+  expect(readFileSync(wake, "utf8")).toBe("IMPORTANT FILE CONTENT");
+  expect(readFileSync(target, "utf8")).toBe("ORIGINAL");
+  // A file is not a wake on every read, and the daemon still starts on a plain poll.
+  const started = Date.now();
+  expect(await waitForWake(wake, 300)).toBe(false);
+  expect(Date.now() - started).toBeGreaterThanOrEqual(280);
+  await daemonLoop(new StateDB(":memory:"));
+});
+
+test("a wake refresh settles a sentinel but never spends another helper's patience", async () => {
+  const db = new StateDB(":memory:");
+  const TASK = "Please read and complete the task described in /tmp/ahelpa-task-kimi.md.";
+  for (const id of ["kimi-quiet", "kimi-done"]) {
+    db.createSession({ id, parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
+  }
+  spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
+  spyOn(Tmux, "hasSession").mockResolvedValue(true);
+  spyOn(Tmux, "sendKeys").mockResolvedValue();
+  spyOn(Tmux, "sendKey").mockResolvedValue();
+  spyOn(Tmux, "capture").mockImplementation(async (id) => id === "kimi-done"
+    ? `${TASK}\n[AHELPA:DONE]\n│ >   │\ncontext: 0%`
+    // Quiet with no signal: four polls of this reach the no-sentinel fallback.
+    : `${TASK}\n▶ Run this command?\n1. Approve once\n2. Approve for this session\n↵ confirm`);
+  await refreshSessionStatuses(db, ["kimi-quiet"]);
+  for (let wakes = 0; wakes < 6; wakes++) await refreshSessionStatuses(db, undefined, Date.now(), true);
+  // DONE settles at once; the daemon then starts the graceful exit.
+  expect(["idle", "draining"]).toContain(db.getSession("kimi-done")!.status);
+  expect(db.getSession("kimi-quiet")?.status).toBe("running");
+  for (let polls = 0; polls < 3; polls++) await refreshSessionStatuses(db, ["kimi-quiet"]);
+  expect(db.getSession("kimi-quiet")?.status).toBe("needs_attention");
+  db.close();
 });
