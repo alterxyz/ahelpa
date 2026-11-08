@@ -420,7 +420,7 @@ ahelpa interrupt "$session_id" --token "$token"
 ahelpa send "$session_id" "别走那条路了，改成……" --token "$token"
 ```
 
-`interrupt` 像 attach 在 pane 上的人一样，按下 helper 自己的打断键（Claude Code、Codex、agy、Vibe、Pi 都是 Escape）。回合停下的过程中，它持有一个租约，让 daemon 既不去催这个回合、也不会因回合 hook 结算它（命令结束或它的进程死掉时租约即失效，最长两分钟）；会话状态不变，所以正在等待的 `wait` 看不到任何临时结果。同一个会话同一时间只能有一个 `interrupt` 或 `kill` 在操作。光按了键不算数：要等 TUI 在底部新打出它自己的停止提示（比如 `Interrupted · What should Claude do instead?`，或 Codex 的 `■ Conversation interrupted`），厂商的输入框就绪，而且连续两次抓屏一致。确认之后才记为 `needs_attention`，原因 `interrupted by host`，并唤醒正在等待的 `wait`。约 4 秒内没看到这些，会话保持运行，命令报错。之后用 `send` 或 `task` 开始下一回合，监控随之恢复。它接受 `running` 和 `needs_attention` 的会话，pane 里的 CLI 已经退出时会拒绝。Kimi 没有核实过的打断键，会被拒绝，请直接 attach 到它的 pane 上操作。
+`interrupt` 像 attach 在 pane 上的人一样，按下 helper 自己的打断键（Claude Code、Codex、agy、Vibe、Pi 都是 Escape）。回合停下的过程中，它持有一个租约，让 daemon 既不去催这个回合、也不会因回合 hook 结算它（命令结束或它的进程死掉时租约即失效，最长两分钟）；会话状态不变，所以正在等待的 `wait` 看不到任何临时结果。同一个会话同一时间只能有一个 `interrupt` 在操作。光按了键不算数：要等 TUI 在底部新打出它自己的停止提示（比如 `Interrupted · What should Claude do instead?`，或 Codex 的 `■ Conversation interrupted`），厂商的输入框就绪，而且连续两次抓屏一致。确认之后才记为 `needs_attention`，原因 `interrupted by host`，并唤醒正在等待的 `wait`。约 4 秒内没看到这些，会话保持运行，命令报错。之后用 `send` 或 `task` 开始下一回合，监控随之恢复。它接受 `running` 和 `needs_attention` 的会话，pane 里的 CLI 已经退出时会拒绝。Kimi 没有核实过的打断键，会被拒绝，请直接 attach 到它的 pane 上操作。
 
 ## 回收 session
 
@@ -430,7 +430,7 @@ ahelpa send "$session_id" "别走那条路了，改成……" --token "$token"
 ahelpa kill "$session_id" --token "$token"
 ```
 
-Claude Code、Codex、agy、Vibe、Pi 只在退出时打印原生恢复 ID。会话还没有这个 ID 时，`kill` 会先设法保住它：在归档快照之后，运行中的回合会被按下打断键，并等 TUI 新打出它自己的停止提示；只在 CLI 仍占着 pane 时，往厂商就绪的输入框里敲退出命令，再等几秒拿 ID。已经结算的回合不会被按打断键，只会在输入框就绪且画面不再变化时收到退出命令。文字只敲进厂商就绪的输入框，从不敲进对话框，也不会敲进 CLI 退出后留下的 shell；打断键碰上对话框只会是取消。最后一定会 kill；屏幕卡住只会丢掉这个 ID。被 kill 的会话之后可以 resume。
+`kill` 不按任何键，立即结束 tmux 会话。DONE 之前就被 kill 的 helper，只有 CLI 早先显示过原生恢复 ID（Kimi 首次提交后就有）才留得下它；否则 `resume` 无从打开，厂商自己的历史（`claude --resume`、`codex resume`、`pi -r`）里仍列着那段对话。想停下当前回合又保留 helper，用 `interrupt`。
 
 `kill` 保留已有的结算归档，包括终端仍在 draining 时。对于未结算 session，它在终止 tmux 前捕获最后 500 行 pane 输出，终止后仅在记录版本仍匹配时一起提交 `dead` 和快照。捕获或终止期间先完成的结算保留其状态和归档；tree 模式跳过捕获期间完成结算的后代。捕获或归档写入失败不会阻止终止；pane 不可用时保留已有 archive。终止失败且终端仍存在时，命令报错，不修改记录或归档。预留的启动记录即使尚未创建终端，也会被标为 `dead`，取消启动发布，让启动进程回滚。
 

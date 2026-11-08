@@ -111,7 +111,7 @@ Choose roles by task: `claude` defaults to `advisor`, with `worker` for executio
 | `task <id> --file <path> --token <tok>` | Deliver a task file for long instructions |
 | `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | Switch a running helper's model |
 | `interrupt <id> --token <tok>` | Stop the helper's current turn and keep the session; continue with `send` or `task` |
-| `kill <id> --token <tok> [--tree]` | Terminate a helper (exiting its TUI first so the native resume ID survives); `--tree` also stops descendants and reports `killed` / `missed` |
+| `kill <id> --token <tok> [--tree]` | Terminate a helper at once; `--tree` also stops descendants and reports `killed` / `missed` |
 | `logs <id> --token <tok>` | Read live or archived session output |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper; an existing safe posture is inherited |
 | `status` | Show all sessions, caller relationship, and daemon state |

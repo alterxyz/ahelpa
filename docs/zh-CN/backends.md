@@ -69,7 +69,7 @@ ahelpa **不是**：
 | 门槛 | 因为 |
 | --- | --- |
 | **它自己的交互式 TUI 能在 tmux 里跑、能接收按键、能从 pane 读出来。** | session 就是跑着厂商界面的 tmux session：daemon 抓它的 pane，`send-keys` 投递输入，`tmux attach` 让人能看见、能插手。headless 和 RPC 模式不算（见[怎么接](#怎么接)）。 |
-| **一个会话里能多轮，或者有原生恢复。** | `send`/`task` 把追问送进活着的 pane，`resume` 靠原生 token 重建已结算的会话。两者都没有，helper 就退化成「每次交付一个进程」，而这已被[拒绝](#拒绝过的设计)。 |
+| **一个会话里能多轮。** | `send`/`task` 把追问送进活着的 pane。做不到，helper 就退化成「每次交付一个进程」，而这已被[拒绝](#拒绝过的设计)。原生恢复是可选的（[原因](#怎么接)）。 |
 | **无人值守时不必改全局配置**（提案条目 A6）。 | 启动不能改写用户的 CLI 设置之类的文件：爆炸半径会波及他们自己的所有会话。hook、权限、信任必须能靠启动旗标、环境变量或会话级文件设置。必须持久化信任的，是有文档记载的例外（见[安全说明](security.md)），不是默认。 |
 | **能读任务文件、写结果目录、打印暗号。** | 文件交接加暗号是唯一的完成约定；ahelpa 优先文件，而不是解析终端输出。 |
 | **自更新不会打断运行中的会话。** 要么有开关能关掉，要么可证明只在下次启动时生效，要么 driver 能关掉它的弹窗。 | 会话中途替换二进制或弹出阻塞对话框的更新，会破坏就绪检测并杀死常驻 helper。树内的 driver 用三种不同办法满足这条（见下面的矩阵）；会替换二进制的后台更新器是最坏情形，必须有开关。 |
@@ -92,12 +92,13 @@ ahelpa **不是**：
 
 怎么运作：
 
+- **身份。** helper 就是它的 ahelpa ID（`<前缀>-<12 位十六进制>`），也就是 ahelpa 启动时给 tmux 会话起的名字。`send`、`interrupt`、`capture`、`attach`、`kill` 只靠它。CLI 自己的对话 ID 是可选的：它只用来让 `resume` 重新打开进程已经没了的 helper，这很少见。driver 只在 CLI 本来就会显示它的地方记下来（首次提交之后，或 DONE 之后的退出画面），绝不为了拿它而按键或拖慢 kill；CLI 没有原生恢复时，四个恢复成员整组不写，`resume` 直接拒绝（负责人决定，2026-11-08）。
 - **输入。** 任务以文件交给 helper。pane 里只通过 `send-keys` 收到一段简短指令（`Please read and complete the task described in <path>`，外加怎么打暗号的说明）。这段指令会在句中提到暗号，但暗号只有单独占一行才算数，所以不会误判。`send` 和 `task` 也用同样的方式把追问敲进去。
 - **结果。** 屏幕说了算。当前回合的输出里，在最后一次「还在干活」的迹象之后出现 `[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP:tags]`，这一回合就结束了（`src/drivers/sentinels.ts`；Kimi 的 `detectOutcome` 是最朴素的例子）。daemon 每 3 秒抓一次，所以打了暗号的回合最多一次抓屏就结算。
-- **没有暗号。** 连续 4 次抓屏（约 12 秒，`src/daemon.ts` 里的 `IDLE_DEBOUNCE`，2026-06-24 定的，没有实测依据）都看不到干活迹象，daemon 就提醒 helper，或把会话标成 `needs_attention`。driver 不认识的对话框也走这条路：叫人。
+- **没有暗号。** 连续 4 次抓屏（约 12 秒，`src/daemon.ts` 里的 `IDLE_DEBOUNCE`，2026-06-24 定的，没有实测依据）都看不到干活迹象，daemon 就提醒 helper，或把会话标成 `needs_attention`。driver 不认识的对话框也走这条路：叫人。这只是兜底；干活中的 helper 该得到以分钟计的耐心，而不是秒。不要为了早几秒发现「悄悄停了」去压短它：一次误报会白白叫醒 host，还诱使它打断或 kill 正在进行的活，代价远大于省下的几秒。要更快认出「活干完了」，只靠正面信号：暗号，以及 CLI 支持按次启用时的回合结束 hook（负责人决定，2026-11-08）。
 - **hook 只加速，不裁决。** Claude Code（`--settings` 文件）和 Codex（`-c notify=[...]`）注册会话级的回合结束 hook，经隐藏命令 `__turn-hook` 往 `.ahelpa/<id>/turns.log` 追加记录。它告诉 daemon 回合*什么时候*结束，从而缩短「没有暗号」那种情况的等待，并把事件对到正确的那次输入上。它从不说明活是否干成了（「Hooks never imply success」，见[架构](architecture.md)）。新 driver 一开始不带 hook，跟 Kimi 一样；只有实测表明读屏不够用，才加。
-- **driver 只需要知道这些，不多也不少。** 启动命令（关自动更新、权限姿态、尽量只信任本次会话）；空着、可以输入的输入框长什么样；干活时长什么样（转圈、计时、打断提示）；哪些对话框需要人（只有会话级信任可以自动回答）；打断键和退出命令；原生恢复 id 打印在哪，以及恢复命令。
-- **生命周期。** 进程归 tmux 管。DONE 之后 daemon 发退出命令，并读取 CLI 退出时打印的原生恢复 id。`kill` 先用打断键停下正在干活的回合，再从就绪的输入框退出 TUI，让 CLI 打印原生 id，然后才结束 tmux 会话。`interrupt` 只停一个回合，会话留着等 `send` 或 `task`。人随时可以 `tmux attach` 看到真实界面。
+- **driver 只需要知道这些，不多也不少。** 启动命令（关自动更新、权限姿态、尽量只信任本次会话）；空着、可以输入的输入框长什么样；干活时长什么样（转圈、计时、打断提示）；哪些对话框需要人（只有会话级信任可以自动回答）；打断键和退出命令；可选的：原生恢复 id 打印在哪，以及恢复命令。
+- **生命周期。** 进程归 tmux 管。DONE 之后 daemon 发退出命令，退出画面若打印了原生恢复 id 就记下来。`kill` 立即结束 tmux 会话，不按任何键。`interrupt` 只停一个回合，会话留着等 `send` 或 `task`。人随时可以 `tmux attach` 看到真实界面。
 
 ### 为什么是终端，不是桥接
 
@@ -113,7 +114,7 @@ ahelpa **不是**：
 
 - *「TUI 每个版本都在变。」* 输入这一侧是按键，不会变。暗号是模型自己打出来的字，跟界面无关，所以界面改版不可能把没干完的活变成 DONE。最坏的情况是某个干活迹象或新对话框认不出来，约 12 秒后标成需要人看，或者启动时明确报错。driver 会关掉自动更新，所以界面变化只会在负责人自己升级时出现，`doctor` 和 closure gate 会检查版本。
 - *「结构化事件能给出精确的回合结束。」* 暗号加屏幕已经能在一次抓屏内结算回合。没打暗号的情况有防抖时间兜底；CLI 提供会话级 hook 的，还能再缩短。
-- *「第一条消息之前就能拿到恢复 id。」* helper 活着的时候，`send`、`capture`、`attach`、`kill` 只需要 tmux session id。原生 id 只在进程退出后才用得上，而正常退出时 CLI 会打印它；`kill` 正是为此先退出 TUI。只有被硬杀（SIGKILL、重启），或者卡在 `kill` 不会往里打字的对话框上，才拿不到。
+- *「第一条消息之前就能拿到恢复 id。」* helper 活着的时候，`send`、`capture`、`attach`、`kill` 只需要它的 ahelpa ID，也就是 tmux 会话名。原生 id 只在重新打开进程已经没了的 helper 时才用得上，这很少见。DONE 之后退出时 CLI 会打印它；DONE 之前就被 kill 的 helper 在 ahelpa 里没有这个 id，但 CLI 自己的历史里仍列着那段对话。
 - *「厂商推荐自动化用 headless 模式。」* ahelpa 跑的不是无人值守的流水线，而是给 host agent 配一个人能随时过目的同事。
 
 ### 偏离是怎么发生的
@@ -129,7 +130,7 @@ ahelpa **不是**：
 
 ## 最低可接受的 driver
 
-底线是[硬门槛](#第-3-步硬门槛)加上 `AgentDriver`（`src/drivers/types.ts`）的 15 个必选成员：`name`、`sessionPrefix`、`modelCatalog`、`resumeTokenAvailableAfterSubmit`、`buildLaunchCommand`、`buildResumeCommand`、`extractResumeToken`、`prepareForTask`、`prepareForResume`、`afterTaskSubmitted`、`switchModel`、`detectStatus`、`detectOutcome`、`detectActivity`、`gracefulExit`。其余八个（`turnHooks`、`prepareLaunchFiles`、`launchProfiles`、`checkReadiness`、`acceptsInput`、`acceptsInputAfterTurn`、`workingAfterTurn`、`interrupt`）是可选的。
+底线是[硬门槛](#第-3-步硬门槛)加上 `AgentDriver`（`src/drivers/types.ts`）的 11 个必选成员：`name`、`sessionPrefix`、`modelCatalog`、`buildLaunchCommand`、`prepareForTask`、`afterTaskSubmitted`、`switchModel`、`detectStatus`、`detectOutcome`、`detectActivity`、`gracefulExit`。其余十二个是可选的：`turnHooks`、`prepareLaunchFiles`、`launchProfiles`、`checkReadiness`、`acceptsInput`、`acceptsInputAfterTurn`、`workingAfterTurn`、`interrupt`，以及要么全写、要么全不写的四个恢复成员（`resumeTokenAvailableAfterSubmit`、`buildResumeCommand`、`extractResumeToken`、`prepareForResume`）。
 
 这条底线真实存在的证据是 `kimi`：没有回合 hook、没有 `--effort`、不能运行时切模型，照样是正式支持的 driver。Pi 走得更远，直接拒绝 `--safe`。所以要把两个问题分开回答：
 
@@ -160,11 +161,11 @@ ponytail: 手写会和代码漂移；漂移真正造成麻烦时，再改成从 
 
 1. **tmux 里的登录与首次引导。** 登录能在 pane 里完成吗？凭据存在哪（文件还是系统钥匙串；无头用户可能没有钥匙串）？哪种账号类型可用？首次启动会出现哪些画面（主题、提示、信任、遥测同意），每个都有能关掉它的按键吗？
 2. **自更新。** 由什么触发（前台检查还是脱离终端的后台更新器），替换什么，怎么关（旗标、环境变量、配置）？能固定版本吗？
-3. **恢复 id。** 什么时候生成（启动时、首次提交后、退出时），从哪里读（pane、文件、API），能预先指定吗？恢复能和姿态、模型、effort 旗标组合吗？
+3. **恢复 id（可选）。** CLI 有没有？什么时候生成（启动时、首次提交后、退出时），从哪里读（pane、文件、API），能预先指定吗？恢复能和姿态、模型、effort 旗标组合吗？没有原生恢复的 CLI 也可以接。
 4. **skip-permissions 之后还剩哪些提示。** 打开上游的「全部放行」旗标后，还有哪些对话框（目录信任、hooks 信任、MCP 审批、工具专属的「危险」确认、更新、引导），哪些能靠按键回答？
 5. **会话级 hook 与设置。** hook、权限、信任能只对一个会话注册（旗标、环境变量、会话级文件）吗？唯一途径若是全局文件，A6 门槛就不过。会话文件和用户自己的配置怎么合并？
 6. **暗号经过渲染后还能不能抓到。** 让 agent 通过真实 TUI 打印 `[AHELPA:DONE]`，在窄宽两种终端宽度下用 `tmux capture-pane` 抓：折行、markdown 渲染、面板、颜色码、滚动缓冲。还要看 agent 会不会回显任务文本（被引用的暗号是误报）。
-7. **静止时长、打断和退出。** 回合干活期间，抓到的屏幕完全不变的最长一段有多久（比如等 API 时）？没打暗号时的防抖时间必须比它长。哪个键能只停当前回合，会话还在不在？哪个命令能干净退出，退出画面会不会打印原生恢复 id？
+7. **静止时长、打断和退出。** 回合干活期间，抓到的屏幕完全不变的最长一段有多久（比如等 API 时）？没打暗号时的防抖时间必须比它长。哪个键能只停当前回合，会话还在不在？哪个命令能干净退出，退出画面会不会打印原生恢复 id？CLI 有没有能按次启用、不碰用户配置的回合结束 hook？
 
 Spike 决定这个 TUI 到底能不能驱动（不能就拒绝，不做桥接），以及接到哪一档。答案写进候选的评估卡。
 

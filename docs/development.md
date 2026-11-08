@@ -191,23 +191,24 @@ Enable the live `mistral` gate with `AHELPA_GATE_VIBE=1`; it requires vibe ≥ 3
 
 Read [Helper backends](backends.md) first. It covers whether a candidate should be a driver at all (classification and the admission funnel), how a helper is wired (one way: its own TUI in tmux) and why, the spike checklist, and the registry of candidates already evaluated. Record the outcome in the registry whether or not you build it. The driver is the last step, not the first.
 
-Drivers live in `src/drivers/`. A driver implements `AgentDriver` from `src/drivers/types.ts`, which has 22 members.
+Drivers live in `src/drivers/`. A driver implements `AgentDriver` from `src/drivers/types.ts`, which has 23 members.
 
-**Required (15):**
+**Required (11):**
 
 - Identity and catalog: `name`, `sessionPrefix` (the session-ID prefix), `modelCatalog`.
-- Launch and resume: `buildLaunchCommand`, `buildResumeCommand`, `extractResumeToken`, and `resumeTokenAvailableAfterSubmit` (whether the native resume id is readable right after the first submit, or only after the helper exits).
-- Startup and delivery: `prepareForTask` and `prepareForResume` (readiness, trust prompts, update dialogs), and `afterTaskSubmitted` (confirm that the new turn started).
+- Launch: `buildLaunchCommand`.
+- Startup and delivery: `prepareForTask` (readiness, trust prompts, update dialogs) and `afterTaskSubmitted` (confirm that the new turn started).
 - State: `detectStatus`, `detectOutcome` (a status plus optional NEED_HELP tags and a `reason`), and `detectActivity` (`working`, `booting`, or `idle`). Sentinel matching lives in `sentinels.ts`.
 - Control: `switchModel` (throw if runtime switching is unsupported) and `gracefulExit`.
 
-**Optional (8):**
+**Optional (12):**
 
 - `turnHooks` and `prepareLaunchFiles`: session-scoped hook or settings files written under the result directory before launch. A driver drives the vendor's own TUI; no bridge program ([why](backends.md#how-a-helper-is-wired)).
 - `launchProfiles`: role → model/effort presets.
 - `checkReadiness`: what `doctor` reports without running the CLI.
-- `interrupt`: `{ key, stopped }`, the tmux key that stops one turn and keeps the session, and the line the TUI prints once it did; both verified on the real TUI. `interrupt` refuses without it, and `kill` cannot stop a running turn to keep a missing native ID.
+- `interrupt`: `{ key, stopped }`, the tmux key that stops one turn and keeps the session, and the line the TUI prints once it did; both verified on the real TUI. `interrupt` refuses without it.
 - `acceptsInput`, `acceptsInputAfterTurn`, `workingAfterTurn`: stricter "would typed text reach the composer" and "is the turn still running" checks than the defaults.
+- Native resume, all four or none: `buildResumeCommand`, `extractResumeToken`, `prepareForResume`, and `resumeTokenAvailableAfterSubmit` (whether the native resume id is readable right after the first submit, or only on the exit screen). A helper is its ahelpa ID; without these, `resume` refuses ([why](backends.md#how-a-helper-is-wired)).
 
 Register the driver in `src/drivers/registry.ts`. Several other places enumerate drivers; `grep -rn "\bpi\b" src scripts skill docs` is a quick way to find them. At least: `src/disk-usage.ts` (a session-ID prefix pattern and the names of per-session files), the closure gate scenario and its `AHELPA_GATE_<NAME>` switch in `scripts/closure-gate.sh`, the prerequisites in `skill/SKILL.md`, the setup page `skill/references/<name>.md` and `skill/references/profiles.md`, and the supported-helpers table in the README. Add `tests/<name>-driver.test.ts` with synthetic pane captures.
 

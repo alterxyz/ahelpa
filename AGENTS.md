@@ -16,6 +16,8 @@ Instructions for agents working on the ahelpa codebase.
 
 Every helper is driven the way a person drives it: the vendor's own interactive TUI in tmux, input through `send-keys`, outcome read from the screen (the `[AHELPA:DONE]` / `[AHELPA:NEED_HELP]` sentinel). Do not add headless, print, RPC, stream-json or ACP bridges, even when the upstream recommends them for automation. A CLI that cannot be driven this way is declined. Hooks may speed up turn-end detection but never decide the outcome. The reasons, and how the project once drifted into bridges (2026-10-30 to 2026-11-07), are in [Helper backends](docs/backends.md#how-a-helper-is-wired). Only the owner changes this rule; a precedent set by an earlier driver is not a reason.
 
+A helper is its ahelpa ID, the tmux session name ahelpa gives it at launch; `send`, `interrupt`, `capture`, `attach` and `kill` need nothing else. The CLI's native conversation ID and `resume` are optional: record the ID where the CLI shows it anyway, and never press keys or delay `kill` to get one, because reopening a finished or killed helper is rare. A working helper gets patience measured in minutes: do not shorten the no-sentinel fallback (about 12 s of a quiet screen) to catch a silent stop sooner, since a false alarm wakes the host and invites it to interrupt or kill work in progress. Recognize a finished turn sooner only from positive signals: the sentinel, and a turn-end hook where the CLI offers one per launch. Owner decisions of 2026-11-08; details in [Helper backends](docs/backends.md#how-a-helper-is-wired).
+
 ## Source vs Installed Runtime
 
 | | Source tree | Installed runtime |

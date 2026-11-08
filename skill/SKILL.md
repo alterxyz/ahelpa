@@ -109,7 +109,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `task <id> --file <path> --token <tok>` | Deliver a task file to a running helper. |
 | `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | Switch a running helper's model. |
 | `interrupt <id> --token <tok>` | Stop the helper's current turn and keep the session; continue with `send` or `task`. |
-| `kill <id> --token <tok> [--tree]` | Terminate a helper (it exits the TUI first so the native resume ID survives); `--tree` also stops descendants and reports `killed` / `missed`. |
+| `kill <id> --token <tok> [--tree]` | Terminate a helper at once; `--tree` also stops descendants and reports `killed` / `missed`. |
 | `logs <id> --token <tok>` | Read session output (live or archived). |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper; an existing safe posture is inherited. |
 | `status` | Show all sessions, caller relationship, and daemon state. |
@@ -145,7 +145,7 @@ Claude Code rejects runtime `--effort` and `--persist`; set effort at launch. A 
 
 Terminal cleanup retains completed session records and resume metadata. Read the results and resume as needed before explicitly removing the records with `clean`. During cleanup, `check` can briefly report `draining`; wait for `idle` before resuming.
 
-Helpers' native agent sessions can be resumed after completion and tmux reclamation. ahelpa captures each driver's resume token when it becomes available (e.g., the ID for `claude --resume <id>`). Kimi creates its `session_*` ID only after the first task message; ahelpa captures it after submission and reconnects with `kimi --session <id>`. Use `ahelpa check` to see which sessions have resume tokens (`agentResumeId` field).
+Resume is optional and rarely needed: a helper is its ahelpa ID while it lives. After DONE and tmux reclamation, a helper whose CLI printed a native session ID can be resumed. ahelpa records each driver's resume token where the CLI shows it (e.g., the ID for `claude --resume <id>`). Kimi creates its `session_*` ID only after the first task message; ahelpa captures it after submission and reconnects with `kimi --session <id>`. Use `ahelpa check` to see which sessions have resume tokens (`agentResumeId` field).
 
 For Kimi, `resume` is rejected while the old helper is still draining after `[AHELPA:DONE]`. Wait until `ahelpa check` reports `idle` and its terminal is gone, or run `ahelpa kill <id> --token <tok>`, then run `ahelpa resume <id> --token <tok>`. Completed and legacy dead records with an `agentResumeId` remain resumable until `clean`; cleaning it deletes the resume metadata. Persistence means reconnecting the native Kimi session in a new tmux session, not keeping the original tmux process alive forever.
 

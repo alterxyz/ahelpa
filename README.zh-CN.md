@@ -111,7 +111,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `task <id> --file <path> --token <tok>` | 发送长任务文件 |
 | `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | 切换运行中 helper 的模型 |
 | `interrupt <id> --token <tok>` | 停下 helper 当前回合、保留会话；之后用 `send` 或 `task` 继续 |
-| `kill <id> --token <tok> [--tree]` | 终止 helper（先退出它的 TUI，保住原生恢复 ID）；`--tree` 同时停止后代并报告 `killed` / `missed` |
+| `kill <id> --token <tok> [--tree]` | 立即终止 helper；`--tree` 同时停止后代并报告 `killed` / `missed` |
 | `logs <id> --token <tok>` | 读取 live 或 archived session output |
 | `resume <id> --token <tok> [--safe]` | 恢复已完成的 helper；已有 safe 姿态会自动继承 |
 | `status` | 显示所有 session、与调用方的关系和 daemon 状态 |
