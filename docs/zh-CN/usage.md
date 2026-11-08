@@ -430,7 +430,7 @@ ahelpa send "$session_id" "别走那条路了，改成……" --token "$token"
 ahelpa kill "$session_id" --token "$token"
 ```
 
-`kill` 不按任何键，立即结束 tmux 会话。DONE 之前就被 kill 的 helper，只有 CLI 早先显示过原生恢复 ID（Kimi 首次提交后就有）才留得下它；否则 `resume` 无从打开，厂商自己的历史（`claude --resume`、`codex resume`、`pi -r`）里仍列着那段对话。想停下当前回合又保留 helper，用 `interrupt`。
+`kill` 不按任何键，立即结束 tmux 会话。DONE 之前就被 kill 的 helper，只有早先已经记下原生恢复 ID（Kimi 首次提交后的，或 resume 出来的 helper 继承的）才留得下它；否则 `resume` 无从打开，厂商自己的历史（`claude --resume`、`codex resume`、`pi -r`）里仍列着那段对话。想停下当前回合又保留 helper，用 `interrupt`。
 
 `kill` 保留已有的结算归档，包括终端仍在 draining 时。对于未结算 session，它在终止 tmux 前捕获最后 500 行 pane 输出，终止后仅在记录版本仍匹配时一起提交 `dead` 和快照。捕获或终止期间先完成的结算保留其状态和归档；tree 模式跳过捕获期间完成结算的后代。捕获或归档写入失败不会阻止终止；pane 不可用时保留已有 archive。终止失败且终端仍存在时，命令报错，不修改记录或归档。预留的启动记录即使尚未创建终端，也会被标为 `dead`，取消启动发布，让启动进程回滚。
 

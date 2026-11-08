@@ -89,8 +89,9 @@ export interface AgentDriver {
   // name ahelpa gives it at launch; the CLI's own conversation ID only lets
   // `resume` reopen a finished or killed helper, which is rare. Record it where
   // the CLI shows it anyway (after the first submit, or as it exits on DONE),
-  // and never press keys or delay a kill to get it. Without all four members,
-  // `resume` refuses.
+  // and never press keys or delay a kill to get it. Implement all four or none
+  // (a protocol test checks the registered drivers); `resume` refuses a driver
+  // without them.
   resumeTokenAvailableAfterSubmit?: boolean;
   buildResumeCommand?(opts: ResumeOptions): string;
   extractResumeToken?(captureOutput: string): string | null;

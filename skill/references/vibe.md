@@ -86,7 +86,7 @@ Esc interrupts a running turn and keeps the session (`Interrupted · What should
 
 ## Resume and stopping
 
-`/exit` quits without a confirmation and prints `Or: vibe --resume <id>`, where `<id>` is the first 8 hex digits of Vibe's session ID. That is the resume token: the daemon records it while the helper drains after DONE, as for Claude Code and Codex. A helper killed before it finished has no token in ahelpa. `ahelpa interrupt` stops one turn and keeps the session. `vibe --resume` accepts both the 8-digit form and the full UUID that the earlier bridge recorded, so old sessions resume unchanged. Resume shows the earlier turns and keeps the same session ID.
+`/exit` quits without a confirmation and prints `Or: vibe --resume <id>`, where `<id>` is the first 8 hex digits of Vibe's session ID. That is the resume token: the daemon records it while the helper drains after DONE, as for Claude Code and Codex. `kill` never fetches a missing token; one a resumed helper inherited is kept. `ahelpa interrupt` stops one turn and keeps the session. `vibe --resume` accepts both the 8-digit form and the full UUID that the earlier bridge recorded, so old sessions resume unchanged. Resume shows the earlier turns and keeps the same session ID.
 
 Killing the tmux session stops Vibe, its app server and any running tool; ahelpa runs no process cleanup of its own.
 

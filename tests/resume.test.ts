@@ -282,6 +282,7 @@ describe("resume command", () => {
   });
 
   test("refuses, before creating anything, a helper whose CLI has no native resume", async () => {
+    mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
     db.createSession({ id: "plain-old", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT });
     db.updateStatus("plain-old", "dead");

@@ -38,7 +38,7 @@ cd <project> && AGY_CLI_DISABLE_AUTO_UPDATE=true agy --dangerously-skip-permissi
 
 ## Resume and takeover
 
-The TUI prints the conversation ID only when it exits (`Resume with -c (or command below):` then `agy --conversation=<id>`). After a completed turn the daemon sends `/exit` and records the ID while draining, so `check` may show it a few seconds after `wait` returns. A helper killed before it finished has no ID in ahelpa; `kill` closes tmux at once (2026-11-08). `ahelpa interrupt` stops one turn and keeps the session.
+The TUI prints the conversation ID only when it exits (`Resume with -c (or command below):` then `agy --conversation=<id>`). After a completed turn the daemon sends `/exit` and records the ID while draining, so `check` may show it a few seconds after `wait` returns. `kill` closes tmux at once and never fetches a missing ID; one a resumed helper inherited is kept (2026-11-08). `ahelpa interrupt` stops one turn and keeps the session.
 
 `ahelpa resume` starts agy with `--conversation <id>`; the TUI replays the earlier turns (their old signals do not count). agy opens a new conversation, with only `warning: conversation "<id>" not found` at the top, when the ID is unknown; the resume then fails instead. Context carries over: the gate's resumed turn recalls a marker from the first turn.
 
