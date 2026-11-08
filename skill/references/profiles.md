@@ -83,15 +83,17 @@ Every profile assumes the task file ends with the `## ahelpa contract` and `## a
 **API backup for [deepseek](#deepseek).** Configure official DeepSeek in CC-Switch and sync it to Pi so the `cc-switch-deep-seek` provider exists. Worker and reviewer default to `cc-switch-deep-seek/deepseek-flash` / `high`; explicit `--model provider/id` and `--effort <level>` override them. `advisor`, `--safe`, and runtime model switching are unsupported.
 
 **Observation status**
-- Pi 1.5.0 ran 20 launches on 2026-11-06 without a stall, false completion, or error; the ahelpa tested baseline is 1.4.0. This short sample does not establish long-task or broad-repository reliability.
+- Pi 1.5.0 ran 20 launches on 2026-11-06 through the former RPC bridge without a stall, false completion, or error. This short sample does not establish long-task or broad-repository reliability.
+- Since 2026-11-07 the helper is Pi's own TUI in tmux, read from the screen; the observations above predate that change and have not been repeated on it.
 - Replay of the four-task trial (2026-11-07, see [case study](../../docs/case-deepseek-trial-20261106.md)): quality and habits matched [deepseek](#deepseek): 6/6 rule lookups, 9/9 hidden tests, heavy self-verification, a push the project forbids made because the brief asked, placeholders in the real ID range. It was not faster on real tasks (2.6–8.8 min). One turn failed before any tool call when the official API returned `503 Service is too busy` four times.
 
 **Watch for**
-- A provider error ends the turn as `error` with only `pi: native turn failed`; the bridge shows no category. Read the Pi session log under `~/.pi/agent/sessions/` for the cause, and relaunch on overload.
+- A provider error ends the turn in `needs_attention` with reason `Pi: provider overloaded (503)`, `rate limited (429)`, `authentication failed (401)` or `native turn failed`; Pi's full message stays on the screen (`ahelpa logs`). Relaunch or choose `deepseek` on overload.
+- A signal followed by more text does not settle the turn: the signal must be the transcript's last line. Expect one completion nudge or `needs_attention` when the model adds a closing remark after `[AHELPA:DONE]`.
 - Summaries longer than the requested length, and coverage claims slightly stronger than the tests support.
 - Input-validation edges left open (whitespace-only values, overflow to infinity) and untested environment wiring; tests whose expected value equals the fallback catch no mutants. Ask for a mutation check on validation code.
 
-See [Pi setup and limits](pi.md) for version requirements, interrupt controls, session locking, and native takeover.
+See [Pi setup and limits](pi.md) for version requirements, interrupt controls, resume, and native takeover.
 
 ## gemini
 

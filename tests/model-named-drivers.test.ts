@@ -70,8 +70,10 @@ test.each([
     expect(resolveLaunchProfile(driver, { role })).toEqual({ role, model, effort });
   }
   expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model, effort });
-  // Vibe is read from its TUI screen: the latest turn's DONE above the composer.
-  const output = ["deepseek-pi", "pi"].includes(name) ? "[AHELPA_PI_STATE:idle]\n"
+  // Both are read from their TUI screens: Pi's signal ends the transcript above its
+  // editor; Vibe's latest turn shows DONE above the composer.
+  const output = ["deepseek-pi", "pi"].includes(name)
+    ? ` [AHELPA:DONE]\n\n${"─".repeat(80)}\n\n${"─".repeat(80)}\n~/project\n0.0%/1.0M`
     : "> task\n───\n  [AHELPA:DONE]\n─── Mistral Large 4[high] · ahelpa helper ─\n>\n";
   expect(driver.detectStatus(output)).toBe("idle");
   expect(driver.detectOutcome(output).status).toBe("idle");

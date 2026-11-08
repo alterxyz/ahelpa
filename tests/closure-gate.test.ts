@@ -51,27 +51,8 @@ switch (command) {
     const marker = task.match(/Remember this context marker for our next turn: ([a-f0-9-]+)\./)?.[1];
     const completionMarker = task.match(/Write exactly ([^ ]+) followed by a newline/)?.[1];
     sessions[id] = { id, agent: args[0], harness: ["mistral", "deepseek"].includes(args[0]) ? "vibe" : args[0] === "deepseek-pi" ? "pi" : args[0] === "claude" ? "claude-code" : args[0] === "gemini" ? "agy" : args[0], project, task, marker, role, model, effort, status: ["reaped", "missing-native-id"].includes(scenario) ? "idle" : "draining",
-      agentResumeId: scenario === "missing-native-id" ? null : ["mistral", "deepseek"].includes(args[0]) ? "01234567" : ["deepseek-pi", "gemini"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
+      agentResumeId: scenario === "missing-native-id" || scenario === "pi-late-native-id" ? null : ["mistral", "deepseek"].includes(args[0]) ? "01234567" : ["deepseek-pi", "gemini"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
     save();
-    if (args[0] === "deepseek-pi") {
-      const encoded = "--" + resolve(project).replace(/^[/\\\\]/, "").replace(/[/\\\\:]/g, "-") + "--";
-      const directory = join(process.env.PI_CODING_AGENT_DIR, "sessions", encoded);
-      mkdirSync(directory, { recursive: true });
-      let lockPath = join(directory, ".ahelpa-" + sessions[id].agentResumeId + ".lock");
-      const header = JSON.stringify({ type: "session", id: scenario === "pi-history-wrong-id" ? "wrong" : sessions[id].agentResumeId }) + "\\n";
-      writeFileSync(join(directory, "time_" + sessions[id].agentResumeId + ".jsonl"), scenario === "pi-history-malformed" ? "not JSON\\n" : header);
-      if (scenario === "pi-history-ambiguous") writeFileSync(join(directory, "other_" + sessions[id].agentResumeId + ".jsonl"), header);
-      if (scenario === "pi-lock-remains" || scenario === "pi-lock-wrong-directory") writeFileSync(lockPath, "");
-      if (scenario === "pi-lock-wrong-directory") {
-        writeFileSync(join(root, "real-lock-path"), lockPath);
-        lockPath = join(root, "wrong-directory", ".ahelpa-" + sessions[id].agentResumeId + ".lock");
-        // A matching transcript must not make a foreign directory acceptable.
-        mkdirSync(join(root, "wrong-directory"), { recursive: true });
-        writeFileSync(join(root, "wrong-directory", "time_" + sessions[id].agentResumeId + ".jsonl"), header);
-      }
-      mkdirSync(join(project, ".ahelpa", id), { recursive: true });
-      writeFileSync(join(project, ".ahelpa", id, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
-    }
     // A linked worktree keeps its results in the main checkout and a link in the project.
     const delivery = scenario === "linked-results" ? join(root, "main", ".ahelpa", id) : join(project, ".ahelpa", id);
     mkdirSync(delivery, { recursive: true });
@@ -105,11 +86,16 @@ switch (command) {
   }
   case "check": {
     if (scenario === "malformed-check") { console.log("not JSON"); break; }
-    // agy and Vibe report their resume IDs only on exit, a few checks after completion.
+    // agy, Vibe and Pi report their resume IDs only on exit, a few checks after completion.
     const checks = existsSync(join(root, "checks")) ? Number(readFileSync(join(root, "checks"), "utf8")) + 1 : 1;
     writeFileSync(join(root, "checks"), String(checks));
     const late = scenario === "vibe-late-resume-id" && !existsSync(join(root, "late-id-seen"));
     if (late) writeFileSync(join(root, "late-id-seen"), "");
+    for (const entry of Object.values(sessions)) {
+      entry.checks = (entry.checks ?? 0) + 1;
+      if (scenario === "pi-late-native-id" && entry.checks > 2) entry.agentResumeId ??= "01234567-89ab-4cde-8012-3456789abcde";
+    }
+    save();
     console.log(JSON.stringify(Object.values(sessions).map((entry) => ({
       id: entry.id, agentType: entry.harness, agentResumeId: (scenario === "late-native-id" && checks < 4) || (late && entry.harness === "vibe") ? null : entry.agentResumeId,
       role: scenario === "check-role-drift" ? "incorrect" : entry.role,
@@ -131,13 +117,6 @@ switch (command) {
     sessions[id] = { ...session, id, status: scenario === "resume-not-ready" ? "running" : "needs_attention",
       agentResumeId: scenario === "pi-resume-id-drift" ? "ffffffff-ffff-4fff-8fff-ffffffffffff" : session.agentResumeId };
     save();
-    if (session.harness === "pi") {
-      const directory = join(session.project, ".ahelpa", id);
-      mkdirSync(directory, { recursive: true });
-      const encoded = "--" + resolve(session.project).replace(/^[/\\\\]/, "").replace(/[/\\\\:]/g, "-") + "--";
-      const lockPath = join(...(scenario === "pi-lock-wrong-directory" ? [root, "wrong-directory"] : [process.env.PI_CODING_AGENT_DIR, "sessions", encoded]), ".ahelpa-" + sessions[id].agentResumeId + ".lock");
-      writeFileSync(join(directory, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
-    }
     console.log(JSON.stringify({ sessionId: id, ownerToken: "fixture-token" }));
     break;
   }
@@ -145,7 +124,7 @@ switch (command) {
     if (scenario === "resumed-task-failure") process.exit(2);
     const taskFile = args[args.indexOf("--file") + 1];
     session.task = readFileSync(taskFile, "utf8");
-    session.midturn = ["vibe", "agy"].includes(session.harness) && session.task.includes("sleep 120");
+    session.midturn = ["vibe", "agy", "pi"].includes(session.harness) && session.task.includes("sleep 120");
     session.status = session.midturn ? "running" : "draining";
     save();
     const delivery = join(session.project, ".ahelpa", sessionId);
@@ -182,7 +161,10 @@ if (process.argv.includes("command=")) {
 } else if (["agy-child-alive", "vibe-child-alive"].includes(scenario)) {
   console.log("93002 1");
 } else if (sessions.some(session => session.harness === "pi" && session.status !== "dead")) {
-  console.log("91001 1\\n91002 91001\\n91003 91002");
+  // Pi's TUI runs in the pane: the pane shell, pi, a child of pi, and mid-turn its tool.
+  const live = sessions.find(session => session.harness === "pi" && session.status !== "dead");
+  console.log(scenario === "pi-not-live" ? "91001 1 zsh" : "91001 1 zsh\\n91002 91001 pi\\n91003 91002 node");
+  if (live.midturn) console.log("91004 91002 sleep");
 } else if (scenario === "pi-child-alive") {
   console.log("91002 1");
 } else if (scenario === "pi-grandchild-alive") {
@@ -216,7 +198,6 @@ exit 1
       AHELPA_GATE_AGY: gateAgy,
       AHELPA_GATE_VIBE: gateVibe,
       AHELPA_GATE_DEEPSEEK: gateDeepseek,
-      PI_CODING_AGENT_DIR: join(root, "pi-agent"),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -232,13 +213,10 @@ exit 1
 }
 
 describe("closure gate", () => {
-  test.each(["pi-lock-wrong-directory", "pi-history-ambiguous", "pi-history-wrong-id", "pi-history-malformed"])("Pi snapshot rejects %s", async scenario => {
-    const result = await runFixture(scenario, "deepseek-pi");
+  test("Pi snapshot requires a live process below the pane shell", async () => {
+    const result = await runFixture("pi-not-live", "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("Cannot snapshot Pi process tree and lock before kill");
-    if (scenario === "pi-lock-wrong-directory") {
-      expect(existsSync(readFileSync(join(result.root, "real-lock-path"), "utf8"))).toBe(true);
-    }
+    expect(result.stderr).toContain("Cannot snapshot deepseek-pi process tree of a live helper");
   }, 20000);
   test("Pi reclamation ignores the checker command line matching its UUID", async () => {
     expect((await runFixture("pi-self-match", "deepseek-pi")).exitCode).toBe(0);
@@ -246,7 +224,7 @@ describe("closure gate", () => {
   test.each(["pi-child-alive", "pi-grandchild-alive"])("Pi reclamation detects %s by recorded PID despite hidden argv", async scenario => {
     const result = await runFixture(scenario, "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain("Pi child or session lock remains after kill");
+    expect(result.stderr).toContain("deepseek-pi process tree remains after kill");
     expect(readFileSync(join(result.evidenceDir, "pids-deepseek-pi-worker.txt"), "utf8")).toBe("91001\n91002\n91003\n");
   }, 20000);
 
@@ -254,10 +232,17 @@ describe("closure gate", () => {
     const result = await runFixture("success", "deepseek-pi");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("pass > deepseek-pi resume readiness, new turn, and context continuity");
-    expect(result.calls.filter(call => call.command === "kill")).toHaveLength(2);
+    expect(result.stdout).toContain("pass > deepseek-pi mid-turn kill reclaims the TUI and its tool");
+    expect(readFileSync(join(result.evidenceDir, "pids-deepseek-pi-midturn.txt"), "utf8")).toBe("91001\n91002\n91003\n91004\n");
+    expect(result.calls.filter(call => call.command === "kill")).toHaveLength(3);
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--effort");
   });
+  test("Pi gate waits for the native UUID that the drain records", async () => {
+    const result = await runFixture("pi-late-native-id", "deepseek-pi");
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.filter(call => call.command === "check").length).toBeGreaterThan(4);
+  }, 20000);
   test.each(["launch-role-drift", "launch-model-drift", "launch-effort-drift", "launch-model-missing", "launch-effort-missing", "check-model-drift", "check-effort-drift"])("Pi gate rejects %s", async (scenario) => {
     const result = await runFixture(scenario, "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
@@ -276,11 +261,10 @@ describe("closure gate", () => {
       .toEqual(["claude", "claude", "codex", "deepseek-pi"]);
   });
   test.each([
-    ["missing-native-id", "Pi did not retain a native session UUID"],
+    ["missing-native-id", "Pi did not retain a native session ID"],
     ["context-loss", "missing or incorrect summary"],
-    ["pi-child-alive", "Pi child or session lock remains after kill"],
-    ["pi-lock-remains", "Pi child or session lock remains after kill"],
-    ["pi-resume-id-drift", "Pi resume changed the native session UUID"],
+    ["pi-child-alive", "deepseek-pi process tree remains after kill"],
+    ["pi-resume-id-drift", "Pi resume changed the native session ID"],
   ])("Pi gate rejects %s", async (scenario, message) => {
     const result = await runFixture(scenario, "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
@@ -291,7 +275,7 @@ describe("closure gate", () => {
     const result = await runFixture(scenario, "gemini");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("pass > gemini resume readiness, new turn, and context continuity");
-    expect(result.stdout).toContain("pass > gemini mid-turn kill reclaims agy and its tool");
+    expect(result.stdout).toContain("pass > gemini mid-turn kill reclaims the TUI and its tool");
     expect(result.calls.filter(call => ["launch", "wait", "resume", "task", "kill"].includes(call.command)).map(call => call.command))
       .toEqual(["launch", "wait", "kill", "resume", "task", "wait", "kill", "resume", "task", "kill"]);
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
@@ -302,9 +286,9 @@ describe("closure gate", () => {
   test.each([
     ["agy-child-alive", "gemini process tree remains after kill"],
     ["agy-tool-alive", "gemini process tree remains after kill"],
-    ["agy-tui-gone", "Cannot snapshot gemini agy process tree of a live helper"],
-    ["missing-native-id", "gemini did not retain a native session UUID"],
-    ["pi-resume-id-drift", "gemini resume changed the native session UUID"],
+    ["agy-tui-gone", "Cannot snapshot gemini process tree of a live helper"],
+    ["missing-native-id", "gemini did not retain a native session ID"],
+    ["pi-resume-id-drift", "gemini resume changed the native session ID"],
     ["check-effort-drift", "expected role/model/effort"],
     ["context-loss", "missing or incorrect summary"],
   ])("gemini gate rejects %s", async (scenario, message) => {
@@ -347,8 +331,8 @@ describe("closure gate", () => {
     ["vibe-child-alive", "mistral process tree remains after kill"],
     ["vibe-gone", "Cannot snapshot mistral process tree of a live helper"],
     ["vibe-tool-alive", "mistral process tree remains after kill"],
-    ["missing-native-id", "mistral did not retain a native session UUID"],
-    ["pi-resume-id-drift", "mistral resume changed the native session UUID"],
+    ["missing-native-id", "mistral did not retain a native session ID"],
+    ["pi-resume-id-drift", "mistral resume changed the native session ID"],
     ["context-loss", "missing or incorrect summary"],
   ])("Vibe gate rejects %s", async (scenario, message) => {
     const result = await runFixture(scenario, "mistral");

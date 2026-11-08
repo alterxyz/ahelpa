@@ -86,8 +86,13 @@ run_gate() (
   agent_name="$agent"
   if [ "$harness" = "kimi" ]; then agent_name="Kimi"; fi
   if [ "$harness" = "pi" ]; then agent_name="Pi"; fi
-  uuid_resume=0
-  if [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then uuid_resume=1; fi
+  # agy, Vibe and Pi run their own TUI in the pane; the pattern names their process.
+  tui_process=""
+  case "$harness" in
+    agy) tui_process="agy" ;;
+    vibe) tui_process="vibe|vibe-rs" ;;
+    pi) tui_process="pi|node" ;;
+  esac
   requested_role="${2:-}"
   expected_role=""
   expected_model=""
@@ -145,9 +150,8 @@ run_gate() (
   delivery=""
   real_delivery=""
   cleaned=0
-  pi_native_id=""
-  pi_lock=""
-  pi_pids=""
+  native_id=""
+  tree_pids=""
   wait_seconds=180
   if [ "$harness" = "kimi" ] || [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then
     context_marker="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
@@ -232,37 +236,21 @@ run_gate() (
     fi
   }
 
-  snapshot_pi_processes() {
-    [ "$harness" = "pi" ] || return 0
-    local pane_pids pi_snapshot
+  # A TUI helper exits on drain, so record the pane's process tree while it is
+  # live (mid-turn: with its running sleep tool); kill must leave none of it.
+  snapshot_tree() {
+    [ -n "$tui_process" ] || return 0
+    local pane_pids observed_pids
     pane_pids="$(tmux list-panes -t "$session_id" -F '#{pane_pid}')" || return 1
-    pi_snapshot="$(ps -axo pid=,ppid= | bun -e '
+    observed_pids="$(ps -axo pid=,ppid=,comm= | bun -e '
       try {
-        const fs = require("fs");
-        const [panes, metadata, id, project] = process.argv.slice(1);
-        const info = JSON.parse(fs.readFileSync(metadata, "utf8"));
-        const path = require("path"), os = require("os");
-        // Derive the native session directory independently (Pi 1.4 rules), never from metadata.
-        const expand = value => value === "~" ? os.homedir() : value.startsWith("~/") ? path.join(os.homedir(), value.slice(2))
-          : /^file:\/\//.test(value) ? require("url").fileURLToPath(value) : value;
-        const cwd = fs.realpathSync(project);
-        const agent = path.resolve(cwd, expand(process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi", "agent")));
-        const directory = path.join(agent, "sessions", "--" + cwd.replace(/^[/\\]/, "").replace(/[/\\:]/g, "-") + "--");
-        if (info.lockPath !== path.join(directory, ".ahelpa-" + id + ".lock")) process.exit(1);
-        const transcripts = fs.readdirSync(directory).filter(name => name.endsWith("_" + id + ".jsonl"));
-        if (transcripts.length !== 1) process.exit(1);
-        const fd = fs.openSync(path.join(directory, transcripts[0]), "r");
-        let header;
-        try {
-          const buffer = Buffer.alloc(65536), size = fs.readSync(fd, buffer, 0, buffer.length, 0);
-          const newline = buffer.indexOf(10);
-          if (newline < 0 || newline >= size) throw new Error("Invalid session header");
-          header = JSON.parse(buffer.subarray(0, newline).toString("utf8"));
-        } finally { fs.closeSync(fd); }
-        if (header.type !== "session" || header.id !== id) process.exit(1);
+        const [panes, agent, mode] = process.argv.slice(1);
         const roots = panes.trim().split(/\s+/).map(Number);
         if (!roots.length || roots.some(pid => !Number.isSafeInteger(pid) || pid <= 0)) process.exit(1);
-        const rows = fs.readFileSync(0, "utf8").trim().split("\n").map(line => line.trim().split(/\s+/).map(Number));
+        const rows = require("fs").readFileSync(0, "utf8").trim().split("\n").map(line => {
+          const [pid, parent, ...command] = line.trim().split(/\s+/);
+          return [Number(pid), Number(parent), command.join(" ")];
+        });
         if (roots.some(pid => !rows.some(row => row[0] === pid))) process.exit(1);
         const pids = new Set(roots);
         let prior;
@@ -270,133 +258,40 @@ run_gate() (
           prior = pids.size;
           for (const [pid, parent] of rows) if (pids.has(parent)) pids.add(pid);
         } while (pids.size !== prior);
-        if (![info.bridgePid, info.childPid].every(pid => Number.isSafeInteger(pid) && pids.has(pid))) process.exit(1);
-        process.stdout.write(JSON.stringify({ pids: [...pids].join("\n"), lockPath: info.lockPath }));
-      } catch { process.exit(1); }
-    ' "$pane_pids" "$delivery/pi-process.json" "$pi_native_id" "$project")" || return 1
-    pi_pids="$(json_field "$pi_snapshot" pids)" || return 1
-    pi_lock="$(json_field "$pi_snapshot" lockPath)" || return 1
-    printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
-  }
-
-  snapshot_agy_processes() {
-    if [ "$harness" = "agy" ]; then snapshot_agy_tree "${1:-}"; return; fi
-    return 0
-  }
-
-  # Vibe's TUI owns its process tree. Record the pane's tree while the helper is
-  # live (mid-turn: with the running sleep tool); kill must leave none of it.
-  snapshot_vibe_processes() {
-    [ "$harness" = "vibe" ] || return 0
-    local pane_pids observed_pids
-    pane_pids="$(tmux list-panes -t "$session_id" -F '#{pane_pid}')" || return 1
-    observed_pids="$(ps -axo pid=,ppid=,comm= | bun -e '
-      try {
-        const [panes, mode] = process.argv.slice(1);
-        const roots = panes.trim().split(/\s+/).map(Number);
-        if (!roots.length || roots.some(pid => !Number.isSafeInteger(pid) || pid <= 0)) process.exit(1);
-        const rows = require("fs").readFileSync(0, "utf8").trim().split("\n").map(line => {
-          const [pid, parent, ...command] = line.trim().split(/\s+/);
-          return [Number(pid), Number(parent), command.join(" ")];
-        });
-        const pids = new Set(roots);
-        let prior;
-        do {
-          prior = pids.size;
-          for (const [pid, parent] of rows) if (pids.has(parent)) pids.add(pid);
-        } while (pids.size !== prior);
-        const tree = rows.filter(([pid]) => pids.has(pid)).map(row => row[2]);
-        if (!tree.some(command => /(?:^|\/)vibe(?:-rs)?$/.test(command))) process.exit(1);
-        if (mode === "midturn" && !tree.some(command => /(?:^|\/)sleep$/.test(command))) process.exit(1);
+        const has = pattern => rows.some(([pid, , command]) => pids.has(pid) && new RegExp("(?:^|/)(?:" + pattern + ")$").test(command));
+        if (!has(agent) || (mode === "midturn" && !has("sleep"))) process.exit(1);
         process.stdout.write([...pids].sort((a, b) => a - b).join("\n"));
       } catch { process.exit(1); }
-    ' "$pane_pids" "${1:-}")" || return 1
-    pi_pids="$observed_pids"
-    printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
+    ' "$pane_pids" "$tui_process" "${1:-}")" || return 1
+    [ -n "$observed_pids" ] || return 1
+    tree_pids="$observed_pids"
+    printf '%s\n' "$tree_pids" >"$GATE_DIR/pids-$label.txt"
   }
 
-  # Vibe prints its resume ID only when it exits; the daemon records it while
-  # draining, until the drain ends the tmux session. Settlement shows idle first.
-  await_vibe_resume_id() {
-    local attempt
-    for attempt in {1..30}; do
-      if printf '%s' "$check_output" | bun -e '
-        try {
-          const session = JSON.parse(require("fs").readFileSync(0, "utf8")).find(entry => entry.id === process.argv[1]);
-          if (!session?.agentResumeId) process.exit(1);
-        } catch { process.exit(1); }
-      ' "$session_id"; then return 0; fi
-      if ! tmux has-session -t "$session_id" 2>/dev/null; then
-        check_output="$("$CLI" check)"
-        return 0
-      fi
-      sleep 1
-      check_output="$("$CLI" check)"
-    done
-  }
-
-  # agy runs its own TUI in the pane. Record the pane's whole process tree, which must
-  # hold agy (and mid-turn its sleep tool); kill must leave none of those PIDs behind.
-  snapshot_agy_tree() {
-    local pane_pids observed_pids
-    if pane_pids="$(tmux list-panes -t "$session_id" -F '#{pane_pid}')" && observed_pids="$(ps -axo pid=,ppid=,comm= | bun -e '
-      try {
-        const fs = require("fs");
-        const [panes, mode] = process.argv.slice(1);
-        const rows = fs.readFileSync(0, "utf8").trim().split("\n").map(line => {
-          const [pid, parent, ...command] = line.trim().split(/\s+/);
-          return [Number(pid), Number(parent), command.join(" ")];
-        });
-        const pids = new Set(panes.trim().split(/\s+/).map(Number));
-        if (!pids.size || [...pids].some(pid => !Number.isSafeInteger(pid) || pid <= 0 || !rows.some(row => row[0] === pid))) process.exit(1);
-        let prior;
-        do {
-          prior = pids.size;
-          for (const [pid, parent] of rows) if (pids.has(parent)) pids.add(pid);
-        } while (pids.size !== prior);
-        const has = name => rows.some(([pid, , command]) => pids.has(pid) && new RegExp("(?:^|/)" + name + "$").test(command));
-        if (!has("agy") || (mode === "midturn" && !has("sleep"))) process.exit(1);
-        process.stdout.write([...pids].join("\n"));
-      } catch { process.exit(1); }
-    ' "$pane_pids" "${1:-}")" && [ -n "$observed_pids" ]; then
-      pi_pids="$observed_pids"
-      printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
-      return 0
-    fi
-    # Mid-turn polling retries; a launch or resume snapshot has no second chance.
-    if [ "${1:-}" = "midturn" ]; then return 1; fi
-    fail "Cannot snapshot $agent agy process tree of a live helper"
-  }
-
-  # agy prints its conversation ID only on exit, which the daemon reads while draining.
-  await_agy_resume_id() {
-    local attempt
-    for attempt in {1..15}; do
-      check_output="$("$CLI" check)"
-      if printf '%s' "$check_output" | bun -e '
-        try {
-          const sessions = JSON.parse(require("fs").readFileSync(0, "utf8"));
-          const id = sessions.find(entry => entry.id === process.argv[1])?.agentResumeId;
-          process.exit(typeof id === "string" && id.length > 0 ? 0 : 1);
-        } catch { process.exit(1); }
-      ' "$session_id"; then return 0; fi
-      sleep 1
-    done
-  }
-
-  verify_pi_reclaimed() {
-    [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ] || return 0
-    [ -n "$pi_pids" ] || return 1
-    if [ "$harness" = "pi" ] && [ -z "$pi_lock" ]; then return 1; fi
+  # The TUI prints its native ID only as it exits, which the daemon reads while
+  # draining, one 3 s poll after settling; 10 s leaves room for a slow exit.
+  await_resume_id() {
+    [ -n "$tui_process" ] || return 0
     local attempt
     for attempt in {1..20}; do
-      # Process titles may hide RPC arguments; compare only the recorded PIDs.
-      if { [ -z "$pi_lock" ] || [ ! -e "$pi_lock" ]; } && ps -axo pid=,ppid= | bun -e '
+      native_resume_id "$check_output" >/dev/null && return 0
+      sleep 0.5
+      check_output="$("$CLI" check)"
+    done
+  }
+
+  verify_tree_reclaimed() {
+    [ -n "$tui_process" ] || return 0
+    [ -n "$tree_pids" ] || return 1
+    local attempt
+    for attempt in {1..20}; do
+      # Compare only the recorded PIDs; a reused PID would only make this stricter.
+      if ps -axo pid=,ppid= | bun -e '
         const rows = require("fs").readFileSync(0, "utf8").trim().split("\n");
         const remaining = new Set(rows.map(line => Number(line.trim().split(/\s+/)[0])));
         const recorded = process.argv[1].trim().split(/\s+/).map(Number);
         process.exit(recorded.some(pid => remaining.has(pid)) ? 1 : 0);
-      ' "$pi_pids"; then
+      ' "$tree_pids"; then
         return 0
       fi
       sleep 0.5
@@ -404,26 +299,28 @@ run_gate() (
     return 1
   }
 
-  retain_pi_identity() {
-    pi_observed_id="$(printf '%s' "$1" | bun -e '
+  native_resume_id() {
+    printf '%s' "$1" | bun -e '
       try {
         const sessions = JSON.parse(require("fs").readFileSync(0, "utf8"));
         const id = sessions.find(entry => entry.id === process.argv[1])?.agentResumeId;
-        // Vibe prints the first 8 hex digits of its session ID; older bridge sessions stored the full UUID.
+        // Vibe prints the first 8 hex digits of its session ID; bridge-era records stored the full UUID.
         const short = process.argv[2] === "vibe" && /^[a-f0-9]{8}$/.test(id ?? "");
         if (typeof id !== "string" || !(short || /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))) process.exit(1);
         process.stdout.write(id);
       } catch { process.exit(1); }
-    ' "$session_id" "$harness")" || fail "$agent_name did not retain a native session UUID"
-    if [ -n "$pi_native_id" ] && [ "$pi_native_id" != "$pi_observed_id" ]; then
-      fail "$agent_name resume changed the native session UUID"
-    fi
-    pi_native_id="$pi_observed_id"
+    ' "$session_id" "$harness"
+  }
 
+  retain_native_id() {
+    observed_id="$(native_resume_id "$1")" || fail "$agent_name did not retain a native session ID"
+    if [ -n "$native_id" ] && [ "$native_id" != "$observed_id" ]; then
+      fail "$agent_name resume changed the native session ID"
+    fi
+    native_id="$observed_id"
   }
 
   reclaim_session() {
-    if ! snapshot_pi_processes; then fail "Cannot snapshot Pi process tree and lock before kill"; fi
     if ! "$CLI" kill "$session_id" --token "$owner_token" >"$GATE_DIR/kill-$label.txt" 2>&1; then
       fail "kill failed for $agent session $session_id"
     fi
@@ -433,10 +330,7 @@ run_gate() (
     if ! check_session_status "$("$CLI" check)" "$session_id" killed; then
       fail "check still reports an active $agent session after kill"
     fi
-    if ! verify_pi_reclaimed; then
-      if [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then fail "$agent process tree remains after kill"; fi
-      fail "Pi child or session lock remains after kill"
-    fi
+    if ! verify_tree_reclaimed; then fail "$agent process tree remains after kill"; fi
     cleaned=1
     preserve_delivery
   }
@@ -452,8 +346,7 @@ run_gate() (
   fi
   launch_output="$("$CLI" "${launch_args[@]}")"
   take_session "$launch_output"
-  if ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
-  if ! snapshot_vibe_processes; then fail "Cannot snapshot $agent process tree of a live helper"; fi
+  if ! snapshot_tree; then fail "Cannot snapshot $agent process tree of a live helper"; fi
   if [ -n "$expected_role" ] && ! check_session_profile "$launch_output" "$session_id" \
     "$expected_role" "$expected_model" "$expected_effort"; then
     fail "launch did not report expected role/model/effort for $label session $session_id"
@@ -462,20 +355,19 @@ run_gate() (
   if [ "$harness" = "kimi" ] && ! check_kimi_resume_id "$check_output" "$session_id"; then
     fail "Kimi did not retain a native session resume ID"
   fi
-  if [ "$harness" = "agy" ]; then await_agy_resume_id; fi
-  if [ "$harness" = "vibe" ]; then await_vibe_resume_id; fi
-  if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$check_output"; fi
+  await_resume_id
+  if [ -n "$tui_process" ]; then retain_native_id "$check_output"; fi
   reclaim_session
 
-  if [ "$harness" = "kimi" ] || [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then
+  if [ "$harness" = "kimi" ] || [ -n "$tui_process" ]; then
     prior_session="$session_id"
     resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
     label="$agent-resumed"
     take_session "$resume_output"
     if [ "$session_id" = "$prior_session" ]; then fail "$agent_name resume reused the old helper ID"; fi
-    if [ "$harness" != "vibe" ] && ! snapshot_agy_processes; then fail "Cannot snapshot $agent bridge and child of a live helper"; fi
+    if ! snapshot_tree; then fail "Cannot snapshot $agent process tree of a live helper"; fi
     resume_check="$("$CLI" check)"
-    if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$resume_check"; fi
+    if [ -n "$tui_process" ]; then retain_native_id "$resume_check"; fi
     if ! check_session_status "$resume_check" "$session_id" ready; then
       fail "$agent_name resume did not reach needs_attention for a follow-up task"
     fi
@@ -487,50 +379,32 @@ TASK
     sed "s/gate-kimi-resumed:/gate-$agent-resumed:/" "$GATE_DIR/$agent-resume-task.md" >"$GATE_DIR/$agent-task.md"
     mv "$GATE_DIR/$agent-task.md" "$GATE_DIR/$agent-resume-task.md"
     "$CLI" task "$session_id" --file "$GATE_DIR/$agent-resume-task.md" --token "$owner_token" >"$GATE_DIR/task-$agent-resumed.txt"
-    if ! snapshot_vibe_processes; then fail "Cannot snapshot $agent process tree of a live helper"; fi
     verify_completion
     reclaim_session
     echo "pass > $agent resume readiness, new turn, and context continuity"
   fi
-  if [ "$harness" = "vibe" ]; then
+  if [ -n "$tui_process" ]; then
+    # The pane's hangup reaches the TUI, which stops the tool it runs; nothing may survive the kill.
     prior_session="$session_id"
     resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
     label="$agent-midturn"
     take_session "$resume_output"
-    if [ "$session_id" = "$prior_session" ]; then fail "Vibe resume reused the old helper ID"; fi
+    if [ "$session_id" = "$prior_session" ]; then fail "$agent_name resume reused the old helper ID"; fi
     resume_check="$("$CLI" check)"
-    retain_pi_identity "$resume_check"
-    if ! check_session_status "$resume_check" "$session_id" ready; then fail "Vibe mid-turn resume did not become ready"; fi
+    retain_native_id "$resume_check"
+    if ! check_session_status "$resume_check" "$session_id" ready; then fail "$agent_name mid-turn resume did not become ready"; fi
     cat >"$GATE_DIR/$agent-midturn-task.md" <<'TASK'
 Run sleep 120 in the foreground using your shell tool and wait for it to finish. Do not run it in the background. Only after it finishes, print [AHELPA:DONE] on its own line.
 TASK
     "$CLI" task "$session_id" --file "$GATE_DIR/$agent-midturn-task.md" --token "$owner_token" >"$GATE_DIR/task-$label.txt"
     observed=0
     for attempt in {1..60}; do
-      if snapshot_vibe_processes midturn; then observed=1; break; fi
+      if snapshot_tree midturn; then observed=1; break; fi
       sleep 1
     done
-    if [ "$observed" -ne 1 ]; then fail "Vibe did not expose its process tree with the running sleep tool"; fi
+    if [ "$observed" -ne 1 ]; then fail "$agent_name did not expose its process tree with the running sleep tool"; fi
     reclaim_session
-  fi
-  if [ "$harness" = "agy" ]; then
-    # tmux's hangup reaches agy, which stops the tool it runs; nothing must survive the kill.
-    prior_session="$session_id"
-    resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
-    label="$agent-midturn"
-    take_session "$resume_output"
-    if [ "$session_id" = "$prior_session" ]; then fail "$agent resume reused the old helper ID"; fi
-    if ! check_session_status "$("$CLI" check)" "$session_id" ready; then fail "$agent mid-turn resume did not become ready"; fi
-    printf '%s\n' "Run sleep 120 in the foreground using your shell tool and wait for it to finish. Only after it finishes, print [AHELPA:DONE] on its own line." >"$GATE_DIR/$agent-midturn-task.md"
-    "$CLI" task "$session_id" --file "$GATE_DIR/$agent-midturn-task.md" --token "$owner_token" >"$GATE_DIR/task-$label.txt"
-    observed=0
-    for attempt in {1..60}; do
-      if snapshot_agy_tree midturn; then observed=1; break; fi
-      sleep 1
-    done
-    if [ "$observed" -ne 1 ]; then fail "$agent did not expose agy and its sleep tool mid-turn"; fi
-    reclaim_session
-    echo "pass > $agent mid-turn kill reclaims agy and its tool"
+    echo "pass > $agent mid-turn kill reclaims the TUI and its tool"
   fi
   echo "pass > $agent${expected_role:+-$expected_role} ($session_id)"
 )
