@@ -86,8 +86,10 @@ export function parseTurnPayload(agent: string, raw: string, boundThread?: strin
     }
     if (agent === "agy") {
       // Stop: the execution loop ended (not on Escape). With fullyIdle false a
-      // background task still runs and agy resumes the turn when it ends, so the
-      // turn is not over. executionNum stayed 0 on every turn: no turn id.
+      // background task still runs and agy resumes the turn when it ends, so it
+      // does not even wake the daemon. executionNum stayed 0 on every turn: no
+      // turn id. The event only wakes (the driver keeps turnHooks off): another
+      // Stop handler may still answer "continue".
       if (!id(p.conversationId) || typeof p.terminationReason !== "string" || p.fullyIdle !== true) return null;
       const error = ["ERROR", "USER_CANCELED"].includes(p.terminationReason) ? p.terminationReason.toLowerCase() : undefined;
       return { ts, agent, event: error ? "stop_failure" : "stop", sessionId: p.conversationId, turnId: randomUUID(),

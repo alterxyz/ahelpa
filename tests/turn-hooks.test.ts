@@ -340,6 +340,8 @@ describe("driver hook launch and resume", () => {
     const command = kind === "launch" ? agyDriver.buildLaunchCommand({ cwd: root, sessionId })
       : agyDriver.buildResumeCommand!({ cwd: root, sessionId, resumeId: "f76b791e-7046-483d-b6c3-9eaab2a2ae0d" });
     expect(command).toContain(`--add-dir '${join(sessionDir, "agy-hook")}'`);
+    // Another project or plugin Stop handler may still answer "continue": the event wakes, never decides.
+    expect(agyDriver.turnHooks).toBeUndefined();
     const handler = JSON.parse(readFileSync(hooks, "utf8")).ahelpa.Stop[0];
     expect(handler).toMatchObject({ type: "command", timeout: 10 });
     // agy runs it with sh -c in the hooks.json folder, payload on stdin, and reads a JSON object from stdout.

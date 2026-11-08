@@ -155,7 +155,9 @@ export const agyDriver: AgentDriver = {
   // The TUI prints the conversation ID only on exit, so the daemon reads it while draining.
   name: "agy", sessionPrefix: "agy", resumeTokenAvailableAfterSubmit: false,
   checkReadiness: checkAgyReadiness,
-  turnHooks: true,
+  // The Stop hook only wakes the daemon (turnHooks stays off): agy runs every
+  // Stop handler, and a project's or plugin's handler after ours may answer
+  // "continue" and restart the loop, so ours cannot say the turn is over.
   prepareLaunchFiles(opts) {
     validate(opts);
     if (!opts.sessionId) return;
