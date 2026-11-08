@@ -306,6 +306,14 @@ describe("driver hook launch and resume", () => {
     expect(parsed.hooks).toEqual([{ name: "ahelpa-turn", type: "post_agent", match: "main", timeout: 10,
       command: turnHookCommand(sessionDir, "vibe").map(shellEscape).join(" ") }]);
     expect(vibeDriver.turnHooks).toBeUndefined(); // the event names no input: it wakes the daemon, never decides
+    // Every path character survives TOML, DEL included (JSON leaves it raw; TOML forbids it).
+    const odd = ["/tmp/a b/it's \"q\" \\ \u007f é\n\tx", "__turn-hook"];
+    expect(Bun.TOML.parse(vibeHooksToml(odd))).toMatchObject({ hooks: [{ command: odd.map(shellEscape).join(" ") }] });
+    // Without a session there is no result directory: nothing is written.
+    const bare = join(root, "bare");
+    mkdirSync(bare);
+    vibeDriver.prepareLaunchFiles!({ cwd: bare });
+    expect(readdirSync(bare)).toEqual([]);
     const command = kind === "launch" ? vibeDriver.buildLaunchCommand({ cwd: root, sessionId })
       : vibeDriver.buildResumeCommand!({ cwd: root, sessionId, resumeId: "d68ff081" });
     expect(command).toContain(`--add-dir '${join(sessionDir, "vibe-hook")}'`);
@@ -325,6 +333,10 @@ describe("driver hook launch and resume", () => {
     expect(readFileSync(hooks, "utf8")).toBe(agyHooksJson(turnHookCommand(sessionDir, "agy")));
     expect(() => agyDriver.prepareLaunchFiles!({ cwd: root, sessionId })).toThrow(); // never overwrites
     expect(() => agyDriver.prepareLaunchFiles!({ cwd: root, sessionId: "gemini-safe", safe: true })).toThrow("--safe");
+    const bare = join(root, "bare");
+    mkdirSync(bare);
+    agyDriver.prepareLaunchFiles!({ cwd: bare });
+    expect(readdirSync(bare)).toEqual([]);
     const command = kind === "launch" ? agyDriver.buildLaunchCommand({ cwd: root, sessionId })
       : agyDriver.buildResumeCommand!({ cwd: root, sessionId, resumeId: "f76b791e-7046-483d-b6c3-9eaab2a2ae0d" });
     expect(command).toContain(`--add-dir '${join(sessionDir, "agy-hook")}'`);

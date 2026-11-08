@@ -89,8 +89,10 @@ function hookRoot(opts: LaunchOptions): string {
 }
 
 export function vibeHooksToml(command: string[]): string {
-  // A JSON string is a valid TOML basic string. Exit 0 with no output lets the turn end.
-  return `[[hooks]]\nname = "ahelpa-turn"\ntype = "post_agent"\nmatch = "main"\ncommand = ${JSON.stringify(command.map(shellEscape).join(" "))}\ntimeout = 10\n`;
+  // A JSON string is a TOML basic string once DEL, which JSON leaves raw, is escaped.
+  // Exit 0 with no output lets the turn end.
+  const line = JSON.stringify(command.map(shellEscape).join(" ")).replace(/\x7f/g, "\\u007f");
+  return `[[hooks]]\nname = "ahelpa-turn"\ntype = "post_agent"\nmatch = "main"\ncommand = ${line}\ntimeout = 10\n`;
 }
 
 function validate(opts: LaunchOptions): void {
