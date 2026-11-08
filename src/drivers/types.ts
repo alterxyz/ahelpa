@@ -87,7 +87,8 @@ export interface AgentDriver {
   prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void | StartupNotes>;
   // Native resume is optional. A helper is its ahelpa ID, the tmux session
   // name ahelpa gives it at launch; the CLI's own conversation ID only lets
-  // `resume` reopen a finished or killed helper, which is rare. Record it where
+  // `resume` reopen a helper whose process is gone, mostly a finished one
+  // continued for rework or review (a killed one almost never). Record it where
   // the CLI shows it anyway (after the first submit, or as it exits on DONE),
   // and never press keys or delay a kill to get it. Implement all four or none
   // (a protocol test checks the registered drivers); `resume` refuses a driver

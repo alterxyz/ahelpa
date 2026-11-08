@@ -92,10 +92,10 @@ ahelpa **不是**：
 
 怎么运作：
 
-- **身份。** helper 就是它的 ahelpa ID（`<前缀>-<12 位十六进制>`），也就是 ahelpa 启动时给 tmux 会话起的名字。`send`、`interrupt`、`capture`、`attach`、`kill` 只靠它。CLI 自己的对话 ID 是可选的：它只用来让 `resume` 重新打开进程已经没了的 helper，这很少见。driver 只在 CLI 本来就会显示它的地方记下来（首次提交之后，或 DONE 之后的退出画面），绝不为了拿它而按键或拖慢 kill；CLI 没有原生恢复时，四个恢复成员整组不写，`resume` 直接拒绝（负责人决定，2026-11-08）。
+- **身份。** helper 就是它的 ahelpa ID（`<前缀>-<12 位十六进制>`），也就是 ahelpa 启动时给 tmux 会话起的名字。`send`、`interrupt`、`capture`、`attach`、`kill` 只靠它。CLI 自己的对话 ID 是可选的：它只用来让 `resume` 重新打开进程已经没了的 helper。这多半是把已完成的 helper 接着用来返工或做聚焦复核（2026 年 10 到 11 月 791 个 helper 里有 28 个）；被 kill 的几乎从不重开。driver 只在 CLI 本来就会显示它的地方记下来（首次提交之后，或 DONE 之后的退出画面），绝不为了拿它而按键或拖慢 kill；CLI 没有原生恢复时，四个恢复成员整组不写，`resume` 直接拒绝（负责人决定，2026-11-08）。
 - **输入。** 任务以文件交给 helper。pane 里只通过 `send-keys` 收到一段简短指令（`Please read and complete the task described in <path>`，外加怎么打暗号的说明）。这段指令会在句中提到暗号，但暗号只有单独占一行才算数，所以不会误判。`send` 和 `task` 也用同样的方式把追问敲进去。
 - **结果。** 屏幕说了算。当前回合的输出里，在最后一次「还在干活」的迹象之后出现 `[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP:tags]`，这一回合就结束了（`src/drivers/sentinels.ts`；Kimi 的 `detectOutcome` 是最朴素的例子）。daemon 每 3 秒抓一次，所以打了暗号的回合最多一次抓屏就结算；有回合结束 hook 叫醒它时，立刻结算。
-- **没有暗号。** 连续 4 次定时抓屏（约 12 秒；hook 提前叫醒的那次不算；`src/daemon.ts` 里的 `IDLE_DEBOUNCE`，2026-06-24 定的，没有实测依据）都看不到干活迹象，daemon 就提醒 helper，或把会话标成 `needs_attention`。driver 不认识的对话框也走这条路：叫人。这只是兜底；干活中的 helper 该得到以分钟计的耐心，而不是秒。不要为了早几秒发现「悄悄停了」去压短它：一次误报会白白叫醒 host，还诱使它打断或 kill 正在进行的活，代价远大于省下的几秒。要更快认出「活干完了」，只靠正面信号：暗号，以及 CLI 支持按次启用时的回合结束 hook（负责人决定，2026-11-08）。
+- **没有暗号。** 连续 4 次定时抓屏（约 12 秒；hook 提前叫醒的那次不算；`src/daemon.ts` 里的 `IDLE_DEBOUNCE`，2026-06-24 定的，没有实测依据）都看不到干活迹象，daemon 就提醒 helper，或把会话标成 `needs_attention`。driver 不认识的对话框也走这条路：叫人。这只是兜底：屏幕上有干活迹象的 helper 没有时间上限，只有安静的屏幕才计入这几秒。不要为了早几秒发现「悄悄停了」去压短它：一次误报会白白叫醒 host，还诱使它打断或 kill 正在进行的活，代价远大于省下的几秒。要更快认出「活干完了」，只靠正面信号：暗号，以及 CLI 支持按次启用时的回合结束 hook（负责人决定，2026-11-08）。
 - **hook 只加速，不裁决。** Claude Code（`--settings` 文件）、Codex（`-c notify=[...]`）、Pi（用 `-e` 加载的单文件扩展）、Vibe（`--add-dir` 传入的目录里的 `hooks.toml`）和 agy（同样方式的 `hooks.json`）注册会话级的回合结束 hook，经隐藏命令 `__turn-hook` 往 `.ahelpa/<id>/turns.log` 追加记录，并叫醒 daemon。它告诉 daemon 回合*什么时候*结束：干完的回合立刻被读到，不用等下一次抓屏（2026-11-08 实测，hook 还不会叫醒 daemon 时，八个 Codex helper 从 hook 触发到结算最多等了 5 秒，平均约 2.3 秒；在 0.14.0 上，Pi、Vibe 和 agy 打出暗号的回合在 hook 后 0.54 到 0.57 秒内结算）；「没有暗号」那种情况的等待也会缩短；事件还能对到正确的那次输入上。Vibe 和 agy 的事件只叫醒 daemon：Vibe 的 payload 不带输入；agy 会跑完所有 `Stop` handler，排在 ahelpa 之后的项目或插件 handler 仍可能让回合继续。它从不说明活是否干成了（「Hooks never imply success」，见[架构](architecture.md)）。CLI 提供能按次启用、不碰用户配置的回合结束 hook 时，driver 就接上（负责人决定，2026-11-08）；其余的只靠读屏。
 - **driver 只需要知道这些，不多也不少。** 启动命令（关自动更新、权限姿态、尽量只信任本次会话）；空着、可以输入的输入框长什么样；干活时长什么样（转圈、计时、打断提示）；哪些对话框需要人（只有会话级信任可以自动回答）；打断键和退出命令；可选的：原生恢复 id 打印在哪，以及恢复命令。
 - **生命周期。** 进程归 tmux 管。DONE 之后 daemon 发退出命令，退出画面若打印了原生恢复 id 就记下来。`kill` 立即结束 tmux 会话，不按任何键。`interrupt` 只停一个回合，会话留着等 `send` 或 `task`。人随时可以 `tmux attach` 看到真实界面。
@@ -114,7 +114,7 @@ ahelpa **不是**：
 
 - *「TUI 每个版本都在变。」* 输入这一侧是按键，不会变。暗号是模型自己打出来的字，跟界面无关，所以界面改版不可能把没干完的活变成 DONE。最坏的情况是某个干活迹象或新对话框认不出来，约 12 秒后标成需要人看，或者启动时明确报错。driver 会关掉自动更新，所以界面变化只会在负责人自己升级时出现，`doctor` 和 closure gate 会检查版本。
 - *「结构化事件能给出精确的回合结束。」* 暗号加屏幕已经能在一次抓屏内结算回合。没打暗号的情况有防抖时间兜底；CLI 提供会话级 hook 的，还能再缩短。
-- *「第一条消息之前就能拿到恢复 id。」* helper 活着的时候，`send`、`capture`、`attach`、`kill` 只需要它的 ahelpa ID，也就是 tmux 会话名。原生 id 只在重新打开进程已经没了的 helper 时才用得上，这很少见。DONE 之后退出时 CLI 会打印它。`kill` 会保留已经记下的 id（Kimi 首次提交后的，或 resume 出来的 helper 继承的），但绝不为缺的 id 去取；CLI 自己的历史里仍列着那段对话。
+- *「第一条消息之前就能拿到恢复 id。」* helper 活着的时候，`send`、`capture`、`attach`、`kill` 只需要它的 ahelpa ID，也就是 tmux 会话名。原生 id 只在重新打开进程已经没了的 helper 时才用得上，多半是把已完成的 helper 接着用来返工或复核。DONE 之后退出时 CLI 会打印它。`kill` 会保留已经记下的 id（Kimi 首次提交后的，或 resume 出来的 helper 继承的），但绝不为缺的 id 去取；CLI 自己的历史里仍列着那段对话。
 - *「厂商推荐自动化用 headless 模式。」* ahelpa 跑的不是无人值守的流水线，而是给 host agent 配一个人能随时过目的同事。
 
 ### 偏离是怎么发生的
