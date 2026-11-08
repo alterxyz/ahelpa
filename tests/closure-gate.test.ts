@@ -49,7 +49,7 @@ switch (command) {
     const project = args[args.indexOf("--project") + 1];
     const task = args[args.indexOf("--task") + 1];
     const marker = task.match(/Remember this context marker for our next turn: ([a-f0-9-]+)\./)?.[1];
-    const completionMarker = task.match(/Write exactly ([^ ]+) followed by a newline/)?.[1];
+    const completionMarker = task.match(/a first line that is exactly ([^ ;]+);/)?.[1];
     sessions[id] = { id, agent: args[0], harness: ["mistral", "deepseek"].includes(args[0]) ? "vibe" : args[0] === "deepseek-pi" ? "pi" : args[0] === "claude" ? "claude-code" : args[0] === "gemini" ? "agy" : args[0], project, task, marker, role, model, effort, status: ["reaped", "missing-native-id"].includes(scenario) ? "idle" : "draining",
       agentResumeId: scenario === "missing-native-id" || scenario === "pi-late-native-id" ? null : ["mistral", "deepseek"].includes(args[0]) ? "01234567" : ["deepseek-pi", "gemini"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
     save();

@@ -139,7 +139,8 @@ run_gate() (
   label="$agent"
   if [ -n "$expected_role" ]; then label="$agent-$expected_role"; fi
   expected_marker="gate-$label"
-  task="Write exactly $expected_marker followed by a newline to summary.md in your assigned result directory. Then output [AHELPA:DONE] on its own line."
+  # The marker goes on the first line so it never conflicts with the result contract, which may ask for more.
+  task="Start summary.md in your assigned result directory with a first line that is exactly $expected_marker; anything the result contract asks for may follow below it. Then output [AHELPA:DONE] on its own line."
   task="$task Only read the assigned task file and write within the assigned result directory; do not inspect other projects, home directories, or global ahelpa state."
   project="${GATE_FIXTURE_PROJECT:-$GATE_DIR/project-$label}"
   if [ "$harness" = "claude-code" ] && [ -n "${GATE_CLAUDE_PROJECT:-}" ]; then
@@ -229,7 +230,7 @@ run_gate() (
       try {
         const fs = require("fs");
         const [path, marker] = process.argv.slice(1);
-        if (fs.readFileSync(path, "utf8") !== marker + "\n") process.exit(1);
+        if (fs.readFileSync(path, "utf8").split("\n")[0] !== marker) process.exit(1);
       } catch { process.exit(1); }
     ' "$delivery/summary.md" "$expected_marker"; then
       fail "missing or incorrect summary for $agent session $session_id"

@@ -167,7 +167,7 @@ bun run closure:gate
 
 - `launch` 启动 session 并返回有效 JSON
 - `wait` 报告成功完成，且 `check` 确认该状态
-- helper 将要求的精确内容写入指定的 `summary.md`
+- helper 在指定的 `summary.md` 第一行写入要求的精确标记（结果合同要求的其他内容可以写在下面）
 - `kill` 回收 tmux session，且 `check` 确认 session 已不再活跃
 
 超时、任务文本回显和账号错误都会使 gate 失败。日志仅用于诊断，daemon 已回收 tmux 时也可以读取。检查失败时仍会尝试终止本轮启动的 helper，不处理其他 session。输出中的 evidence 目录保留 summary 和命令结果。 gate 先将自己的结果目录复制到 evidence，再移除自己在 fixture 中创建的交接文件，最后只停止本轮隔离的 daemon。

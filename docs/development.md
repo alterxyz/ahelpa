@@ -166,7 +166,7 @@ For each driver, the gate requires:
 
 - `launch` starts a session and returns valid JSON
 - `wait` reports successful completion and `check` confirms that state
-- The helper writes the exact requested content to its assigned `summary.md`
+- The helper starts its assigned `summary.md` with the exact requested marker line (the result contract may add more below it)
 - `kill` reclaims the tmux session and `check` confirms it is no longer active
 
 Timeouts, echoed task text, and account errors fail the gate. Logs are retained for diagnosis, including when the daemon has already reclaimed tmux. Failed checks also attempt to kill only the helper launched by that run. The printed evidence directory contains the summaries and command results. The gate copies its result directories into that evidence directory before removing its own fixture handoff files, and stops only its isolated daemon.
