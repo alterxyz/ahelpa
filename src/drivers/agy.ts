@@ -1,37 +1,61 @@
-import { accessSync, constants, mkdirSync, realpathSync, statSync, writeFileSync } from "fs";
-import { delimiter, join, resolve } from "path";
+import { accessSync, constants, realpathSync, statSync } from "fs";
+import { delimiter, resolve } from "path";
 import { shellEscape } from "../shell";
-import { agyTerminalSource } from "./agy-terminal-source";
 import { addReadiness, executableReadiness, findReadinessExecutable, readEmbeddedVersion, readinessRuntime } from "./readiness";
+import { maskSentinels, scanSentinels } from "./sentinels";
 import type { AgentDriver, DriverRuntime, LaunchOptions, ReadinessRuntime, ResumeOptions } from "./types";
 
 export const AGY_TESTED_VERSION = "1.5.2";
 const EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
 const SUFFIX = new RegExp(`-(${EFFORTS.join("|")})$`);
-const STATE = /^\[AHELPA_AGY_STATE:(ready|running|idle|error|needs_attention)\]\s*$/gm;
-const TURN = /^\[AHELPA_AGY_TURN:([a-f0-9-]{36})\]\s*$/gm;
-const SESSION = /^\[AHELPA_AGY_SESSION:([a-f0-9-]{36})\]\s*$/gm;
 
-function lastMatch(output: string, pattern: RegExp): RegExpMatchArray | undefined {
-  return [...output.matchAll(new RegExp(pattern.source, pattern.flags))].at(-1);
+// agy's own TUI in tmux (1.5.3, 2026-11-07, at 80x24 and 120x40). Rules frame
+// the composer, and each submitted turn follows one. Menus, questions and the
+// trust dialog also put rows like `> 1. red` at column 0, but after a blank line.
+const RULE = String.raw`─{20,}[ \t]*`;
+const EMPTY_COMPOSER = new RegExp(String.raw`^${RULE}\n>[ \t]*\n${RULE}$`, "gm");
+// A turn echo keeps its wrapped lines (indented two) so repeated tasks differ by path.
+const USER_TURN = new RegExp(String.raw`^${RULE}\n> \S.*(?:\n  \S.*)*`, "gm");
+// The live status line above the composer: a Braille frame, then "Generating...".
+const SPINNER = /^[⠀-⣿][ \t]+\S/m;
+// A background task the agent will resume from when it ends ("· 1 task(s) · /tasks").
+const TASKS = /\b\d+ task\(s\)/;
+const TRUST = /^Do you trust the contents of this project\?/m;
+// agy opens a new conversation, with only this warning, when the resume ID is unknown.
+const NOT_FOUND = /^warning: conversation "[^"\n]*" not found/m;
+const EXIT_ID = /^agy --conversation[= ]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\s*$/gm;
+
+const footer = (output: string) => output.trimEnd().split("\n").at(-1) ?? "";
+const lastIndex = (output: string, pattern: RegExp) => [...maskSentinels(output).matchAll(pattern)].at(-1)?.index ?? -1;
+
+function currentTurn(output: string): string {
+  const index = lastIndex(output, USER_TURN);
+  return index < 0 ? output : output.slice(index);
 }
 
-function state(output: string): string | undefined {
-  const current = lastMatch(output, STATE);
-  const latestTurn = lastMatch(output, TURN);
-  // A capture can land between writes in one control block. Never attach the
-  // preceding turn's settled state to a newly emitted turn marker.
-  return current && (current.index ?? -1) > (latestTurn?.index ?? -1) ? current[1] : undefined;
+// The footer guard keeps a spinner frozen by a crashed agy from reading as work.
+function spinning(output: string): boolean {
+  return SPINNER.test(currentTurn(output)) && /^esc to cancel\b/.test(footer(output));
 }
-function turn(output: string): string | undefined { return lastMatch(output, TURN)?.[1]; }
 
-function files(opts: LaunchOptions) {
-  const directory = opts.deliveryDir ?? join(opts.cwd, ".ahelpa", opts.sessionId ?? "agy");
-  return { directory, app: join(directory, "agy-terminal.mjs") };
+function working(output: string): boolean {
+  return spinning(output) || TASKS.test(footer(output));
+}
+
+function ready(output: string): boolean {
+  return !working(output) && !TRUST.test(output) && /^\? for shortcuts\s+\S/.test(footer(output))
+    && lastIndex(output, EMPTY_COMPOSER) > lastIndex(output, USER_TURN);
+}
+
+// Submitted turns. Text still in the composer has no empty composer after it.
+function userTurns(output: string): string[] {
+  const turns = [...maskSentinels(output).matchAll(USER_TURN)];
+  if (turns.length && turns.at(-1)!.index > lastIndex(output, EMPTY_COMPOSER)) turns.pop();
+  return turns.map(turn => turn[0]);
 }
 
 function validate(opts: LaunchOptions): void {
-  if (opts.safe) throw new Error("agy --safe is not supported; the stream-json bridge runs with --dangerously-skip-permissions");
+  if (opts.safe) throw new Error("agy --safe is not supported; the helper runs agy with --dangerously-skip-permissions");
   if (opts.model !== undefined && !/^[\w.:-]+$/.test(opts.model)) throw new Error("agy --model must be a model ID from `agy models`, such as gemini-4-argon-high");
   if (opts.effort !== undefined && !EFFORTS.includes(opts.effort as typeof EFFORTS[number])) {
     throw new Error(`agy --effort must be one of: ${EFFORTS.join(", ")}`);
@@ -44,27 +68,31 @@ function validate(opts: LaunchOptions): void {
   }
 }
 
-export function prepareAgyFiles(opts: LaunchOptions): void {
-  validate(opts);
-  const paths = files(opts);
-  mkdirSync(paths.directory, { recursive: true });
-  writeFileSync(paths.app, agyTerminalSource, { mode: 0o600 });
+// --settings applies to this session only and is never saved. agy matches the
+// literal working directory, not its real path or a parent, so pass both forms.
+function trustSettings(cwd: string): string {
+  const paths = [cwd];
+  try { const real = realpathSync(cwd); if (real !== cwd) paths.push(real); } catch {}
+  return JSON.stringify({ trustedWorkspaces: paths });
 }
 
 function command(opts: LaunchOptions, resumeId?: string): string {
   validate(opts);
-  const args = [shellEscape(files(opts).app), "--cwd", shellEscape(opts.cwd)];
-  if (resumeId !== undefined) args.push("--resume", shellEscape(resumeId));
+  const args = ["--dangerously-skip-permissions", "--settings", shellEscape(trustSettings(opts.cwd))];
+  if (resumeId !== undefined) args.push("--conversation", shellEscape(resumeId));
   if (opts.model !== undefined) args.push("--model", shellEscape(opts.model));
   if (opts.effort !== undefined) args.push("--effort", shellEscape(opts.effort));
-  return `cd ${shellEscape(opts.cwd)} && node ${args.join(" ")}`;
+  // agy 1.5.2 honours exactly "true"; "1" still spawns its background updater.
+  return `cd ${shellEscape(opts.cwd)} && AGY_CLI_DISABLE_AUTO_UPDATE=true agy ${args.join(" ")}`;
 }
 
 async function waitReady(sessionId: string, runtime: DriverRuntime) {
   for (let attempt = 0; attempt < 120; attempt++) {
     const output = await runtime.capture(sessionId, 60);
-    if (state(output) === "ready") return;
-    if (state(output) === "error") throw new Error(`agy session ${sessionId} failed to start; inspect its last screen`);
+    if (NOT_FOUND.test(output)) throw new Error(`agy session ${sessionId} could not resume: agy did not find the conversation`);
+    // Answering would trust the folder for good; only session-only trust is automatic.
+    if (TRUST.test(output)) throw new Error(`agy session ${sessionId} asked to trust the project folder; session-only trust did not apply`);
+    if (ready(output)) return;
     await runtime.sleep(500);
   }
   throw new Error(`agy session ${sessionId} did not reach its input prompt`);
@@ -96,7 +124,6 @@ export function checkAgyReadiness(cwd: string, runtime: ReadinessRuntime = readi
   const executable = findReadinessExecutable("agy", cwd, runtime);
   // The Go binary keeps its version string next to the build date. Never execute it.
   const result = executableReadiness(executable, executable ? readEmbeddedVersion(executable, /(\d+\.\d+\.\d+)\nDate: /) : null);
-  if (!findReadinessExecutable("node", cwd, runtime)) addReadiness(result, false, "Node.js is required for the agy stream-json bridge");
   if (!executable) return result;
   if (result.version && older(result.version, AGY_TESTED_VERSION)) addReadiness(result, false, `upgrade agy to >= ${AGY_TESTED_VERSION}`);
   const all = pathExecutables(cwd, runtime);
@@ -109,9 +136,9 @@ export function checkAgyReadiness(cwd: string, runtime: ReadinessRuntime = readi
 }
 
 export const agyDriver: AgentDriver = {
-  name: "agy", sessionPrefix: "agy", resumeTokenAvailableAfterSubmit: true,
+  // The TUI prints the conversation ID only on exit, so the daemon reads it while draining.
+  name: "agy", sessionPrefix: "agy", resumeTokenAvailableAfterSubmit: false,
   checkReadiness: checkAgyReadiness,
-  prepareLaunchFiles: prepareAgyFiles,
   launchProfiles: { defaultRole: "worker", profiles: {
     worker: { model: "gemini-4-argon", effort: "medium" },
     reviewer: { model: "gemini-4-argon", effort: "medium" },
@@ -128,31 +155,31 @@ export const agyDriver: AgentDriver = {
   },
   buildLaunchCommand: command,
   buildResumeCommand(opts: ResumeOptions) { return command(opts, opts.resumeId); },
-  extractResumeToken(output) { return lastMatch(output, SESSION)?.[1] ?? null; },
+  extractResumeToken(output) { return [...output.matchAll(EXIT_ID)].at(-1)?.[1] ?? null; },
   prepareForTask: waitReady, prepareForResume: waitReady,
   async afterTaskSubmitted(sessionId, runtime, context) {
-    const previous = context?.beforeOutput === undefined ? undefined : turn(context.beforeOutput);
+    const before = context?.beforeOutput;
+    const prior = before === undefined ? [] : userTurns(before);
     for (let attempt = 0; attempt < 20; attempt++) {
+      await runtime.sleep(500);
       const output = await runtime.capture(sessionId, 80);
-      const current = turn(output);
-      if (current && current !== previous && state(output) !== "ready"
-        && (context?.beforeOutput !== undefined || state(output) === "running")) return true;
-      await runtime.sleep(250);
+      const turns = userTurns(output);
+      if (before === undefined ? turns.length > 0 && agyDriver.detectStatus(output) === "running"
+        // A repeated task can scroll the old echo out of the capture: then only the spinner shows it.
+        : turns.length > prior.length || (turns.length > 0 && turns.at(-1) !== prior.at(-1)) || (!working(before) && spinning(output))) return true;
     }
     return false;
   },
   async switchModel() { throw new Error("agy runtime model switching is not supported; launch with --model and --effort instead"); },
   detectStatus(output) { return agyDriver.detectOutcome(output).status; },
+  // The screen decides: a signal in the current turn settles it once nothing is working after it.
   detectOutcome(output) {
-    const current = state(output);
-    const status = current === "idle" || current === "error" || current === "needs_attention" ? current : "running";
-    const tags = lastMatch(output, /^\[AHELPA_AGY_TAGS:([a-z0-9_, -]*)\]\s*$/gm);
-    const lastTurn = lastMatch(output, TURN);
-    const needHelpTags = status !== "running" && tags && tags.index! > (lastTurn?.index ?? -1)
-      ? [...new Set(tags[1].split(",").map(tag => tag.trim()).filter(Boolean))] : null;
-    return { status, needHelpTags };
+    const sentinel = scanSentinels(currentTurn(output)).at(-1);
+    return sentinel && !working(output)
+      ? { status: sentinel.status, needHelpTags: sentinel.needHelpTags }
+      : { status: "running", needHelpTags: null };
   },
-  detectActivity(output) { const current = state(output); return current === "running" ? "working" : current ? "idle" : "booting"; },
-  acceptsInput(output) { return ["ready", "idle", "needs_attention"].includes(state(output) ?? ""); },
+  detectActivity(output) { return working(output) ? "working" : TRUST.test(output) ? "booting" : "idle"; },
+  acceptsInput: ready,
   async gracefulExit(sessionId, runtime) { await runtime.sendKeys(sessionId, "/exit"); },
 };

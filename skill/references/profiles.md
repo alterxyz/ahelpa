@@ -98,15 +98,16 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 **New integration (2026-11-06). First choice for prose people will read, divergent ideation, and the generative half of strategy work; never the critical voice.** Google Antigravity CLI, default `gemini-4-argon` / `medium` (Gemini 4 Argon · medium). Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
 
 **Observation status**
-- Integration checks only: Antigravity 1.5.2 smoke runs and the closure gate (completion, kill, native resume with context recalled). No task-quality comparison inside ahelpa yet.
+- Integration checks only: Antigravity 1.5.2 smoke runs, then its own TUI on 1.5.3 (2026-11-07), and the closure gate (completion, native resume with context recalled, kill mid-turn). No task-quality comparison inside ahelpa yet.
 - Owner's assessment of Gemini 4 Argon (2026-11-06, from use outside ahelpa): a very good writer, best at text meant for people, and good at divergent thinking. Its clear weakness is agreeing with whatever it is given: it polishes the premise into being right and rarely raises a critical objection. The owner also expects it to suit strategy work, grand strategy especially. This is about the default model; gemini's other models are not assessed.
 - Public reviews (read 2026-11-06, three weeks after release; anecdotes and vendor numbers, not ahelpa runs) agree on the writing: it ranks at or near the top of LMArena's creative-writing board and is praised as a structural editor. They add that one-shot first drafts tend to be dense, with long sentences and elevated wording, and that, in one review panel's words, it "generates more ideas than it verifies": it seldom goes back to check its own work. Some users call it sycophantic; Google's model card claims less sycophancy than earlier Gemini models, a comparison outside reviewers dispute. No one has measured strategy work directly; users credit it with long-horizon, open-ended reasoning when the prompt is well specified.
 
 **Watch for**
-- Headless Antigravity never stops for approval. When the model asks itself a question, it gets an empty answer and carries on; a blocked helper only reaches you through `NEED_HELP`. Spell out when to stop and signal.
+- Antigravity's own question tool opens a multiple-choice dialog that waits for a person; the helper then shows `needs_attention` (it is not answered for you). Tell it not to ask, and when to stop and signal `NEED_HELP` instead.
 - Agreement is not evidence. An Argon summary that endorses the brief's premise says little about whether the premise holds; look for what it actually checked.
 - The model may decline a destructive command on its own and report it as skipped (seen with `git push --force`). Read the summary for skipped steps, not only the exit status.
-- Per Antigravity's 1.5.2 changelog (not reproduced by ahelpa), commands on its protected list still go through Antigravity's usual checks under `--dangerously-skip-permissions`, and headless runs deny what would need approval, so the helper sees a refusal instead of a prompt.
+- Under `--dangerously-skip-permissions` file access outside the project and ordinary commands run without a prompt (seen 2026-11-07). Per Antigravity's 1.5.2 changelog (not reproduced by ahelpa), commands on its system denylist are blocked, so the helper sees a refusal instead of a prompt.
+- A long command becomes an Antigravity background task; the turn waits for it and settles only after the task ends, so a server it leaves running keeps the helper busy until you kill it.
 
 **Give it**
 - Prose for people to read: explanations, docs, announcements, drafts. Give it the facts and the sources and let it hold the pen; have a different model check its claims against the sources before the text ships. Ask for plain wording and short sentences, since first drafts run dense.
@@ -116,7 +117,7 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 - Choose the effort with `--effort low|medium|high`; a suffixed `--model` needs the matching `--effort`.
 
 **Runtime quirks**
-- Each helper is one Antigravity process in headless stream-json mode behind a bridge; resume reopens the same Antigravity conversation. See [gemini setup and limits](agy.md).
+- Each helper is Antigravity's own TUI in tmux; resume reopens the same Antigravity conversation. The conversation ID is printed only when the helper exits, so a helper killed before it finished cannot be resumed. See [gemini setup and limits](agy.md).
 
 ## mistral
 

@@ -282,7 +282,8 @@ run_gate() (
   # Graceful drain stops the child before the gate's kill, so record bridge and child
   # while the helper is live; kill must leave none of those PIDs behind.
   snapshot_agy_processes() {
-    [ "$harness" = "agy" ] || [ "$harness" = "vibe" ] || return 0
+    if [ "$harness" = "agy" ]; then snapshot_agy_tree "${1:-}"; return; fi
+    [ "$harness" = "vibe" ] || return 0
     local pane_pids observed_pids running_output=""
     if [ "${1:-}" = "midturn" ]; then
       running_output="$("$CLI" logs "$session_id" --token "$owner_token")" || return 1
@@ -326,6 +327,55 @@ run_gate() (
     fi
     printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
     if [ "${1:-}" = "midturn" ]; then printf '%s\n' "$running_output" >"$GATE_DIR/logs-$label.txt"; fi
+  }
+
+  # agy runs its own TUI in the pane. Record the pane's whole process tree, which must
+  # hold agy (and mid-turn its sleep tool); kill must leave none of those PIDs behind.
+  snapshot_agy_tree() {
+    local pane_pids observed_pids
+    if pane_pids="$(tmux list-panes -t "$session_id" -F '#{pane_pid}')" && observed_pids="$(ps -axo pid=,ppid=,comm= | bun -e '
+      try {
+        const fs = require("fs");
+        const [panes, mode] = process.argv.slice(1);
+        const rows = fs.readFileSync(0, "utf8").trim().split("\n").map(line => {
+          const [pid, parent, ...command] = line.trim().split(/\s+/);
+          return [Number(pid), Number(parent), command.join(" ")];
+        });
+        const pids = new Set(panes.trim().split(/\s+/).map(Number));
+        if (!pids.size || [...pids].some(pid => !Number.isSafeInteger(pid) || pid <= 0 || !rows.some(row => row[0] === pid))) process.exit(1);
+        let prior;
+        do {
+          prior = pids.size;
+          for (const [pid, parent] of rows) if (pids.has(parent)) pids.add(pid);
+        } while (pids.size !== prior);
+        const has = name => rows.some(([pid, , command]) => pids.has(pid) && new RegExp("(?:^|/)" + name + "$").test(command));
+        if (!has("agy") || (mode === "midturn" && !has("sleep"))) process.exit(1);
+        process.stdout.write([...pids].join("\n"));
+      } catch { process.exit(1); }
+    ' "$pane_pids" "${1:-}")" && [ -n "$observed_pids" ]; then
+      pi_pids="$observed_pids"
+      printf '%s\n' "$pi_pids" >"$GATE_DIR/pids-$label.txt"
+      return 0
+    fi
+    # Mid-turn polling retries; a launch or resume snapshot has no second chance.
+    if [ "${1:-}" = "midturn" ]; then return 1; fi
+    fail "Cannot snapshot $agent agy process tree of a live helper"
+  }
+
+  # agy prints its conversation ID only on exit, which the daemon reads while draining.
+  await_agy_resume_id() {
+    local attempt
+    for attempt in {1..15}; do
+      check_output="$("$CLI" check)"
+      if printf '%s' "$check_output" | bun -e '
+        try {
+          const sessions = JSON.parse(require("fs").readFileSync(0, "utf8"));
+          const id = sessions.find(entry => entry.id === process.argv[1])?.agentResumeId;
+          process.exit(typeof id === "string" && id.length > 0 ? 0 : 1);
+        } catch { process.exit(1); }
+      ' "$session_id"; then return 0; fi
+      sleep 1
+    done
   }
 
   verify_pi_reclaimed() {
@@ -376,7 +426,8 @@ run_gate() (
       fail "check still reports an active $agent session after kill"
     fi
     if ! verify_pi_reclaimed; then
-      if [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then fail "$agent bridge or child remains after kill"; fi
+      if [ "$harness" = "agy" ]; then fail "$agent agy process tree remains after kill"; fi
+      if [ "$harness" = "vibe" ]; then fail "$agent bridge or child remains after kill"; fi
       fail "Pi child or session lock remains after kill"
     fi
     cleaned=1
@@ -403,6 +454,7 @@ run_gate() (
   if [ "$harness" = "kimi" ] && ! check_kimi_resume_id "$check_output" "$session_id"; then
     fail "Kimi did not retain a native session resume ID"
   fi
+  if [ "$harness" = "agy" ]; then await_agy_resume_id; fi
   if [ "$uuid_resume" -eq 1 ]; then retain_pi_identity "$check_output"; fi
   reclaim_session
 
@@ -451,6 +503,25 @@ TASK
     done
     if [ "$observed" -ne 1 ]; then fail "Vibe did not expose a running bridge, native child and sleep tool"; fi
     reclaim_session
+  fi
+  if [ "$harness" = "agy" ]; then
+    # tmux's hangup reaches agy, which stops the tool it runs; nothing must survive the kill.
+    prior_session="$session_id"
+    resume_output="$("$CLI" resume "$session_id" --token "$owner_token")"
+    label="$agent-midturn"
+    take_session "$resume_output"
+    if [ "$session_id" = "$prior_session" ]; then fail "$agent resume reused the old helper ID"; fi
+    if ! check_session_status "$("$CLI" check)" "$session_id" ready; then fail "$agent mid-turn resume did not become ready"; fi
+    printf '%s\n' "Run sleep 120 in the foreground using your shell tool and wait for it to finish. Only after it finishes, print [AHELPA:DONE] on its own line." >"$GATE_DIR/$agent-midturn-task.md"
+    "$CLI" task "$session_id" --file "$GATE_DIR/$agent-midturn-task.md" --token "$owner_token" >"$GATE_DIR/task-$label.txt"
+    observed=0
+    for attempt in {1..60}; do
+      if snapshot_agy_tree midturn; then observed=1; break; fi
+      sleep 1
+    done
+    if [ "$observed" -ne 1 ]; then fail "$agent did not expose agy and its sleep tool mid-turn"; fi
+    reclaim_session
+    echo "pass > $agent mid-turn kill reclaims agy and its tool"
   fi
   echo "pass > $agent${expected_role:+-$expected_role} ($session_id)"
 )

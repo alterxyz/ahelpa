@@ -2,7 +2,7 @@
 
 Public name: `gemini`. Nicknames `agy` and `antigravity` use the same profile and prefix.
 
-agy is Google's Antigravity CLI. It is an opt-in helper: launch it by name (see [profiles](profiles.md#gemini)). Install the standalone `agy` CLI ≥ 1.5.2 and Node.js, and run `agy` once interactively to sign in. Version 1.5.2 is the tested baseline; newer releases are accepted, older ones are refused with an upgrade message. `ahelpa doctor gemini` reads the version embedded in the binary without executing it, checks for Node.js, and reports when more than one `agy` is on `PATH` (a desktop app can ship its own). agy keeps its sign-in in the OS keychain, which doctor does not open, so sign-in stays `unknown` until launch.
+agy is Google's Antigravity CLI. It is an opt-in helper: launch it by name (see [profiles](profiles.md#gemini)). Install the standalone `agy` CLI ≥ 1.5.2 and run `agy` once interactively to sign in. Version 1.5.2 is the minimum; the terminal driver was verified on 1.5.3. Newer releases are accepted, older ones are refused with an upgrade message. `ahelpa doctor gemini` reads the version embedded in the binary without executing it and reports when more than one `agy` is on `PATH` (a desktop app can ship its own). agy keeps its sign-in in the OS keychain, which doctor does not open, so sign-in stays `unknown` until launch. Node.js is not needed.
 
 ```bash
 ahelpa launch gemini --file ./task.md --project /path/to/project
@@ -23,43 +23,49 @@ Runtime `ahelpa model` switching, including `--persist`, is unsupported; relaunc
 
 ## How it runs
 
-The bridge (`agy-terminal.mjs` in the session's result directory, run by Node in tmux) starts one agy process:
+The helper is agy's own interactive TUI in tmux, driven like a person at a terminal: ahelpa types the task line and reads the screen. Attaching to the tmux session shows the real agy UI.
 
 ```text
-agy --input-format stream-json --output-format stream-json --dangerously-skip-permissions [--conversation <id>] [--model …] [--effort …] -p ""
+cd <project> && AGY_CLI_DISABLE_AUTO_UPDATE=true agy --dangerously-skip-permissions --settings '{"trustedWorkspaces":["<project>"(, "<its real path>")]}' [--conversation <id>] [--model …] [--effort …]
 ```
 
-with `AGY_CLI_DISABLE_AUTO_UPDATE=true`. Each task line becomes one NDJSON user message; agy answers each with one `result` event and keeps the conversation in the same process. The bridge prints state markers that the driver reads; queued tasks run one at a time without an idle gap.
-
-- **Completion.** A `SUCCESS` result whose answer has the DONE signal alone on a line settles `idle`. `NEED_HELP` settles `error` with its tags. A `SUCCESS` without a signal, a partial answer, or an interrupted turn needs attention. An `ERROR` result is an error and drops queued tasks.
-- **No prompts.** Headless agy never stops for approval or input. Its own `ask_question` tool returns an empty answer at once, so the helper reaches the host only through `NEED_HELP`.
-- **No global or project writes.** Print mode shows no trust dialog and does not record the folder as trusted. ahelpa writes no agy settings, hooks, or `.agents/` files.
-- **Errors.** agy's stderr can name the account and local paths, so the bridge prints only fixed categories (`agy rejected the model or effort`, `agy is not signed in`, `agy exited during startup`, `agy exited unexpectedly`, `protocol failure`). After a fatal error the bridge discards input until `/exit`; relaunch or resume once the cause is fixed.
+- **Updates.** `AGY_CLI_DISABLE_AUTO_UPDATE=true` (lowercase `true` only) keeps agy's background updater from replacing the binary.
+- **Trust.** The TUI asks "Do you trust the contents of this project?" in a folder it has not trusted, even with `--dangerously-skip-permissions`. Answering would save the trust for good, so ahelpa passes the trust in `--settings`, which applies to this session only and is never saved. agy compares the literal working directory (not its real path, not a parent), so ahelpa passes the project path and, when it differs, its real path. If the dialog still appears, the launch fails instead of answering it.
+- **Completion.** The screen decides. `[AHELPA:DONE]` or `[AHELPA:NEED_HELP:tags]` alone on a line, after the latest submitted turn (`> …` right below a `────` rule), settles the turn once nothing is working: no Braille spinner line above the composer (`⣾  Generating...`, footer `esc to cancel`) and no running background task (footer `· 1 task(s) · /tasks`). Without a signal the daemon's usual idle rule applies: a nudge when `summary.md` exists, otherwise `needs_attention`.
+- **Background tasks.** agy turns a long command into a background task, may end the visible turn while it runs, and resumes the conversation on its own when it ends. A running task counts as work, so the turn settles only after it; a server left running keeps the helper busy until you kill it.
+- **Dialogs.** Under `--dangerously-skip-permissions` no file or command prompt appeared, including reads and writes outside the project. agy's own question tool opens a multiple-choice dialog (`Question 1/1: …`, `↑/↓ Navigate · enter Select · esc Skip`) that waits for a person; nothing answers it, so the helper becomes `needs_attention`. Answer it with `tmux attach -t <id>`.
+- **No global or project writes.** ahelpa writes no agy settings, trust entries, hooks, or `.agents/` files.
 
 ## Resume and takeover
 
-The conversation ID appears in agy's first event, before any task, so the session records it right away. `ahelpa resume` starts a new bridge with `--conversation <id>`. agy opens a new conversation, with only a warning, when the ID is unknown; the bridge checks the ID agy reports and fails instead. Context carries over: the gate's resumed turn recalls a marker from the first turn.
+The TUI prints the conversation ID only when it exits (`Resume with -c (or command below):` then `agy --conversation=<id>`). After a completed turn the daemon sends `/exit` and records the ID while draining, so `check` may show it a few seconds after `wait` returns. A helper killed before it finished, or left in `needs_attention` and then killed, has no recorded ID and cannot be resumed.
+
+`ahelpa resume` starts agy with `--conversation <id>`; the TUI replays the earlier turns (their old signals do not count). agy opens a new conversation, with only `warning: conversation "<id>" not found` at the top, when the ID is unknown; the resume then fails instead. Context carries over: the gate's resumed turn recalls a marker from the first turn.
 
 To take a conversation over by hand, stop the helper first, then run `agy --conversation=<id>` in the same project. Two agy processes on one conversation are not coordinated.
 
 ## Stopping
 
-`/exit` (sent by the daemon after completion) and `ahelpa kill` both stop agy with SIGINT, not stdin EOF or SIGTERM. EOF lets agy finish the running turn first, and SIGTERM leaves agy's tool processes running. agy runs each tool command in its own process group, and its SIGINT cleanup races its exit. So the bridge records agy's descendants before signalling and afterwards stops any that survived, by recorded process identity: TERM, then KILL. A direct SIGKILL of the bridge cannot clean up; agy then sees EOF and exits after its turn.
+- `/exit` (sent by the daemon after completion) quits agy; it also stops agy's background tasks.
+- `Esc` interrupts the running turn and keeps the session (`Interrupted · What should Antigravity CLI do instead?`); a background task it already started keeps running. ahelpa does not send it.
+- `ahelpa kill` closes the tmux session. The hangup reaches agy, which stops its tools: in five kills during a tool run (foreground and background) no process survived.
 
-## Spike findings (agy 1.5.2, 2026-11-06)
+## Spike findings (agy 1.5.3, 2026-11-07)
 
-Verified means observed on a real run; otherwise the source is named.
+Measured in tmux at 80x24 and 120x40 on macOS with the existing sign-in, in scratch folders. agy's global `settings.json` was unchanged afterwards. The machine's agy had already been updated from 1.5.2 to 1.5.3 before this session.
 
-1. **tmux and sign-in.** Verified: an existing sign-in works in tmux, both headless and in the TUI (the token comes from the OS keychain). The TUI asks "Do you trust the contents of this project?" in an untrusted folder, even with `--dangerously-skip-permissions`; answering persists the trust globally. Session-only trust works with `--settings '{"trustedWorkspaces":[…]}'`, which leaves the settings file unchanged. Headless print mode shows no dialog. Unverified: the onboarding screens of a never-signed-in install.
-2. **Auto-update.** Verified: `AGY_CLI_DISABLE_AUTO_UPDATE=true` logs "Auto-update disabled via environment variable". The values `1`, `TRUE`, `True`, and `yes` are ignored, and a run with `1` spawned the background updater. The variable is per process, so it is the session-only switch; no `--settings` key for updates was found.
-3. **Conversation ID.** Verified: created before the first message. Headless runs report it in the `init` event and on every step and result. The TUI prints it only on exit (`agy --conversation=<id>`). Hook payloads carry `conversationId`. `--conversation <id>` restores context, including with stream-json. An unknown ID opens a new conversation with only a stderr warning.
-4. **Prompts under skip-permissions.** Verified headless: no prompt ever blocks. `ask_question` returns empty answers, and the model declined a `git push --force` on its own. Verified TUI: the trust dialog still appears. From the 1.5.2 changelog, not reproduced: protected commands go through the usual checks, enterprise-reviewed actions are denied headless, and access outside the workspace asks "Allow access to this file?" in the TUI. The bridge needs no needs-attention screen detection because headless mode cannot block.
-5. **Session-level hooks.** Verified: `--settings` rejects `hooks` ("unknown setting"), and `--agent` accepts only a discovered agent name, not a file. But `--add-dir <dir>` with `<dir>/.agents/hooks.json` loads that file's hooks for the session, both headless and in the TUI (with session-only trust), without touching global config or the project. The Stop payload has `conversationId`, `error`, `executionNum`, `fullyIdle`, `lastUserInput`, `modelName`, `terminationReason` (`NO_TOOL_CALL` on a normal turn), `transcriptPath`, `artifactDirectoryPath`, and `workspacePaths`. ahelpa does not use hooks, since stream-json already reports each turn's end. Workspace hooks also ran in an untrusted added folder in print mode, so a project's own `.agents/hooks.json` may run under a headless helper.
-6. **Signals on screen.** Verified in the TUI: `[AHELPA:DONE]` survives Markdown rendering and collapsed tool groups as its own line (indented two spaces, which the signal matcher allows). The bridge reads the answer text from the `result` event, so rendering does not matter there.
-7. **stream-json.** Verified: one process keeps context across turns. `--conversation <id>` combines with stream-json and continues the same conversation. Input lines are `{"event":"user","message":{"role":"user","content":"…"}}`. `-p` must be given an argument (`-p ""`). SIGINT ends the process with an `interrupted` result rather than cancelling one turn. An `ERROR` result leaves the process running.
+1. **Ready composer.** `>` alone between two full-width `────` rules, footer `? for shortcuts` with the model on the right (`Gemini 4 Argon · low`). The model appears about 1.7 s after the composer; ahelpa waits for it. A fresh launch is ready in about 2 s.
+2. **Working.** A Braille spinner line just above the composer (`Generating...`, `Loading...`, `Working...`, `Reading file...`, `Running command...`, `Editing files...`) with footer `esc to cancel`. Right after a submit there is one frame (about 0.5 s) with neither. While the spinner shows the screen never stayed unchanged for more than 0.29 s (the sampling interval), including a 53 s wait for the model. With the turn ended and a background task running, the screen stayed unchanged for 3.5 s and 65 s; the footer's task count covers that.
+3. **Turns.** A submitted turn is `> text` at column 0 right below a 60-column rule, wrapped lines indented two. Menu rows (`> /exit  Exit the CLI`), question options (`> 1. red`) and the trust dialog (`> Yes, I trust this folder`) also start with `> `, but not below a rule (the slash menu's first row is the exception; it only shows while typing a command).
+4. **Signal.** `[AHELPA:DONE]` renders on its own line, indented two. The ahelpa task line itself mentions both signals mid-line ("output [AHELPA:DONE] on its own line"); at 80 columns word wrapping cannot leave the 13-character token alone on a line.
+5. **Interrupt and exit.** `Esc` stops one turn and keeps the session. `/exit` opens the slash menu with `/exit` highlighted; Enter quits and prints the resume line.
+6. **Resume.** `--conversation <id>` replays the conversation (including old `[AHELPA:DONE]` lines). An unknown ID prints `warning: conversation "<id>" not found` above the banner and starts a new conversation.
+7. **Trust.** Session-only trust via `--settings` works and is matched literally: a `/tmp/…` working directory with only its `/private/tmp/…` real path trusted, or with only its parent trusted, still showed the dialog.
+8. **Prompts without `--dangerously-skip-permissions`.** Reading the task file outside the project asked "Allow access to this file?" (`1. Yes, allow access`, `2. Yes, and always allow non-workspace access`, `3. No, deny access`), and writing `summary.md` asked "Allow creation of this file?". With the flag, none of these appeared; `sudo -n true` ran and failed normally.
+9. **Process cleanup.** tmux kill during a tool run (four times while the command ran in the foreground, once as a background task) and `/exit` with a background task left no `sleep` behind within a second.
 
-**Choice of transport.** The bridge reports the conversation ID before the first task, gives structured turn results, needs no trust dialog or screen parsing, and does not depend on a TUI that changes between releases. TUI capture with `--add-dir` hooks and session-only trust is possible, and was kept as the fallback.
+`--safe` stays refused: without the skip flag every task needs answers for the task file outside the project, every write and every command, and agy would also need `--add-dir` for the task and result folders. The driver does not answer these dialogs.
 
 ## Verification
 
-`AHELPA_GATE_AGY=1 bun run closure:gate` makes model calls on `gemini-4-argon` / `medium`. It checks completion through `wait` and `check`, a native resume that recalls a marker from the first turn, and that the bridge and agy PIDs recorded while the helper ran are gone after `kill`. Every gate run leaves its agy conversations in agy's own history.
+`AHELPA_GATE_AGY=1 bun run closure:gate` makes model calls on `gemini-4-argon` / `medium`. It checks completion through `wait` and `check`, waits for the conversation ID recorded while draining, resumes it and recalls a marker from the first turn, then resumes again, kills during a `sleep 120` tool, and checks that the pane's processes recorded while agy ran (the pane shell, agy and the tool) are gone. Every gate run leaves its agy conversations in agy's own history.

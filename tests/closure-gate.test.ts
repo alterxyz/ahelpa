@@ -72,7 +72,7 @@ switch (command) {
       mkdirSync(join(project, ".ahelpa", id), { recursive: true });
       writeFileSync(join(project, ".ahelpa", id, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
     }
-    if (["gemini", "mistral", "deepseek"].includes(args[0])) {
+    if (["mistral", "deepseek"].includes(args[0])) {
       mkdirSync(join(project, ".ahelpa", id), { recursive: true });
       writeFileSync(join(project, ".ahelpa", id, sessions[id].harness + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
     }
@@ -110,8 +110,11 @@ switch (command) {
   }
   case "check": {
     if (scenario === "malformed-check") { console.log("not JSON"); break; }
+    // agy reports its conversation ID only on exit, a few checks after completion.
+    const checks = existsSync(join(root, "checks")) ? Number(readFileSync(join(root, "checks"), "utf8")) + 1 : 1;
+    writeFileSync(join(root, "checks"), String(checks));
     console.log(JSON.stringify(Object.values(sessions).map((entry) => ({
-      id: entry.id, agentType: entry.harness, agentResumeId: entry.agentResumeId,
+      id: entry.id, agentType: entry.harness, agentResumeId: scenario === "late-native-id" && checks < 4 ? null : entry.agentResumeId,
       role: scenario === "check-role-drift" ? "incorrect" : entry.role,
       model: scenario === "check-model-drift" ? "incorrect" : entry.model,
       effort: scenario === "check-effort-drift" ? "incorrect" : entry.effort,
@@ -138,7 +141,7 @@ switch (command) {
       const lockPath = join(...(scenario === "pi-lock-wrong-directory" ? [root, "wrong-directory"] : [process.env.PI_CODING_AGENT_DIR, "sessions", encoded]), ".ahelpa-" + sessions[id].agentResumeId + ".lock");
       writeFileSync(join(directory, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
     }
-    if (session.harness === "agy" || session.harness === "vibe") {
+    if (session.harness === "vibe") {
       mkdirSync(join(session.project, ".ahelpa", id), { recursive: true });
       writeFileSync(join(session.project, ".ahelpa", id, session.harness + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
     }
@@ -149,7 +152,7 @@ switch (command) {
     if (scenario === "resumed-task-failure") process.exit(2);
     const taskFile = args[args.indexOf("--file") + 1];
     session.task = readFileSync(taskFile, "utf8");
-    session.midturn = session.harness === "vibe" && session.task.includes("sleep 120");
+    session.midturn = ["vibe", "agy"].includes(session.harness) && session.task.includes("sleep 120");
     if (session.harness === "vibe") {
       session.childPid = session.midturn ? 93005 : 93004;
       writeFileSync(join(session.project, ".ahelpa", sessionId, "vibe-process.json"), JSON.stringify({ bridgePid: 93001, childPid: session.childPid }));
@@ -176,12 +179,17 @@ if (process.argv.includes("command=")) {
   if (scenario === "pi-self-match") console.log("bun -e --mode rpc 01234567-89ab-4cde-8012-3456789abcde");
   // Pi hides its RPC argv behind its native process title.
   if (scenario === "pi-child-alive") console.log("pi");
-} else if (sessions.some(session => (session.harness === "agy" || session.harness === "vibe") && session.status !== "dead")) {
-  const live = sessions.find(session => (session.harness === "agy" || session.harness === "vibe") && session.status !== "dead");
+} else if (sessions.some(session => session.harness === "agy" && session.status !== "dead")) {
+  // agy's TUI runs in the pane: the pane shell, agy, and mid-turn its tool.
+  const live = sessions.find(session => session.harness === "agy" && session.status !== "dead");
+  console.log(scenario === "agy-tui-gone" ? "93001 1 bash" : "93001 1 bash\\n93002 93001 agy");
+  if (live.midturn) console.log("93006 93002 sleep");
+} else if (sessions.some(session => session.harness === "vibe" && session.status !== "dead")) {
+  const live = sessions.find(session => session.harness === "vibe" && session.status !== "dead");
   if (scenario === "vibe-bridge-gone") process.exit(0);
-  console.log(scenario === "agy-bridge-gone" || (scenario === "vibe-child-gone" && !live.midturn) ? "93001 1" : "93001 1\\n" + (live.childPid ?? 93002) + " 93001");
+  console.log(scenario === "vibe-child-gone" && !live.midturn ? "93001 1" : "93001 1\\n" + (live.childPid ?? 93002) + " 93001");
   if (live.midturn) console.log("93006 93005 sleep");
-} else if (scenario === "vibe-tool-alive" && sessions.some(session => session.midturn)) {
+} else if (["vibe-tool-alive", "agy-tool-alive"].includes(scenario) && sessions.some(session => session.midturn)) {
   console.log("93006 1 sleep");
 } else if (["agy-child-alive", "vibe-child-alive"].includes(scenario)) {
   console.log("93002 1");
@@ -291,18 +299,22 @@ describe("closure gate", () => {
     expect(result.stderr).toContain(message);
   }, 20000);
 
-  test("gemini gate checks the Argon default, native resume, context continuity and reclamation", async () => {
-    const result = await runFixture("success", "gemini");
+  test.each(["success", "late-native-id"])("gemini gate checks the Argon default, native resume, context continuity and mid-turn reclamation (%s)", async scenario => {
+    const result = await runFixture(scenario, "gemini");
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("pass > gemini resume readiness, new turn, and context continuity");
-    expect(result.calls.filter(call => call.command === "kill")).toHaveLength(2);
+    expect(result.stdout).toContain("pass > gemini mid-turn kill reclaims agy and its tool");
+    expect(result.calls.filter(call => ["launch", "wait", "resume", "task", "kill"].includes(call.command)).map(call => call.command))
+      .toEqual(["launch", "wait", "kill", "resume", "task", "wait", "kill", "resume", "task", "kill"]);
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
     expect(readFileSync(join(result.evidenceDir, "pids-gemini-worker.txt"), "utf8")).toBe("93001\n93002\n");
     expect(readFileSync(join(result.evidenceDir, "pids-gemini-resumed.txt"), "utf8")).toBe("93001\n93002\n");
+    expect(readFileSync(join(result.evidenceDir, "pids-gemini-midturn.txt"), "utf8")).toBe("93001\n93002\n93006\n");
   }, 20000);
   test.each([
-    ["agy-child-alive", "gemini bridge or child remains after kill"],
-    ["agy-bridge-gone", "Cannot snapshot gemini bridge and child of a live helper"],
+    ["agy-child-alive", "gemini agy process tree remains after kill"],
+    ["agy-tool-alive", "gemini agy process tree remains after kill"],
+    ["agy-tui-gone", "Cannot snapshot gemini agy process tree of a live helper"],
     ["missing-native-id", "gemini did not retain a native session UUID"],
     ["pi-resume-id-drift", "gemini resume changed the native session UUID"],
     ["check-effort-drift", "expected role/model/effort"],
@@ -311,7 +323,7 @@ describe("closure gate", () => {
     const result = await runFixture(scenario, "gemini");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(message);
-  }, 20000);
+  }, 40000);
   test("gemini live gate is opt-in", async () => {
     const skipped = await runFixture("success", "codex", true);
     expect(skipped.stdout).toContain("skip > gemini (set AHELPA_GATE_AGY=1 to include)");

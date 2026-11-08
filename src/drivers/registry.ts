@@ -46,7 +46,7 @@ export const HELPER_NAMES: readonly HelperName[] = [
     driver: { ...agyDriver, name: "gemini", sessionPrefix: "gemini" },
     purpose: "Gemini implementation and review through a Google account.",
     harnessName: "Google Antigravity CLI (agy)", route: "Google account",
-    prerequisites: "Install agy >= 1.5.2 and Node.js, and sign in to agy with the Google account.",
+    prerequisites: "Install agy >= 1.5.2 and sign in to agy with the Google account.",
     fallback: [],
   },
   {
