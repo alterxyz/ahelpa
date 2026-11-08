@@ -1,64 +1,125 @@
-import { mkdirSync, readdirSync, realpathSync, writeFileSync } from "fs";
+import { readdirSync, realpathSync } from "fs";
 import { dirname, join } from "path";
 import { shellEscape } from "../shell";
-import { vibeTerminalSource } from "./vibe-terminal-source";
 import { addReadiness, executableReadiness, findReadinessExecutable, readLocalConfig, readinessRuntime } from "./readiness";
+import { maskSentinels, scanSentinels } from "./sentinels";
 import type { AgentDriver, DriverRuntime, LaunchOptions, ReadinessRuntime, ResumeOptions } from "./types";
 
 export const VIBE_TESTED_VERSION = "3.1.0";
 const EFFORTS = ["off", "low", "medium", "high", "max"] as const;
-const STATE = /^\[AHELPA_VIBE_STATE:(ready|running|idle|error|needs_attention)\]\s*$/gm;
-// Case-insensitive like the bridge's UUID check, which prints Vibe's sessionId as received.
-const TURN = /^\[AHELPA_VIBE_TURN:([a-f0-9-]{36})\]\s*$/gim;
-const SESSION = /^\[AHELPA_VIBE_SESSION:([a-f0-9-]{36})\]\s*$/gim;
+// Models Vibe does not ship need their full definition in the session agent file.
+const KNOWN_MODELS: Record<string, Record<string, unknown>> = {
+  "deepseek-v4-1-flash-1017": {
+    name: "deepseek-v4-1-flash-1017", provider: "mistral",
+    thinking_levels: ["low", "high", "max"], max_context_length: 1048576, max_output_tokens: 131072,
+  },
+};
 
-function lastMatch(output: string, pattern: RegExp): RegExpMatchArray | undefined {
-  return [...output.matchAll(new RegExp(pattern.source, pattern.flags))].at(-1);
+// Vibe 3.1 TUI (full screen, alternate screen: a capture is the visible viewport).
+// The scrollbar thumb is drawn in the last column of any row, sentinel rows included.
+const SCROLLBAR = /[^\S\r\n]*[▁-█]$/gm;
+// The composer's top rule carries the model and agent: "──── Mistral Large 4[high] · ahelpa helper ─".
+const COMPOSER_RULE = /^─+ \S.* ─\s*$/;
+// Startup first draws the default agent ("· accept edits") while it initializes.
+const SESSION_AGENT = /· ahelpa helper ─\s*$/;
+// A submitted turn: "> text" at column 0, wrapped lines indented by two spaces.
+const USER_TURN = /^> \S.*(?:\n {2}\S.*)*/gm;
+// "⠴ Generating… (12s Esc/Ctrl+C to interrupt)", also "Running command…" and "Thinking…".
+const WORKING = /Esc\/Ctrl\+C to interrupt\)/g;
+// The question tool replaces the composer with a dialog and keeps the hint line.
+const QUESTION = /User input required…/;
+const MODEL_MISSING = /Model '([^']+)' is not available/;
+// "✕ Error: API error occurred: Status 400. Body: {... "type":"invalid_model" ...}".
+const FAILURE = /^✕ Error:/gm;
+// Wording the deepseek fallback policy names; keep it in step with the registry.
+export const VIBE_MODEL_UNAVAILABLE = "model unavailable (the Mistral subscription may not include it)";
+// Printed by /exit: "Or: vibe --resume d68ff081" (the first 8 hex digits of the session ID).
+const RESUME = /^Or: vibe --resume ([0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?)\s*$/gim;
+
+interface Screen { text: string; masked: string; turnStart: number; rule: string | undefined; composer: string | undefined }
+
+function parse(output: string): Screen {
+  const full = output.replace(SCROLLBAR, "");
+  const lines = maskSentinels(full).split("\n");
+  let rule = -1;
+  for (let i = lines.length - 1; i >= 0 && rule < 0; i--) if (COMPOSER_RULE.test(lines[i])) rule = i;
+  // Everything above the composer is transcript; a dialog leaves no composer.
+  const end = rule < 0 ? full.length : lines.slice(0, rule).join("\n").length;
+  const text = full.slice(0, end);
+  const masked = maskSentinels(text);
+  const turnStart = [...masked.matchAll(USER_TURN)].at(-1)?.index ?? 0;
+  return { text, masked, turnStart, rule: lines[rule], composer: rule < 0 ? undefined : lines[rule + 1] };
 }
 
-function state(output: string): string | undefined {
-  const current = lastMatch(output, STATE);
-  const latestTurn = lastMatch(output, TURN);
-  // A capture can land between writes in one control block. Never attach the
-  // preceding turn's settled state to a newly emitted turn marker.
-  return current && (current.index ?? -1) > (latestTurn?.index ?? -1) ? current[1] : undefined;
+function lastWorking(screen: Screen): number {
+  return [...screen.masked.slice(screen.turnStart).matchAll(WORKING)].at(-1)?.index ?? -1;
 }
-function turn(output: string): string | undefined { return lastMatch(output, TURN)?.[1]; }
 
-function files(opts: LaunchOptions) {
-  const directory = opts.deliveryDir ?? join(opts.cwd, ".ahelpa", opts.sessionId ?? "vibe");
-  return { directory, app: join(directory, "vibe-terminal.mjs") };
+function working(screen: Screen): boolean {
+  return screen.composer !== undefined && lastWorking(screen) >= 0 && !QUESTION.test(screen.masked.slice(screen.turnStart));
+}
+
+function ready(screen: Screen): boolean {
+  return SESSION_AGENT.test(screen.rule ?? "") && /^>\s*$/.test(screen.composer ?? "") && !working(screen);
+}
+
+function userTurns(screen: Screen): string[] {
+  return [...screen.masked.matchAll(USER_TURN)].map(match => match[0]);
+}
+
+function newTurn(before: string | undefined, output: string): boolean {
+  const after = parse(output);
+  if (before === undefined) return working(after);
+  const previous = parse(before);
+  const turns = userTurns(after), earlier = userTurns(previous);
+  // The viewport can scroll the old turn away, so a start of work also counts.
+  return turns.length > earlier.length || turns.at(-1) !== earlier.at(-1) || (!working(previous) && working(after));
+}
+
+function deliveryDir(opts: LaunchOptions): string {
+  return opts.deliveryDir ?? join(opts.cwd, ".ahelpa", opts.sessionId ?? "vibe");
 }
 
 function validate(opts: LaunchOptions): void {
-  if (opts.safe) throw new Error("vibe --safe is not supported; lower-permission headless agents are unverified");
+  if (opts.safe) throw new Error("vibe --safe is not supported; lower-permission Vibe agents are unverified");
   if (opts.model !== undefined && !/^[\w.:-]+$/.test(opts.model)) throw new Error("vibe --model must be a model alias, such as mistral-large-4-0-3");
   if (opts.effort !== undefined && !EFFORTS.includes(opts.effort as typeof EFFORTS[number])) {
     throw new Error(`vibe --effort must be one of: ${EFFORTS.join(", ")}`);
   }
 }
 
-export function prepareVibeFiles(opts: LaunchOptions): void {
-  validate(opts);
-  const paths = files(opts);
-  mkdirSync(paths.directory, { recursive: true });
-  writeFileSync(paths.app, vibeTerminalSource, { mode: 0o600 });
+export function vibeAgentToml(opts: { model?: string; effort?: string }): string {
+  const model = opts.model ?? (opts.effort === undefined ? undefined : "mistral-large-4-0-3");
+  let agent = 'safety = "yolo"\nbypass_tool_permissions = true\n';
+  if (model === undefined) return agent;
+  agent += `active_model = ${JSON.stringify(model)}\n`;
+  const definition = Object.hasOwn(KNOWN_MODELS, model) ? KNOWN_MODELS[model] : undefined;
+  // A quoted key keeps dotted aliases whole; the sparse table merges onto Vibe's routed model.
+  if (definition || opts.effort !== undefined) agent += `[models.${JSON.stringify(model)}]\n`;
+  for (const [key, value] of Object.entries(definition ?? {})) agent += `${key} = ${JSON.stringify(value)}\n`;
+  if (opts.effort !== undefined) agent += `thinking = ${JSON.stringify(opts.effort)}\n`;
+  return agent;
 }
 
 function command(opts: LaunchOptions, resumeId?: string): string {
   validate(opts);
-  const args = [shellEscape(files(opts).app), "--cwd", shellEscape(opts.cwd)];
+  const dir = deliveryDir(opts);
+  const args = ["--trust", "--agent", "ahelpa-helper"];
   if (resumeId !== undefined) args.push("--resume", shellEscape(resumeId));
-  if (opts.model !== undefined) args.push("--model", shellEscape(opts.model));
-  if (opts.effort !== undefined) args.push("--effort", shellEscape(opts.effort));
-  return `cd ${shellEscape(opts.cwd)} && node ${args.join(" ")}`;
+  // ponytail: the pane writes the agent file, because launch files are prepared
+  // before model and effort reach the driver. The umask stays in the subshell.
+  const agent = `(umask 077 && printf %s ${shellEscape(vibeAgentToml(opts))} > ${shellEscape(join(dir, "ahelpa-helper.toml"))})`;
+  const env = `VIBE_ENABLE_AUTO_UPDATE=false VIBE_ENABLE_UPDATE_CHECKS=false VIBE_AGENT_PATHS=${shellEscape(JSON.stringify([dir]))}`;
+  return `cd ${shellEscape(opts.cwd)} && ${agent} && ${env} vibe ${args.join(" ")}`;
 }
 
 async function waitReady(sessionId: string, runtime: DriverRuntime) {
-  for (let attempt = 0; attempt < 120; attempt++) {
+  for (let attempt = 0; attempt < 60; attempt++) {
     const output = await runtime.capture(sessionId, 60);
-    if (state(output) === "ready") return;
-    if (state(output) === "error") throw new Error(`vibe session ${sessionId} failed to start; inspect its last screen`);
+    // Vibe falls back to another model with only a warning; never run the wrong one.
+    const missing = maskSentinels(output).match(MODEL_MISSING)?.[1];
+    if (missing) throw new Error(`vibe model ${missing} is not available; inspect its last screen`);
+    if (ready(parse(output))) return;
     await runtime.sleep(500);
   }
   throw new Error(`vibe session ${sessionId} did not reach its input prompt`);
@@ -91,7 +152,6 @@ function installedVersion(executable: string): string | null {
 export function checkVibeReadiness(cwd: string, runtime: ReadinessRuntime = readinessRuntime()) {
   const executable = findReadinessExecutable("vibe", cwd, runtime);
   const result = executableReadiness(executable, executable ? installedVersion(executable) : null);
-  if (!findReadinessExecutable("node", cwd, runtime)) addReadiness(result, false, "Node.js is required for the vibe streaming bridge");
   if (!executable) return result;
   if (result.version && older(result.version, VIBE_TESTED_VERSION)) addReadiness(result, false, `upgrade vibe to >= ${VIBE_TESTED_VERSION}`);
   addReadiness(result, "unknown", `vibe keeps its sign-in in the OS keychain, so sign-in is verified at first turn; tested with ${VIBE_TESTED_VERSION}`);
@@ -99,9 +159,10 @@ export function checkVibeReadiness(cwd: string, runtime: ReadinessRuntime = read
 }
 
 export const vibeDriver: AgentDriver = {
-  name: "vibe", sessionPrefix: "vibe", resumeTokenAvailableAfterSubmit: true,
+  name: "vibe", sessionPrefix: "vibe", resumeTokenAvailableAfterSubmit: false,
   checkReadiness: checkVibeReadiness,
-  prepareLaunchFiles: prepareVibeFiles,
+  // Launch only needs the delivery directory reserved before the pane writes into it.
+  prepareLaunchFiles: validate,
   launchProfiles: { defaultRole: "worker", profiles: {
     worker: { model: "mistral-large-4-0-3", effort: "high" },
     reviewer: { model: "mistral-large-4-0-3", effort: "high" },
@@ -113,43 +174,39 @@ export const vibeDriver: AgentDriver = {
       { name: "glm-5-3", efforts: ["low", "high", "max"], defaultEffort: "high" },
       { name: "zai-glm-5-3-flash", efforts: ["low", "high", "max"], defaultEffort: "high" },
     ],
-    effortNote: "vibe selects model and thinking through a session-local agent TOML file on every turn. Omitted effort keeps the model default. Runtime model switching and --safe are not supported.",
+    effortNote: "vibe selects model and thinking through a session-local agent TOML file read at launch and resume. Omitted effort keeps the model default. Runtime model switching and --safe are not supported.",
   },
   buildLaunchCommand: command,
   buildResumeCommand(opts: ResumeOptions) { return command(opts, opts.resumeId); },
-  extractResumeToken(output) { return lastMatch(output, SESSION)?.[1] ?? null; },
+  extractResumeToken(output) { return [...output.matchAll(RESUME)].at(-1)?.[1] ?? null; },
   prepareForTask: waitReady, prepareForResume: waitReady,
   async afterTaskSubmitted(sessionId, runtime, context) {
-    const previous = context?.beforeOutput === undefined ? undefined : turn(context.beforeOutput);
-    let accepted = false;
-    for (let attempt = 0; attempt < 120; attempt++) {
-      const output = await runtime.capture(sessionId, 80);
-      const current = turn(output);
-      const currentState = state(output);
-      const failed = currentState === "error" || currentState === "needs_attention";
-      // The bridge starts the turn before Vibe emits its native session ID.
-      // Try to retain that ID at launch, but never destroy an accepted slow turn.
-      if (current && current !== previous && currentState && currentState !== "ready"
-        && (context?.beforeOutput !== undefined || currentState === "running" || failed)) {
-        accepted = true;
-        if (lastMatch(output, SESSION) || failed) return true;
-      }
+    for (let attempt = 0; attempt < 20; attempt++) {
       await runtime.sleep(500);
+      if (newTurn(context?.beforeOutput, await runtime.capture(sessionId, 80))) return true;
     }
-    return accepted;
+    return false;
   },
   async switchModel() { throw new Error("vibe runtime model switching is not supported; launch with --model and --effort instead"); },
   detectStatus(output) { return vibeDriver.detectOutcome(output).status; },
   detectOutcome(output) {
-    const current = state(output);
-    const status = current === "idle" || current === "error" || current === "needs_attention" ? current : "running";
-    const tags = lastMatch(output, /^\[AHELPA_VIBE_TAGS:([a-z0-9_, -]*)\]\s*$/gm);
-    const lastTurn = lastMatch(output, TURN);
-    const needHelpTags = status !== "running" && tags && tags.index! > (lastTurn?.index ?? -1)
-      ? [...new Set(tags[1].split(",").map(tag => tag.trim()).filter(Boolean))] : null;
-    return { status, needHelpTags };
+    const screen = parse(output);
+    // Resumed Vibe shows earlier turns; only the latest turn's signal after its last work counts.
+    const turn = screen.text.slice(screen.turnStart);
+    const sentinel = scanSentinels(turn).at(-1);
+    const failure = [...screen.masked.slice(screen.turnStart).matchAll(FAILURE)].at(-1)?.index ?? -1;
+    const settled = Math.max(sentinel?.index ?? -1, failure);
+    if (settled <= lastWorking(screen)) return { status: "running", needHelpTags: null };
+    if (sentinel && sentinel.index === settled) return { status: sentinel.status, needHelpTags: sentinel.needHelpTags };
+    // Vibe wraps the API error body mid-word; rejoin its indented lines.
+    if (/invalid_model/.test(turn.slice(failure).replace(/\n {2}/g, ""))) {
+      return { status: "needs_attention", needHelpTags: null, reason: VIBE_MODEL_UNAVAILABLE };
+    }
+    // Other failures end the turn without a signal and settle through the idle fallback.
+    return { status: "running", needHelpTags: null };
   },
-  detectActivity(output) { const current = state(output); return current === "running" ? "working" : current ? "idle" : "booting"; },
-  acceptsInput(output) { return ["ready", "idle", "needs_attention"].includes(state(output) ?? ""); },
+  // A dialog, an exited TUI or an unknown screen is idle, so the daemon can settle it.
+  detectActivity(output) { return working(parse(output)) ? "working" : "idle"; },
+  acceptsInput(output) { return ready(parse(output)); },
   async gracefulExit(sessionId, runtime) { await runtime.sendKeys(sessionId, "/exit"); },
 };

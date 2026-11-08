@@ -70,8 +70,9 @@ test.each([
     expect(resolveLaunchProfile(driver, { role })).toEqual({ role, model, effort });
   }
   expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model, effort });
-  const harness = ["deepseek-pi", "pi"].includes(name) ? "PI" : "VIBE";
-  const output = `[AHELPA_${harness}_STATE:idle]\n`;
+  // Vibe is read from its TUI screen: the latest turn's DONE above the composer.
+  const output = ["deepseek-pi", "pi"].includes(name) ? "[AHELPA_PI_STATE:idle]\n"
+    : "> task\n───\n  [AHELPA:DONE]\n─── Mistral Large 4[high] · ahelpa helper ─\n>\n";
   expect(driver.detectStatus(output)).toBe("idle");
   expect(driver.detectOutcome(output).status).toBe("idle");
 });
@@ -83,7 +84,7 @@ test("public catalogs separate models while accepting other Vibe aliases", () =>
     { name: "deepseek-v4-1-flash-1017", efforts: ["low", "high", "max"], defaultEffort: "high" },
   ]);
   for (const model of ["glm-5-3", "zai-glm-5-3-flash", "deepseek-v4-1-flash-1017"]) {
-    expect(getDriver("mistral").buildLaunchCommand({ cwd: "/tmp", model })).toContain(`--model '${model}'`);
+    expect(getDriver("mistral").buildLaunchCommand({ cwd: "/tmp", model })).toContain(`active_model = "${model}"`);
   }
 });
 

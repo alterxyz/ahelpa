@@ -127,7 +127,10 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 - No assignment claim yet. Launch by name for bounded trials with independent acceptance checks.
 
 **Watch for**
-- Exit 0 without the completion sentinel still needs attention; interruption (exit 3) also needs attention. Read the result before deciding to continue.
+- A turn that ends without the completion sentinel (an Esc interruption or an API error included) needs attention through the idle fallback. Read the screen and result before deciding to continue.
+- Vibe renders replies as Markdown, so a sentinel on the line right after text (no blank line) merges into that paragraph and is missed; the daemon's one completion nudge usually recovers it.
+- The model can open Vibe's question dialog; the helper then needs attention until someone answers it in the pane or presses Esc.
+- Large 4 may refuse a task line that seems to contradict the ahelpa contract. In one closure-gate run (2026-11-07) it treated "write exactly `<marker>` to summary.md" as injected content, wrote a full summary instead, and still printed DONE; the next run complied. Say explicitly when summary.md should hold something other than the contract's fields.
 - Thinking levels vary by model. The driver accepts `off|low|medium|high|max`; a level outside the model’s supported set can still be sent by Vibe with a warning.
 
 **Give it**
@@ -135,11 +138,11 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, s
 
 **Runtime quirks**
 - `worker` (default) and `reviewer` use `mistral-large-4-0-3` / `high`. No `advisor`, `--safe`, or runtime model switching.
-- The tmux bridge and native session persist; each turn starts a new headless child with native resume. Model/thinking come from a session agent file. See [Vibe setup and limits](vibe.md).
+- Runs Vibe's own interactive TUI in tmux; attach to watch or type, and Esc interrupts a turn without ending the session. Model/thinking come from a session agent file. The resume token is printed only on exit, so a helper killed before DONE cannot be resumed. See [Vibe setup and limits](vibe.md).
 
 ## deepseek
 
-Uses the Vibe harness and Mistral subscription, with `deepseek-v4-1-flash-1017` / `high` for both `worker` and `reviewer`. The subscription must include the model. This is the subscription-first DeepSeek route; use `deepseek-pi` as the API backup when the first turn reports model unavailability or authentication failure. Pi observations do not establish this route's task quality. It shares [mistral](#mistral)'s bridge and limits. The bridge writes the full model definition per session, without editing global Vibe config; see [DeepSeek setup](vibe.md#deepseek-through-the-mistral-subscription).
+Uses the Vibe harness and Mistral subscription, with `deepseek-v4-1-flash-1017` / `high` for both `worker` and `reviewer`. The subscription must include the model. This is the subscription-first DeepSeek route; use `deepseek-pi` as the API backup when the first turn reports model unavailability or authentication failure. Pi observations do not establish this route's task quality. It shares [mistral](#mistral)'s terminal and limits. Each launch and resume writes the full model definition into the session agent file, without editing global Vibe config; see [DeepSeek setup](vibe.md#deepseek-through-the-mistral-subscription).
 
 **Observation status**
 - One bounded trial (2026-11-06), one run per task, same briefs as `codex` (`gpt-6-astra` / `medium`) and `claude --role worker` (`claude-sonnet-5-5` / `high`), each in an isolated clone of a large private repository with a 76 KB AGENTS.md, project skills, and repo CLI tools. Four tasks: six rule lookups across AGENTS.md; applying a project skill whose answers need its CLI; running a repo checker on a seeded draft and proposing compliant fixes; a small feature with a hidden 9-test acceptance suite. DeepSeek matched every expected answer, ran the skill's CLI the documented way (codex skipped it and read the table by hand), passed 9/9 hidden tests like both others, and checked more of its own claims than either, finding real tool defects. For bounded tasks its quality was on par with both. Not yet observed: long multi-file work, ambiguous tasks, rework after review, reliability across many runs. Full record: [case study](../../docs/case-deepseek-trial-20261106.md).

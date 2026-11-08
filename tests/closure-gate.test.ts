@@ -50,8 +50,8 @@ switch (command) {
     const task = args[args.indexOf("--task") + 1];
     const marker = task.match(/Remember this context marker for our next turn: ([a-f0-9-]+)\./)?.[1];
     const completionMarker = task.match(/Write exactly ([^ ]+) followed by a newline/)?.[1];
-    sessions[id] = { id, agent: args[0], harness: ["mistral", "deepseek"].includes(args[0]) ? "vibe" : args[0] === "deepseek-pi" ? "pi" : args[0] === "claude" ? "claude-code" : args[0] === "gemini" ? "agy" : args[0], project, task, marker, role, model, effort, status: scenario === "reaped" ? "idle" : "draining",
-      agentResumeId: scenario === "missing-native-id" ? null : ["deepseek-pi", "gemini", "mistral", "deepseek"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
+    sessions[id] = { id, agent: args[0], harness: ["mistral", "deepseek"].includes(args[0]) ? "vibe" : args[0] === "deepseek-pi" ? "pi" : args[0] === "claude" ? "claude-code" : args[0] === "gemini" ? "agy" : args[0], project, task, marker, role, model, effort, status: ["reaped", "missing-native-id"].includes(scenario) ? "idle" : "draining",
+      agentResumeId: scenario === "missing-native-id" ? null : ["mistral", "deepseek"].includes(args[0]) ? "01234567" : ["deepseek-pi", "gemini"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
     save();
     if (args[0] === "deepseek-pi") {
       const encoded = "--" + resolve(project).replace(/^[/\\\\]/, "").replace(/[/\\\\:]/g, "-") + "--";
@@ -71,10 +71,6 @@ switch (command) {
       }
       mkdirSync(join(project, ".ahelpa", id), { recursive: true });
       writeFileSync(join(project, ".ahelpa", id, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
-    }
-    if (["mistral", "deepseek"].includes(args[0])) {
-      mkdirSync(join(project, ".ahelpa", id), { recursive: true });
-      writeFileSync(join(project, ".ahelpa", id, sessions[id].harness + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
     }
     // A linked worktree keeps its results in the main checkout and a link in the project.
     const delivery = scenario === "linked-results" ? join(root, "main", ".ahelpa", id) : join(project, ".ahelpa", id);
@@ -104,17 +100,18 @@ switch (command) {
   case "logs": {
     if (scenario === "logs-unavailable") process.exit(1);
     console.log(session.task);
-    if (session.midturn) console.log("[AHELPA_VIBE_STATE:running]");
     console.log(scenario === "account-error" ? "Your account does not have access to Claude Code" : "partial gate-codex output");
     break;
   }
   case "check": {
     if (scenario === "malformed-check") { console.log("not JSON"); break; }
-    // agy reports its conversation ID only on exit, a few checks after completion.
+    // agy and Vibe report their resume IDs only on exit, a few checks after completion.
     const checks = existsSync(join(root, "checks")) ? Number(readFileSync(join(root, "checks"), "utf8")) + 1 : 1;
     writeFileSync(join(root, "checks"), String(checks));
+    const late = scenario === "vibe-late-resume-id" && !existsSync(join(root, "late-id-seen"));
+    if (late) writeFileSync(join(root, "late-id-seen"), "");
     console.log(JSON.stringify(Object.values(sessions).map((entry) => ({
-      id: entry.id, agentType: entry.harness, agentResumeId: scenario === "late-native-id" && checks < 4 ? null : entry.agentResumeId,
+      id: entry.id, agentType: entry.harness, agentResumeId: (scenario === "late-native-id" && checks < 4) || (late && entry.harness === "vibe") ? null : entry.agentResumeId,
       role: scenario === "check-role-drift" ? "incorrect" : entry.role,
       model: scenario === "check-model-drift" ? "incorrect" : entry.model,
       effort: scenario === "check-effort-drift" ? "incorrect" : entry.effort,
@@ -141,10 +138,6 @@ switch (command) {
       const lockPath = join(...(scenario === "pi-lock-wrong-directory" ? [root, "wrong-directory"] : [process.env.PI_CODING_AGENT_DIR, "sessions", encoded]), ".ahelpa-" + sessions[id].agentResumeId + ".lock");
       writeFileSync(join(directory, "pi-process.json"), JSON.stringify({ lockPath, bridgePid: 91001, childPid: 91002 }));
     }
-    if (session.harness === "vibe") {
-      mkdirSync(join(session.project, ".ahelpa", id), { recursive: true });
-      writeFileSync(join(session.project, ".ahelpa", id, session.harness + "-process.json"), JSON.stringify({ bridgePid: 93001, childPid: 93002 }));
-    }
     console.log(JSON.stringify({ sessionId: id, ownerToken: "fixture-token" }));
     break;
   }
@@ -153,10 +146,6 @@ switch (command) {
     const taskFile = args[args.indexOf("--file") + 1];
     session.task = readFileSync(taskFile, "utf8");
     session.midturn = ["vibe", "agy"].includes(session.harness) && session.task.includes("sleep 120");
-    if (session.harness === "vibe") {
-      session.childPid = session.midturn ? 93005 : 93004;
-      writeFileSync(join(session.project, ".ahelpa", sessionId, "vibe-process.json"), JSON.stringify({ bridgePid: 93001, childPid: session.childPid }));
-    }
     session.status = session.midturn ? "running" : "draining";
     save();
     const delivery = join(session.project, ".ahelpa", sessionId);
@@ -185,10 +174,9 @@ if (process.argv.includes("command=")) {
   console.log(scenario === "agy-tui-gone" ? "93001 1 bash" : "93001 1 bash\\n93002 93001 agy");
   if (live.midturn) console.log("93006 93002 sleep");
 } else if (sessions.some(session => session.harness === "vibe" && session.status !== "dead")) {
-  const live = sessions.find(session => session.harness === "vibe" && session.status !== "dead");
-  if (scenario === "vibe-bridge-gone") process.exit(0);
-  console.log(scenario === "vibe-child-gone" && !live.midturn ? "93001 1" : "93001 1\\n" + (live.childPid ?? 93002) + " 93001");
-  if (live.midturn) console.log("93006 93005 sleep");
+  // The pane shell runs Vibe's TUI, its app server and, mid-turn, the shell tool.
+  console.log(scenario === "vibe-gone" ? "93001 1 bash" : "93001 1 bash\\n93002 93001 /opt/vibe/_bin/vibe-rs\\n93003 93002 vibe-app-server");
+  if (sessions.some(session => session.midturn && session.status !== "dead")) console.log("93005 93003 zsh\\n93006 93005 sleep");
 } else if (["vibe-tool-alive", "agy-tool-alive"].includes(scenario) && sessions.some(session => session.midturn)) {
   console.log("93006 1 sleep");
 } else if (["agy-child-alive", "vibe-child-alive"].includes(scenario)) {
@@ -312,8 +300,8 @@ describe("closure gate", () => {
     expect(readFileSync(join(result.evidenceDir, "pids-gemini-midturn.txt"), "utf8")).toBe("93001\n93002\n93006\n");
   }, 20000);
   test.each([
-    ["agy-child-alive", "gemini agy process tree remains after kill"],
-    ["agy-tool-alive", "gemini agy process tree remains after kill"],
+    ["agy-child-alive", "gemini process tree remains after kill"],
+    ["agy-tool-alive", "gemini process tree remains after kill"],
     ["agy-tui-gone", "Cannot snapshot gemini agy process tree of a live helper"],
     ["missing-native-id", "gemini did not retain a native session UUID"],
     ["pi-resume-id-drift", "gemini resume changed the native session UUID"],
@@ -347,13 +335,18 @@ describe("closure gate", () => {
     expect(result.calls.find(call => call.command === "launch")?.args).not.toContain("--model");
     expect(readFileSync(join(result.evidenceDir, `result-${agent}-worker`, "summary.md"), "utf8")).toBe(`gate-${agent}-worker\n`);
     expect(readFileSync(join(result.evidenceDir, `result-${agent}-resumed`, "summary.md"), "utf8")).toMatch(new RegExp(`^gate-${agent}-resumed:[a-f0-9-]+\\n$`));
-    expect(readFileSync(join(result.evidenceDir, `pids-${agent}-resumed.txt`), "utf8")).toBe("93001\n93002\n93004\n");
-    expect(readFileSync(join(result.evidenceDir, `pids-${agent}-midturn.txt`), "utf8")).toBe("93001\n93002\n93004\n93005\n93006\n");
+    expect(readFileSync(join(result.evidenceDir, `pids-${agent}-resumed.txt`), "utf8")).toBe("93001\n93002\n93003\n");
+    expect(readFileSync(join(result.evidenceDir, `pids-${agent}-midturn.txt`), "utf8")).toBe("93001\n93002\n93003\n93005\n93006\n");
+  }, 20000);
+  test("Vibe gate waits for the resume ID recorded while the helper drains", async () => {
+    const result = await runFixture("vibe-late-resume-id", "mistral");
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.filter(call => call.command === "check").length).toBeGreaterThan(4);
   }, 20000);
   test.each([
-    ["vibe-child-alive", "mistral bridge or child remains after kill"],
-    ["vibe-bridge-gone", "Cannot snapshot mistral bridge and child of a live helper"],
-    ["vibe-tool-alive", "mistral bridge or child remains after kill"],
+    ["vibe-child-alive", "mistral process tree remains after kill"],
+    ["vibe-gone", "Cannot snapshot mistral process tree of a live helper"],
+    ["vibe-tool-alive", "mistral process tree remains after kill"],
     ["missing-native-id", "mistral did not retain a native session UUID"],
     ["pi-resume-id-drift", "mistral resume changed the native session UUID"],
     ["context-loss", "missing or incorrect summary"],
@@ -361,11 +354,6 @@ describe("closure gate", () => {
     const result = await runFixture(scenario, "mistral");
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(message);
-  }, 20000);
-  test("Vibe snapshots tolerate an already-exited child on ordinary turns", async () => {
-    const result = await runFixture("vibe-child-gone", "mistral");
-    expect(result.exitCode).toBe(0);
-    expect(readFileSync(join(result.evidenceDir, "pids-mistral-midturn.txt"), "utf8")).toBe("93001\n93005\n93006\n");
   }, 20000);
   test("Vibe live gate is opt-in", async () => {
     const skipped = await runFixture("success", "codex", true);

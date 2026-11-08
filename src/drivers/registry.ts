@@ -4,7 +4,7 @@ import { codexDriver } from "./codex";
 import { kimiDriver } from "./kimi";
 import { piDriver } from "./pi";
 import { agyDriver } from "./agy";
-import { vibeDriver } from "./vibe";
+import { VIBE_MODEL_UNAVAILABLE, vibeDriver } from "./vibe";
 
 export const REMOVED_DSH_MESSAGE = "dsh was removed on 2026-11-06";
 
@@ -67,7 +67,7 @@ export const HELPER_NAMES: readonly HelperName[] = [
     },
     purpose: "Mistral tasks through the Mistral subscription.",
     harnessName: "Mistral Vibe CLI", route: "Mistral subscription (Vibe sign-in)",
-    prerequisites: "Install Vibe >= 3.1.0 and Node.js, and sign in to an eligible Mistral subscription in Vibe.",
+    prerequisites: "Install Vibe >= 3.1.0 and sign in to an eligible Mistral subscription in Vibe.",
     fallback: [],
   },
   {
@@ -84,8 +84,8 @@ export const HELPER_NAMES: readonly HelperName[] = [
     },
     purpose: "DeepSeek tasks through the subscription first.",
     harnessName: "Mistral Vibe CLI", route: "Mistral subscription (Vibe sign-in)",
-    prerequisites: "Install Vibe >= 3.1.0 and Node.js, sign in to Vibe, and use a Mistral subscription that includes deepseek-v4-1-flash-1017.",
-    fallback: [{ when: "The first turn reports model unavailable (the Mistral subscription may not include it), or authentication fails", name: "deepseek-pi" }],
+    prerequisites: "Install Vibe >= 3.1.0, sign in to Vibe, and use a Mistral subscription that includes deepseek-v4-1-flash-1017.",
+    fallback: [{ when: `The first turn reports ${VIBE_MODEL_UNAVAILABLE}, or authentication fails`, name: "deepseek-pi" }],
   },
   {
     name: "deepseek-pi", aliases: ["pi"], harnessId: "pi",
