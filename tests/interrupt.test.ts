@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, mock, spyOn, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { Archive } from "../src/archive";
@@ -324,19 +324,37 @@ test("one intervention at a time, and only its holder releases the lease", async
   expect(keys).toEqual([]);
 });
 
-test("the lease is renewed while a slow intervention polls", async () => {
+test("the lease holds through a slow tmux call, however long", async () => {
   session("s");
   let now = Date.now();
   spyOn(Date, "now").mockImplementation(() => now);
   const active: boolean[] = [];
+  spyOn(Tmux, "sendKey").mockImplementation(async (_id, key) => {
+    keys.push(key);
+    now += 20_001; // one tmux call outlasts any fixed renewal period
+    active.push(interventionLeaseActive("s", now));
+    screen = "ready";
+  });
   spyOn(Tmux, "capture").mockImplementation(async () => {
-    now += 15_000; // each tmux round trip takes 15 s
+    now += 10_000;
     active.push(interventionLeaseActive("s", now));
     return SCREENS[screen];
   });
   await interrupt(db, "s", "s-token");
   expect(active.length).toBeGreaterThan(2);
   expect(active.every(Boolean)).toBe(true);
+});
+
+test("a lease ends with its holder process and can then be taken", async () => {
+  session("s");
+  // A holder that died: a PID that cannot exist.
+  mkdirSync(join(root, "interventions"), { recursive: true });
+  writeFileSync(join(root, "interventions", "s"), `${Date.now()} dead-token 2147483646`);
+  expect(interventionLeaseActive("s")).toBe(false);
+  const lease = takeInterventionLease("s");
+  expect(lease).not.toBeNull();
+  expect(interventionLeaseActive("s")).toBe(true);
+  releaseInterventionLease(lease!);
 });
 
 test("an older stop line on screen does not prove that a newer turn stopped", async () => {

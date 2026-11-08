@@ -22,7 +22,7 @@ import { readTaskFile } from "../task-input";
 import { normalizeTurnInput } from "../turn-hooks";
 import { deliverTurn } from "../turn-delivery";
 import { settle } from "../settle";
-import { releaseInterventionLease, renewInterventionLease, takeInterventionLease, type InterventionLease } from "../intervention-lease";
+import { ownsInterventionLease, releaseInterventionLease, takeInterventionLease, type InterventionLease } from "../intervention-lease";
 import { resolveParentId } from "../caller-identity";
 
 interface AuthContext { db: StateDB; session: SessionRecord; }
@@ -186,7 +186,7 @@ async function settledScreen(
   let previous: string | null = null;
   for (let attempt = 0; attempt < STOP_POLLS; attempt++) {
     await Bun.sleep(POLL_MS);
-    if (!renewInterventionLease(lease)) return null;
+    if (!ownsInterventionLease(lease)) return null;
     const output = await Tmux.capture(sessionId, COUNT_LINES);
     const screen = tail(output, READY_LINES);
     const shown = !proof || (stopLines(output, proof.stopped) > proof.before && proof.stopped.test(tail(output, STOP_TAIL_LINES)));
@@ -230,7 +230,8 @@ export const interrupt = withAuth(async ({ db, session }) => {
     const archive = new Archive(defaultRuntimeLayout.archiveDir());
     for (let attempt = 0; attempt < 3; attempt++) {
       const current = db.getSession(session.id);
-      if (!current || current.status !== turn.status || current.turnStartedAt !== turn.turnStartedAt) {
+      if (!current || current.status !== turn.status || current.turnStartedAt !== turn.turnStartedAt
+        || current.turnInputDigest !== turn.turnInputDigest) {
         throw new Error(`Session ${session.id} changed to ${current?.status ?? "missing"} while it was interrupted; the interrupt key was sent`);
       }
       if (await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
@@ -281,7 +282,7 @@ async function preserveResumeId(db: StateDB, session: SessionRecord, screen?: st
     await driver.gracefulExit(session.id, driverRuntime);
     for (let attempt = 0; attempt < EXIT_POLLS; attempt++) {
       await Bun.sleep(POLL_MS);
-      if (!renewInterventionLease(lease)) return;
+      if (!ownsInterventionLease(lease)) return;
       const resumeId = driver.extractResumeToken(await Tmux.capture(session.id, 50));
       if (resumeId) { db.updateResumeId(session.id, resumeId); return; }
     }
