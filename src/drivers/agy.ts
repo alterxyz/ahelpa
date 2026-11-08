@@ -181,5 +181,8 @@ export const agyDriver: AgentDriver = {
   },
   detectActivity(output) { return working(output) ? "working" : TRUST.test(output) ? "booting" : "idle"; },
   acceptsInput: ready,
+  // Esc stops one turn and keeps the session (2026-11-07, agy 1.5.3).
+  interruptKey: "Escape",
+
   async gracefulExit(sessionId, runtime) { await runtime.sendKeys(sessionId, "/exit"); },
 };

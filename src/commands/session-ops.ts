@@ -21,6 +21,7 @@ import { isAbsolute, join } from "path";
 import { readTaskFile } from "../task-input";
 import { normalizeTurnInput } from "../turn-hooks";
 import { deliverTurn } from "../turn-delivery";
+import { settle } from "../settle";
 import { resolveParentId } from "../caller-identity";
 
 interface AuthContext { db: StateDB; session: SessionRecord; }
@@ -145,6 +146,83 @@ export const switchModel = withAuth(async ({ db, session }, opts: ModelSwitchOpt
   return result;
 });
 
+const POLL_MS = 500;
+// ponytail: fixed bounds; a slower TUI only loses its resume ID, never the kill.
+const INTERRUPT_POLLS = 8;
+const EXIT_POLLS = 12;
+
+// After the interrupt key the turn has ended, so history rows above the
+// composer no longer mean work: the after-turn check applies where a driver has one.
+function readyAfterInterrupt(driver: ReturnType<typeof getHarnessDriver>) {
+  return (output: string) => driver.acceptsInput?.(output) === true || driver.acceptsInputAfterTurn?.(output) === true;
+}
+
+async function settledComposer(sessionId: string, accepts: (output: string) => boolean, polls: number): Promise<string | null> {
+  for (let attempt = 0; attempt < polls; attempt++) {
+    await Bun.sleep(POLL_MS);
+    const output = await Tmux.capture(sessionId, 80);
+    if (accepts(output)) return output;
+  }
+  return null;
+}
+
+export const interrupt = withAuth(async ({ db, session }) => {
+  const driver = getHarnessDriver(session.agentType);
+  if (!driver.interruptKey) {
+    throw new Error(`${session.agentType} has no verified interrupt key; attach with \`tmux attach -t ${session.id}\` and interrupt it there`);
+  }
+  if (session.status !== SESSION_STATUS.Running && session.status !== SESSION_STATUS.NeedsAttention) {
+    throw new Error(`Session ${session.id} is ${session.status}; only a running or flagged turn can be interrupted`);
+  }
+  await Tmux.sendKey(session.id, driver.interruptKey);
+  // Report the screen once the composer is back, or the last one seen.
+  const output = await settledComposer(session.id, readyAfterInterrupt(driver), INTERRUPT_POLLS) ?? await Tmux.capture(session.id, 80);
+  // needs_attention stops the daemon's nudge and idle fallback; send or task re-arms monitoring.
+  const settled = await settle(db, new Archive(defaultRuntimeLayout.archiveDir()), defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
+    status: SESSION_STATUS.NeedsAttention,
+    lastOutput: output.slice(-500),
+    reason: "interrupted by host",
+  }, session.status, session.version);
+  if (!settled) {
+    throw new Error(`Session ${session.id} changed to ${db.getSession(session.id)?.status ?? "missing"} while it was interrupted; the interrupt key was sent`);
+  }
+  return `interrupted ${session.id}; it waits for \`send\` or \`task\``;
+});
+
+// Claude, Codex and the TUI drivers print their native ID only as they exit.
+// Before a kill takes the terminal, stop the turn and exit the TUI the way a
+// person would, so the session stays resumable. Keys go only to a visibly
+// working turn or a ready composer; a dialog or unknown screen gets nothing,
+// because Enter there could be taken as consent.
+async function preserveResumeId(db: StateDB, session: SessionRecord, screen?: string): Promise<void> {
+  if (session.agentResumeId || session.launchPid) return;
+  if (session.status !== SESSION_STATUS.Running && session.status !== SESSION_STATUS.NeedsAttention
+    && session.status !== SESSION_STATUS.Error) return;
+  let driver;
+  try { driver = getHarnessDriver(session.agentType); } catch { return; }
+  const accepts = driver.acceptsInput?.bind(driver);
+  if (driver.resumeTokenAvailableAfterSubmit || !driver.interruptKey || !accepts) return;
+  try {
+    let output: string | null = screen ?? await Tmux.capture(session.id, 80);
+    const working = driver.detectActivity(output) === "working";
+    // A settled turn leaves history rows above a ready composer.
+    if (!accepts(output) && (working || !readyAfterInterrupt(driver)(output))) {
+      if (!working) return;
+      await Tmux.sendKey(session.id, driver.interruptKey);
+      output = await settledComposer(session.id, readyAfterInterrupt(driver), INTERRUPT_POLLS);
+      if (output === null) return;
+    }
+    await driver.gracefulExit(session.id, driverRuntime);
+    for (let attempt = 0; attempt < EXIT_POLLS; attempt++) {
+      await Bun.sleep(POLL_MS);
+      const resumeId = driver.extractResumeToken(await Tmux.capture(session.id, 50));
+      if (resumeId) { db.updateResumeId(session.id, resumeId); return; }
+    }
+  } catch {
+    // Best effort: the kill proceeds without a native ID.
+  }
+}
+
 async function stopSession(db: StateDB, session: SessionRecord, descendant = false): Promise<boolean> {
   let archive: Archive | undefined;
   let archiveRevision: string | null = null;
@@ -179,6 +257,8 @@ async function stopSession(db: StateDB, session: SessionRecord, descendant = fal
       || current.status === SESSION_STATUS.Dead || current.status === SESSION_STATUS.Error
       || (current.version !== observed.version && hasNewSettlement(current))) return false;
   }
+  // After the archive snapshot, so the archive keeps the work rather than the exit screen.
+  await preserveResumeId(db, db.getSession(session.id) ?? observed, lastOutput);
   try {
     await Tmux.kill(session.id);
   } catch (error) {

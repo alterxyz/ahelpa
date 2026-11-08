@@ -184,5 +184,8 @@ export const piDriver: AgentDriver = {
   detectOutcome: outcome,
   detectActivity: output => editor(output)?.working ? "working" : "idle",
   acceptsInput: composerReady,
+  // Esc aborts the turn and its tool and keeps the session (2026-11-07, Pi 1.5.0).
+  interruptKey: "Escape",
+
   async gracefulExit(sessionId, runtime) { await runtime.sendKeys(sessionId, "/quit"); },
 };

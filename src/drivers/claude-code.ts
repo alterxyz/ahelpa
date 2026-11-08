@@ -436,6 +436,9 @@ export const claudeCodeDriver: AgentDriver = {
     return !/\b(?:enter\s+to\s+(?:confirm|select)|esc(?:ape)?\s+to\s+cancel|do\s+you\s+want\s+to\s+(?:proceed|allow)|permission\s+(?:required|request)|(?:requires?|waiting\s+for)\s+(?:approval|permission))\b|\ballow\b[^\r\n]*\?[^\S\r\n]*$|^[^\S\r\n]*\d+\.\s+\S/imu.test(belowComposer);
   },
 
+  // Claude's working line reads "esc to interrupt".
+  interruptKey: "Escape",
+
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
     await runtime.sendKeys(sessionId, "/exit");
   },

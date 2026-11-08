@@ -9,7 +9,7 @@ import { launch, resume } from "./commands/launch";
 import { installSkill } from "./commands/install-skill";
 import { doctor } from "./commands/doctor";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
-import { send, capture, sendTask, switchModel, kill, logs, check, status, clean } from "./commands/session-ops";
+import { send, capture, sendTask, switchModel, interrupt, kill, logs, check, status, clean } from "./commands/session-ops";
 import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
 import { HELPER_NAMES, renderNameDirectory } from "./drivers/registry";
 import { SessionAccessError } from "./session-access";
@@ -282,6 +282,16 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         persist: ctx.flags.booleans.persist,
       });
       ctx.print(result);
+    },
+  },
+  {
+    name: "interrupt",
+    usage: "interrupt <id> --token <token>",
+    description: "Stop the helper's current turn and keep the session",
+    minPositionals: 1,
+    flags: { token: { kind: "string", required: true } },
+    async run(ctx) {
+      ctx.print(await interrupt(ctx.db, ctx.positionals[0], ctx.flags.strings.token!));
     },
   },
   {
