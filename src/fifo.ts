@@ -42,7 +42,8 @@ export class FIFO {
       return true;
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === "ENXIO" || code === "EPIPE" || code === "ENOENT") {
+      // ELOOP: a link at the path. Like no reader, it only means no wakeup.
+      if (code === "ENXIO" || code === "EPIPE" || code === "ENOENT" || code === "ELOOP") {
         return false;
       }
       throw error;
@@ -59,14 +60,19 @@ export class FIFO {
     // closes with the process, so an abandoned read leaks nothing.
     const deadline = Date.now() + timeoutMs;
     let fd: number | null = null;
+    // A link, or anything but a pipe (a regular file would read as the same
+    // message on every call), carries no message: wait out the budget so a
+    // caller that loops on null keeps its pace.
+    const noMessage = async () => { await Bun.sleep(Math.max(0, deadline - Date.now())); return null; };
     try {
       fd = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") return null;
+      if (code === "ELOOP") return noMessage();
       throw error;
     }
-    // A regular file would be read as the same message on every call.
-    if (!fstatSync(fd).isFIFO()) { closeSync(fd); return null; }
+    if (!fstatSync(fd).isFIFO()) { closeSync(fd); return noMessage(); }
 
     const buffer = Buffer.alloc(4096);
     let collected = "";

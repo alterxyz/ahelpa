@@ -57,7 +57,7 @@ test("the wake path is used only as a pipe: never a regular file, never through 
   writeFileSync(target, "ORIGINAL");
   const link = join(root, "link.wake");
   symlinkSync(target, link);
-  await expect(FIFO.tryWrite(link, "turn")).rejects.toThrow();
+  expect(await FIFO.tryWrite(link, "turn")).toBe(false);
   expect(readFileSync(wake, "utf8")).toBe("IMPORTANT FILE CONTENT");
   expect(readFileSync(target, "utf8")).toBe("ORIGINAL");
   // A file is not a wake on every read, and the daemon still starts on a plain poll.
@@ -89,4 +89,18 @@ test("a wake refresh settles a sentinel but never spends another helper's patien
   for (let polls = 0; polls < 3; polls++) await refreshSessionStatuses(db, ["kimi-quiet"]);
   expect(db.getSession("kimi-quiet")?.status).toBe("needs_attention");
   db.close();
+});
+
+test("a host waiting on a wake path that is not a pipe keeps its pace and does not throw", async () => {
+  // A link to a pipe, and a regular file: neither is read, and the read waits out its budget.
+  await FIFO.create(wake);
+  const link = join(root, "link.pipe");
+  symlinkSync(wake, link);
+  const file = join(root, "file.pipe");
+  writeFileSync(file, "");
+  for (const path of [link, file]) {
+    const started = Date.now();
+    expect(await FIFO.read(path, 200)).toBeNull();
+    expect(Date.now() - started).toBeGreaterThanOrEqual(190);
+  }
 });
