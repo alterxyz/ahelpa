@@ -9,7 +9,7 @@ import { getSelfCommand } from "./self-command";
 import { shellEscape } from "./shell";
 
 export const TURN_HOOK_SUBCOMMAND = "__turn-hook";
-export type TurnHookAgent = "claude-code" | "codex" | "pi" | "vibe";
+export type TurnHookAgent = "claude-code" | "codex" | "pi" | "vibe" | "agy";
 export interface TurnEvent {
   ts: string;
   agent: TurnHookAgent;
@@ -84,6 +84,15 @@ export function parseTurnPayload(agent: string, raw: string, boundThread?: strin
         ...(error ? { error } : {}), ...(typeof p.input === "string" ? { inputDigest: inputDigest(p.input) } : {}),
         assistantMessagePresent: false, assistantMessageLength: 0 };
     }
+    if (agent === "agy") {
+      // Stop: the execution loop ended (not on Escape). With fullyIdle false a
+      // background task still runs and agy resumes the turn when it ends, so the
+      // turn is not over. executionNum stayed 0 on every turn: no turn id.
+      if (!id(p.conversationId) || typeof p.terminationReason !== "string" || p.fullyIdle !== true) return null;
+      const error = ["ERROR", "USER_CANCELED"].includes(p.terminationReason) ? p.terminationReason.toLowerCase() : undefined;
+      return { ts, agent, event: error ? "stop_failure" : "stop", sessionId: p.conversationId, turnId: randomUUID(),
+        ...(error ? { error } : {}), ...(typeof p.lastUserInput === "string" ? { inputDigest: inputDigest(p.lastUserInput) } : {}), ...metadata };
+    }
     if (agent === "vibe") {
       // post_agent with match = "main": once per main-agent turn, not on Escape
       // or an API error. It names neither the input nor the turn, so the event
@@ -119,7 +128,7 @@ function parseLogLine(raw: string): TurnEvent | null {
     if (e.agent === "claude-code" && e.event === "prompt" && id(e.sessionId) && id(e.promptId) && digest(e.inputDigest)) return e;
     if (e.agent === "claude-code" && ["stop", "stop_failure"].includes(e.event)
       && id(e.sessionId) && id(e.promptId) && (e.event !== "stop_failure" || id(e.error))) return e;
-    if (e.agent === "pi" && ["stop", "stop_failure"].includes(e.event) && id(e.sessionId) && id(e.turnId)
+    if ((e.agent === "pi" || e.agent === "agy") && ["stop", "stop_failure"].includes(e.event) && id(e.sessionId) && id(e.turnId)
       && (e.inputDigest === undefined || digest(e.inputDigest)) && (e.event !== "stop_failure" || id(e.error))) return e;
   } catch {}
   return null;
@@ -211,7 +220,7 @@ export async function runTurnHook(args: string[]): Promise<void> {
     if (agent === "codex" && args.length >= 3) {
       const raw = args.at(-1)!;
       if (raw.length <= 4 * 1024 * 1024) writeTurnHook(dir, agent, raw, args[2] === "--thread" ? args[3] : undefined);
-    } else if (agent === "claude-code" || agent === "pi" || agent === "vibe") {
+    } else if (agent === "claude-code" || agent === "pi" || agent === "vibe" || agent === "agy") {
       // Hooks must never hold up the CLI, even if stdin is accidentally left open.
       const reader = Bun.stdin.stream().getReader();
       const deadline = Date.now() + 500;

@@ -9,6 +9,7 @@ import { claudeCodeDriver } from "../src/drivers/claude-code";
 import { codexDriver } from "../src/drivers/codex";
 import { piDriver, piTurnHookSource } from "../src/drivers/pi";
 import { vibeDriver, vibeHooksToml } from "../src/drivers/vibe";
+import { agyDriver, agyHooksJson } from "../src/drivers/agy";
 import * as capabilities from "../src/drivers/codex-capabilities";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 
@@ -80,6 +81,28 @@ describe("turn hook payloads and append", () => {
     expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
   });
 
+  test("agy Stop keeps the conversation id and the input digest, and waits for background tasks", () => {
+    const stop = parseTurnPayload("agy", fixture("agy-stop"))!;
+    expect(stop).toMatchObject({ agent: "agy", event: "stop", sessionId: "f76b791e-7046-483d-b6c3-9eaab2a2ae0d", inputDigest: inputDigest("private task input") });
+    expect(JSON.stringify(stop)).not.toContain("private");
+    const payload = JSON.parse(fixture("agy-stop"));
+    expect(parseTurnPayload("agy", JSON.stringify({ ...payload, fullyIdle: false }))).toBeNull();
+    expect(parseTurnPayload("agy", JSON.stringify({ ...payload, fullyIdle: undefined }))).toBeNull();
+    expect(parseTurnPayload("agy", JSON.stringify({ ...payload, conversationId: "../x" }))).toBeNull();
+    expect(parseTurnPayload("agy", JSON.stringify({ ...payload, terminationReason: undefined }))).toBeNull();
+    expect(parseTurnPayload("agy", JSON.stringify({ ...payload, terminationReason: "ERROR", error: "provider text" }))).toMatchObject({ event: "stop_failure", error: "error" });
+    expect(parseTurnPayload("agy", JSON.stringify({ ...payload, terminationReason: "USER_CANCELED" }))).toMatchObject({ event: "stop_failure", error: "user_canceled" });
+    expect(parseTurnPayload("agy", JSON.stringify({ ...payload, terminationReason: "MAX_INVOCATIONS" }))?.event).toBe("stop");
+    expect(parseTurnPayload("agy", JSON.stringify({ ...payload, lastUserInput: undefined }))?.inputDigest).toBeUndefined();
+    writeTurnHook(dir, "agy", fixture("agy-stop"));
+    writeTurnHook(dir, "agy", fixture("agy-stop")); // executionNum is 0 on every turn: still a new event
+    const log = join(dir, "turns.log");
+    expect(readFileSync(log, "utf8").trim().split("\n")).toHaveLength(2);
+    expect(readFileSync(log, "utf8")).not.toContain("private");
+    expect(readTurnEvents(log, 0, "", "agy", inputDigest("private task input")).event?.agent).toBe("agy");
+    expect(readTurnEvents(log, 0, "", "agy", inputDigest("other input")).event).toBeNull();
+  });
+
   test("Vibe post_agent keeps the session id only, gets a fresh turn id, and skips subagents", () => {
     const stop = parseTurnPayload("vibe", fixture("vibe-post-agent"))!;
     expect(stop).toMatchObject({ agent: "vibe", event: "stop", sessionId: "4d047f6d-ab28-b6c5-c120-6f10228b82ba" });
@@ -97,7 +120,7 @@ describe("turn hook payloads and append", () => {
   });
 
   test.each(["not json", "null", "[]", "{}", '{"type":"other"}', '{"hook_event_name":"Stop","session_id":"../escape"}'])("ignores malformed or unsupported input: %s", raw => {
-    for (const agent of ["claude-code", "codex", "pi", "vibe", "kimi"]) {
+    for (const agent of ["claude-code", "codex", "pi", "vibe", "agy", "kimi"]) {
       expect(parseTurnPayload(agent, raw)).toBeNull();
       expect(() => writeTurnHook(dir, agent, raw)).not.toThrow();
     }
@@ -140,8 +163,9 @@ describe("turn hook payloads and append", () => {
     await invoke([dir, "codex", fixture("codex-complete")]);
     await invoke([dir, "pi"], fixture("pi-settled"));
     await invoke([dir, "vibe"], fixture("vibe-post-agent"));
+    await invoke([dir, "agy"], fixture("agy-stop"));
     expect(readdirSync(dir)).toEqual(["turns.log"]);
-    expect(readFileSync(join(dir, "turns.log"), "utf8")).toMatch(/"agent":"pi"[\s\S]*"agent":"vibe"/);
+    expect(readFileSync(join(dir, "turns.log"), "utf8")).toMatch(/"agent":"pi"[\s\S]*"agent":"vibe"[\s\S]*"agent":"agy"/);
     expect(existsSync(forbiddenHome)).toBe(false);
     mkdirSync(join(root, "not-a-session"));
     await invoke([join(root, "not-a-session"), "codex", fixture("codex-complete")]);
@@ -290,5 +314,26 @@ describe("driver hook launch and resume", () => {
       env: { ...process.env, AHELPA_HOME: join(root, "home") } });
     expect([await child.exited, await new Response(child.stdout).text()]).toEqual([0, ""]);
     expect(readFileSync(join(sessionDir, "turns.log"), "utf8")).toContain('"agent":"vibe"');
+  });
+  test.each(["launch", "resume"])("agy %s adds its own hook root whose Stop hook prints {} and records the turn", async kind => {
+    const sessionId = "gemini-test";
+    const sessionDir = defaultRuntimeLayout.sessionDeliveryDir(root, sessionId);
+    mkdirSync(sessionDir, { recursive: true });
+    agyDriver.prepareLaunchFiles!({ cwd: root, sessionId });
+    const hooks = join(sessionDir, "agy-hook", ".agents", "hooks.json");
+    expect(statSync(hooks).mode & 0o777).toBe(0o600);
+    expect(readFileSync(hooks, "utf8")).toBe(agyHooksJson(turnHookCommand(sessionDir, "agy")));
+    expect(() => agyDriver.prepareLaunchFiles!({ cwd: root, sessionId })).toThrow(); // never overwrites
+    expect(() => agyDriver.prepareLaunchFiles!({ cwd: root, sessionId: "gemini-safe", safe: true })).toThrow("--safe");
+    const command = kind === "launch" ? agyDriver.buildLaunchCommand({ cwd: root, sessionId })
+      : agyDriver.buildResumeCommand!({ cwd: root, sessionId, resumeId: "f76b791e-7046-483d-b6c3-9eaab2a2ae0d" });
+    expect(command).toContain(`--add-dir '${join(sessionDir, "agy-hook")}'`);
+    const handler = JSON.parse(readFileSync(hooks, "utf8")).ahelpa.Stop[0];
+    expect(handler).toMatchObject({ type: "command", timeout: 10 });
+    // agy runs it with sh -c in the hooks.json folder, payload on stdin, and reads a JSON object from stdout.
+    const child = Bun.spawn(["/bin/sh", "-c", handler.command], { cwd: join(sessionDir, "agy-hook", ".agents"), stdin: new Blob([fixture("agy-stop")]),
+      stdout: "pipe", stderr: "pipe", env: { ...process.env, AHELPA_HOME: join(root, "home") } });
+    expect([await child.exited, await new Response(child.stdout).text()]).toEqual([0, "{}"]);
+    expect(readFileSync(join(sessionDir, "turns.log"), "utf8")).toContain('"agent":"agy"');
   });
 });

@@ -26,15 +26,16 @@ Runtime `ahelpa model` switching, including `--persist`, is unsupported; relaunc
 The helper is agy's own interactive TUI in tmux, driven like a person at a terminal: ahelpa types the task line and reads the screen. Attaching to the tmux session shows the real agy UI.
 
 ```text
-cd <project> && AGY_CLI_DISABLE_AUTO_UPDATE=true agy --dangerously-skip-permissions --settings '{"trustedWorkspaces":["<project>"(, "<its real path>")]}' [--conversation <id>] [--model …] [--effort …]
+cd <project> && AGY_CLI_DISABLE_AUTO_UPDATE=true agy --dangerously-skip-permissions --settings '{"trustedWorkspaces":["<project>"(, "<its real path>")]}' --add-dir <result dir>/agy-hook [--conversation <id>] [--model …] [--effort …]
 ```
 
 - **Updates.** `AGY_CLI_DISABLE_AUTO_UPDATE=true` (lowercase `true` only) keeps agy's background updater from replacing the binary.
 - **Trust.** The TUI asks "Do you trust the contents of this project?" in a folder it has not trusted, even with `--dangerously-skip-permissions`. Answering would save the trust for good, so ahelpa passes the trust in `--settings`, which applies to this session only and is never saved. agy compares the literal working directory (not its real path, not a parent), so ahelpa passes the project path and, when it differs, its real path. If the dialog still appears, the launch fails instead of answering it.
-- **Completion.** The screen decides. `[AHELPA:DONE]` or `[AHELPA:NEED_HELP:tags]` alone on a line, after the latest submitted turn (`> …` right below a `────` rule), settles the turn once nothing is working: no Braille spinner line above the composer (`⣾  Generating...`, footer `esc to cancel`) and no running background task (footer `· 1 task(s) · /tasks`). Without a signal the daemon's usual idle rule applies: a nudge when `summary.md` exists, otherwise `needs_attention`.
+- **Completion.** The screen decides. `[AHELPA:DONE]` or `[AHELPA:NEED_HELP:tags]` alone on a line, after the latest submitted turn (`> …` right below a `────` rule), settles the turn once nothing is working: no Braille spinner line above the composer (`⣾  Generating...`, footer `esc to cancel`) and no running background task (footer `· 1 task(s) · /tasks`). agy's `Stop` hook (below) wakes the daemon when the turn ends, so a printed signal settles within about half a second. When the turn ended without a signal, the daemon nudges once if `summary.md` exists, otherwise marks it `needs_attention` at once; without an attributable hook event it waits about 12 s of a quiet screen first.
 - **Background tasks.** agy turns a long command into a background task, may end the visible turn while it runs, and resumes the conversation on its own when it ends. A running task counts as work, so the turn settles only after it; a server left running keeps the helper busy until you kill it.
 - **Dialogs.** Under `--dangerously-skip-permissions` no file or command prompt appeared, including reads and writes outside the project. agy's own question tool opens a multiple-choice dialog (`Question 1/1: …`, `↑/↓ Navigate · enter Select · esc Skip`) that waits for a person; nothing answers it, so the helper becomes `needs_attention`. Answer it with `tmux attach -t <id>`.
-- **No global or project writes.** ahelpa writes no agy settings, trust entries, hooks, or `.agents/` files.
+- **Turn-end hook.** `<result dir>/agy-hook/.agents/hooks.json` holds one `Stop` handler, loaded through `--add-dir` (no trust dialog). It prints `{}`, which lets the turn stop, and hands agy's payload to ahelpa, which keeps the conversation id and a digest of the last input. A Stop while a background task still runs (`fullyIdle: false`) is ignored; Escape fires none.
+- **No global or project writes.** ahelpa writes no agy settings or trust entries and nothing in the project's `.agents/`; its only agy file is the session hook above.
 
 ## Resume and takeover
 

@@ -61,13 +61,23 @@ The owner ruled on 2026-11-07 that every helper runs its vendor's own TUI in tmu
 10. **Static screen while working:** while the spinner showed, the captured screen never stayed unchanged longer than 0.29 s (the 0.24 s sampling interval), across about 150 s of spinner time including a 53 s wait for the model. With the turn ended and a background task running the screen stayed unchanged for 3.5 s and 65 s, but the footer's task count is a working signal throughout. Inside a live turn the only stretch without any working signal was the 0.5 s frame after a submit, so agy alone would allow the daemon's idle debounce to drop from 12 s to 6 s.
 11. **Node.js:** not needed; the TUI is the Go binary.
 
+## Turn-end hook (2026-11-08, agy 1.5.3)
+
+Measured in agy's TUI on macOS: a manual probe with a logging hook (`gemini-3.8-flash` / `low`), then `gemini` helpers (`gemini-4-argon` / `medium`) through an isolated `AHELPA_HOME`.
+
+- **Loading.** `--add-dir <root>` with `<root>/.agents/hooks.json` loads the hook in the TUI with no trust dialog for that folder (spike 5 had shown it for print mode). agy's built-in hook docs: the file maps hook names to events; a `Stop` handler runs via `sh -c` in the hooks.json folder, synchronously in the agent loop, with JSON on stdin, and must print a JSON object; `decision: "continue"` would block the stop, so `{}` lets it end. The driver writes `.ahelpa/<id>/agy-hook/.agents/hooks.json` (mode 0600, never overwritten) at launch and resume; the result directory itself is not a workspace root, and agy's settings and the project's `.agents/` are untouched.
+- **Payload.** `conversationId`, `executionNum`, `terminationReason`, `error`, `fullyIdle`, `lastUserInput`, `modelName`, `transcriptPath`, `workspacePaths` (the add-dir appears there). `executionNum` was 0 on all four turns, so it cannot tell turns apart: ahelpa adds a random turn id. `lastUserInput` was the typed text; for the ahelpa task line its digest matched the one ahelpa registered.
+- **Firing.** Once at the end of every turn (`NO_TOOL_CALL`), including a turn that ran a shell command. A turn whose command became a background task fired at the visible end with `fullyIdle: false`, then again with `fullyIdle: true` and the same `lastUserInput` when agy resumed after the task; ahelpa drops the first. Escape mid-generation fired nothing (`Interrupted · What should Antigravity CLI do instead?`); the screen and `interrupt` cover it. `USER_CANCELED` and `ERROR` are documented and logged as `stop_failure`, but were not seen.
+- **Timing.** A `gemini` task that wrote its summary and printed DONE: hook at 08:52:57.188, graceful exit sent at 08:52:57.736 (0.55 s, of which 250 ms is the daemon's wake grace). A turn told not to print a signal: hook at 08:53:26.537, `needs_attention` ("turn hook stop") at 08:53:26.820 instead of after the ~12 s fallback.
+- **Unverified.** Whether a subagent's loop fires `Stop` with the main conversation's id and input (attribution would then accept it; none was seen), and a `Stop` after an API error.
+
 ## Grid
 
 | Column | Value |
 | --- | --- |
 | Shape | Vendor TUI in tmux (`agy --dangerously-skip-permissions --settings '{"trustedWorkspaces":[…]}'`) |
 | Resume token | After exit only (`agy --conversation=<id>`, captured while draining); `--conversation <id>` |
-| Turn-end signal | Sentinel in the current turn with no spinner and no running background task after it |
+| Turn-end signal | Sentinel in the current turn with no spinner and no running background task after it; a `Stop` hook in a session `--add-dir` root (`.agents/hooks.json`) wakes the daemon and ends a no-signal turn attributed by `lastUserInput` |
 | `--safe` means | Refused |
 | Trust persisted | No: session-only trust through `--settings`; a trust dialog fails the launch |
 | Self-update | `AGY_CLI_DISABLE_AUTO_UPDATE=true` on the launch command |

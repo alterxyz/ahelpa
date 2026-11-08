@@ -52,7 +52,8 @@ test("agy runs its own TUI with updates off, permissions skipped and session-onl
   // agy compares the literal working directory, so a linked path also trusts its real path.
   const real = root(); const link = join(root(), "link"); symlinkSync(real, link);
   expect(driver.buildLaunchCommand({ cwd: link })).toContain(`--settings '${JSON.stringify({ trustedWorkspaces: [link, real] })}'`);
-  expect(driver.prepareLaunchFiles).toBeUndefined();
+  // Without a session there is no result directory, so no hook root either.
+  expect(command).not.toContain("--add-dir");
 });
 
 test("agy validates model and effort before launch", () => {

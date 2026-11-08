@@ -1,6 +1,8 @@
-import { accessSync, constants, realpathSync, statSync } from "fs";
-import { delimiter, resolve } from "path";
+import { accessSync, constants, mkdirSync, realpathSync, statSync, writeFileSync } from "fs";
+import { delimiter, dirname, join, resolve } from "path";
+import { defaultRuntimeLayout } from "../runtime-layout";
 import { shellEscape } from "../shell";
+import { turnHookCommand } from "../turn-hooks";
 import { addReadiness, executableReadiness, findReadinessExecutable, readEmbeddedVersion, readinessRuntime } from "./readiness";
 import { maskSentinels, scanSentinels } from "./sentinels";
 import type { AgentDriver, DriverRuntime, LaunchOptions, ReadinessRuntime, ResumeOptions } from "./types";
@@ -76,9 +78,23 @@ function trustSettings(cwd: string): string {
   return JSON.stringify({ trustedWorkspaces: paths });
 }
 
+// The turn-end hook: agy reads <root>/.agents/hooks.json from each --add-dir
+// folder (`--settings` refuses a hooks key), with no trust dialog. A root of
+// its own keeps the result directory out of agy's workspace. Stop runs
+// synchronously in the agent loop, via sh -c in the hooks.json folder, and
+// must print a JSON object: `{}` (no "decision") lets the turn stop.
+function hookRoot(opts: LaunchOptions & { sessionId: string }): string {
+  return join(opts.deliveryDir ?? defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "agy-hook");
+}
+
+export function agyHooksJson(command: string[]): string {
+  return JSON.stringify({ ahelpa: { Stop: [{ type: "command", command: `printf '{}'; ${command.map(shellEscape).join(" ")}`, timeout: 10 }] } }) + "\n";
+}
+
 function command(opts: LaunchOptions, resumeId?: string): string {
   validate(opts);
   const args = ["--dangerously-skip-permissions", "--settings", shellEscape(trustSettings(opts.cwd))];
+  if (opts.sessionId) args.push("--add-dir", shellEscape(hookRoot({ ...opts, sessionId: opts.sessionId })));
   if (resumeId !== undefined) args.push("--conversation", shellEscape(resumeId));
   if (opts.model !== undefined) args.push("--model", shellEscape(opts.model));
   if (opts.effort !== undefined) args.push("--effort", shellEscape(opts.effort));
@@ -139,6 +155,14 @@ export const agyDriver: AgentDriver = {
   // The TUI prints the conversation ID only on exit, so the daemon reads it while draining.
   name: "agy", sessionPrefix: "agy", resumeTokenAvailableAfterSubmit: false,
   checkReadiness: checkAgyReadiness,
+  turnHooks: true,
+  prepareLaunchFiles(opts) {
+    validate(opts);
+    if (!opts.sessionId) return;
+    const root = hookRoot({ ...opts, sessionId: opts.sessionId });
+    mkdirSync(join(root, ".agents"), { recursive: true, mode: 0o700 });
+    writeFileSync(join(root, ".agents", "hooks.json"), agyHooksJson(turnHookCommand(dirname(root), "agy")), { flag: "wx", mode: 0o600 });
+  },
   launchProfiles: { defaultRole: "worker", profiles: {
     worker: { model: "gemini-4-argon", effort: "medium" },
     reviewer: { model: "gemini-4-argon", effort: "medium" },
