@@ -97,7 +97,7 @@ How it works:
 - **No sentinel.** When no sign of work appears for 4 polls (about 12 s, `IDLE_DEBOUNCE` in `src/daemon.ts`, chosen on 2026-06-24 without a measurement), the daemon nudges or marks the session `needs_attention`. A dialog the driver does not recognise ends the same way: a person is called.
 - **Hooks speed things up but never decide.** Claude Code (a `--settings` file) and Codex (`-c notify=[...]`) register a session-local turn-end hook that appends to `.ahelpa/<id>/turns.log` through the hidden `__turn-hook` command. It tells the daemon *when* a turn ended, which shortens the no-sentinel case and ties the event to the right input. It never says whether the work succeeded ("Hooks never imply success", [architecture](architecture.md)). A new driver starts without a hook, as Kimi does, and gets one only if measurements show screen reading falls short.
 - **What a driver knows, and nothing more.** The launch command (auto-update off, permission posture, session-only trust where possible); what the empty, ready composer looks like; what work looks like (spinner, timer, interrupt hint); which dialogs need a person (only session-scoped trust may be answered automatically); the interrupt key and the exit command; where the native resume id is printed, and the resume command.
-- **Lifecycle.** tmux owns the process. On DONE the daemon sends the exit command and reads the native resume id the CLI prints as it exits. `kill` ends the tmux session. At any time a person can run `tmux attach` and see the real UI.
+- **Lifecycle.** tmux owns the process. On DONE the daemon sends the exit command and reads the native resume id the CLI prints as it exits. `kill` first stops a working turn with the interrupt key and exits the TUI from a ready composer, so the CLI prints its native id, then ends the tmux session. `interrupt` stops one turn and keeps the session for `send` or `task`. At any time a person can run `tmux attach` and see the real UI.
 
 ### Why a terminal, not a bridge
 
@@ -113,7 +113,7 @@ These were the case for bridges. Each was checked on 2026-11-07:
 
 - *"The TUI changes between releases."* The input side, keystrokes, does not change. The sentinel is text the model prints, independent of the UI, so a UI change cannot turn unfinished work into DONE. At worst a sign of work or a new dialog goes unrecognised and the session is flagged for a person after about 12 s, or a launch fails visibly. Drivers turn auto-update off, so UI changes arrive only when the owner upgrades, and `doctor` plus the closure gate check the version.
 - *"Structured events give an exact turn end."* The sentinel plus the screen already settle a turn within one poll. The no-sentinel case is bounded by the debounce, and a session-local hook can shorten it where the CLI offers one.
-- *"The resume id is known before the first message."* While the helper lives, the tmux session id is all that `send`, `capture`, `attach` and `kill` need. The native id matters only after the process exits, and a graceful exit prints it. Only an abrupt death (SIGKILL, reboot) loses it, which is already true for Claude Code and Codex.
+- *"The resume id is known before the first message."* While the helper lives, the tmux session id is all that `send`, `capture`, `attach` and `kill` need. The native id matters only after the process exits, and a graceful exit prints it; `kill` exits the TUI first for exactly that reason. Only an abrupt death (SIGKILL, reboot), or a dialog that `kill` will not type into, loses it.
 - *"The vendor recommends headless mode for automation."* ahelpa does not run an unattended pipeline. It gives a host agent a colleague that a person can look over.
 
 ### How the drift happened
@@ -129,7 +129,7 @@ The lesson: a choice made for one backend became a rule, and nobody restated the
 
 ## The minimum acceptable driver
 
-The floor is the [hard gates](#step-3-hard-gates) plus the 15 required members of `AgentDriver` (`src/drivers/types.ts`): `name`, `sessionPrefix`, `modelCatalog`, `resumeTokenAvailableAfterSubmit`, `buildLaunchCommand`, `buildResumeCommand`, `extractResumeToken`, `prepareForTask`, `prepareForResume`, `afterTaskSubmitted`, `switchModel`, `detectStatus`, `detectOutcome`, `detectActivity`, `gracefulExit`. The other seven (`turnHooks`, `prepareLaunchFiles`, `launchProfiles`, `checkReadiness`, `acceptsInput`, `acceptsInputAfterTurn`, `workingAfterTurn`) are optional.
+The floor is the [hard gates](#step-3-hard-gates) plus the 15 required members of `AgentDriver` (`src/drivers/types.ts`): `name`, `sessionPrefix`, `modelCatalog`, `resumeTokenAvailableAfterSubmit`, `buildLaunchCommand`, `buildResumeCommand`, `extractResumeToken`, `prepareForTask`, `prepareForResume`, `afterTaskSubmitted`, `switchModel`, `detectStatus`, `detectOutcome`, `detectActivity`, `gracefulExit`. The other eight (`turnHooks`, `prepareLaunchFiles`, `launchProfiles`, `checkReadiness`, `acceptsInput`, `acceptsInputAfterTurn`, `workingAfterTurn`, `interrupt`) are optional.
 
 The evidence that this floor is real is `kimi`: no turn hook, no `--effort`, no runtime model switch, and still a fully supported driver. Pi goes further and refuses `--safe`. So answer two questions separately:
 

@@ -97,7 +97,7 @@ ahelpa **不是**：
 - **没有暗号。** 连续 4 次抓屏（约 12 秒，`src/daemon.ts` 里的 `IDLE_DEBOUNCE`，2026-06-24 定的，没有实测依据）都看不到干活迹象，daemon 就提醒 helper，或把会话标成 `needs_attention`。driver 不认识的对话框也走这条路：叫人。
 - **hook 只加速，不裁决。** Claude Code（`--settings` 文件）和 Codex（`-c notify=[...]`）注册会话级的回合结束 hook，经隐藏命令 `__turn-hook` 往 `.ahelpa/<id>/turns.log` 追加记录。它告诉 daemon 回合*什么时候*结束，从而缩短「没有暗号」那种情况的等待，并把事件对到正确的那次输入上。它从不说明活是否干成了（「Hooks never imply success」，见[架构](architecture.md)）。新 driver 一开始不带 hook，跟 Kimi 一样；只有实测表明读屏不够用，才加。
 - **driver 只需要知道这些，不多也不少。** 启动命令（关自动更新、权限姿态、尽量只信任本次会话）；空着、可以输入的输入框长什么样；干活时长什么样（转圈、计时、打断提示）；哪些对话框需要人（只有会话级信任可以自动回答）；打断键和退出命令；原生恢复 id 打印在哪，以及恢复命令。
-- **生命周期。** 进程归 tmux 管。DONE 之后 daemon 发退出命令，并读取 CLI 退出时打印的原生恢复 id。`kill` 结束 tmux 会话。人随时可以 `tmux attach` 看到真实界面。
+- **生命周期。** 进程归 tmux 管。DONE 之后 daemon 发退出命令，并读取 CLI 退出时打印的原生恢复 id。`kill` 先用打断键停下正在干活的回合，再从就绪的输入框退出 TUI，让 CLI 打印原生 id，然后才结束 tmux 会话。`interrupt` 只停一个回合，会话留着等 `send` 或 `task`。人随时可以 `tmux attach` 看到真实界面。
 
 ### 为什么是终端，不是桥接
 
@@ -113,7 +113,7 @@ ahelpa **不是**：
 
 - *「TUI 每个版本都在变。」* 输入这一侧是按键，不会变。暗号是模型自己打出来的字，跟界面无关，所以界面改版不可能把没干完的活变成 DONE。最坏的情况是某个干活迹象或新对话框认不出来，约 12 秒后标成需要人看，或者启动时明确报错。driver 会关掉自动更新，所以界面变化只会在负责人自己升级时出现，`doctor` 和 closure gate 会检查版本。
 - *「结构化事件能给出精确的回合结束。」* 暗号加屏幕已经能在一次抓屏内结算回合。没打暗号的情况有防抖时间兜底；CLI 提供会话级 hook 的，还能再缩短。
-- *「第一条消息之前就能拿到恢复 id。」* helper 活着的时候，`send`、`capture`、`attach`、`kill` 只需要 tmux session id。原生 id 只在进程退出后才用得上，而正常退出时 CLI 会打印它。只有被硬杀（SIGKILL、重启）才拿不到，这对 Claude Code 和 Codex 本来就是如此。
+- *「第一条消息之前就能拿到恢复 id。」* helper 活着的时候，`send`、`capture`、`attach`、`kill` 只需要 tmux session id。原生 id 只在进程退出后才用得上，而正常退出时 CLI 会打印它；`kill` 正是为此先退出 TUI。只有被硬杀（SIGKILL、重启），或者卡在 `kill` 不会往里打字的对话框上，才拿不到。
 - *「厂商推荐自动化用 headless 模式。」* ahelpa 跑的不是无人值守的流水线，而是给 host agent 配一个人能随时过目的同事。
 
 ### 偏离是怎么发生的
@@ -129,7 +129,7 @@ ahelpa **不是**：
 
 ## 最低可接受的 driver
 
-底线是[硬门槛](#第-3-步硬门槛)加上 `AgentDriver`（`src/drivers/types.ts`）的 15 个必选成员：`name`、`sessionPrefix`、`modelCatalog`、`resumeTokenAvailableAfterSubmit`、`buildLaunchCommand`、`buildResumeCommand`、`extractResumeToken`、`prepareForTask`、`prepareForResume`、`afterTaskSubmitted`、`switchModel`、`detectStatus`、`detectOutcome`、`detectActivity`、`gracefulExit`。其余七个（`turnHooks`、`prepareLaunchFiles`、`launchProfiles`、`checkReadiness`、`acceptsInput`、`acceptsInputAfterTurn`、`workingAfterTurn`）是可选的。
+底线是[硬门槛](#第-3-步硬门槛)加上 `AgentDriver`（`src/drivers/types.ts`）的 15 个必选成员：`name`、`sessionPrefix`、`modelCatalog`、`resumeTokenAvailableAfterSubmit`、`buildLaunchCommand`、`buildResumeCommand`、`extractResumeToken`、`prepareForTask`、`prepareForResume`、`afterTaskSubmitted`、`switchModel`、`detectStatus`、`detectOutcome`、`detectActivity`、`gracefulExit`。其余八个（`turnHooks`、`prepareLaunchFiles`、`launchProfiles`、`checkReadiness`、`acceptsInput`、`acceptsInputAfterTurn`、`workingAfterTurn`、`interrupt`）是可选的。
 
 这条底线真实存在的证据是 `kimi`：没有回合 hook、没有 `--effort`、不能运行时切模型，照样是正式支持的 driver。Pi 走得更远，直接拒绝 `--safe`。所以要把两个问题分开回答：
 

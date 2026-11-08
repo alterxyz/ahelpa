@@ -201,11 +201,12 @@ Drivers live in `src/drivers/`. A driver implements `AgentDriver` from `src/driv
 - State: `detectStatus`, `detectOutcome` (a status plus optional NEED_HELP tags and a `reason`), and `detectActivity` (`working`, `booting`, or `idle`). Sentinel matching lives in `sentinels.ts`.
 - Control: `switchModel` (throw if runtime switching is unsupported) and `gracefulExit`.
 
-**Optional (7):**
+**Optional (8):**
 
 - `turnHooks` and `prepareLaunchFiles`: session-scoped hook or settings files written under the result directory before launch. A driver drives the vendor's own TUI; no bridge program ([why](backends.md#how-a-helper-is-wired)).
 - `launchProfiles`: role → model/effort presets.
 - `checkReadiness`: what `doctor` reports without running the CLI.
+- `interrupt`: `{ key, stopped }`, the tmux key that stops one turn and keeps the session, and the line the TUI prints once it did; both verified on the real TUI. `interrupt` refuses without it, and `kill` cannot stop a running turn to keep a missing native ID.
 - `acceptsInput`, `acceptsInputAfterTurn`, `workingAfterTurn`: stricter "would typed text reach the composer" and "is the turn still running" checks than the defaults.
 
 Register the driver in `src/drivers/registry.ts`. Several other places enumerate drivers; `grep -rn "\bpi\b" src scripts skill docs` is a quick way to find them. At least: `src/disk-usage.ts` (a session-ID prefix pattern and the names of per-session files), the closure gate scenario and its `AHELPA_GATE_<NAME>` switch in `scripts/closure-gate.sh`, the prerequisites in `skill/SKILL.md`, the setup page `skill/references/<name>.md` and `skill/references/profiles.md`, and the supported-helpers table in the README. Add `tests/<name>-driver.test.ts` with synthetic pane captures.

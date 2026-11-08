@@ -202,11 +202,12 @@ Driver 位于 `src/drivers/`。driver 要实现 `src/drivers/types.ts` 中的 `A
 - 状态：`detectStatus`、`detectOutcome`（状态，加可选的 NEED_HELP 标签和 `reason`）、`detectActivity`（`working`、`booting` 或 `idle`）。暗号匹配在 `sentinels.ts`。
 - 控制：`switchModel`（不支持运行时切换就抛错）和 `gracefulExit`。
 
-**可选（7 个）：**
+**可选（8 个）：**
 
 - `turnHooks` 和 `prepareLaunchFiles`：启动前写进结果目录的会话级 hook 或设置文件。driver 驱动的是厂商自己的 TUI，不加桥接程序（[原因](backends.md#怎么接)）。
 - `launchProfiles`：角色 → model/effort 预设。
 - `checkReadiness`：`doctor` 在不运行 CLI 的情况下报告什么。
+- `interrupt`：`{ key, stopped }`，只停一个回合、保留会话的 tmux 按键，以及停下后 TUI 打印的那行提示，两者都须在真实 TUI 上核实。没有它，`interrupt` 会拒绝，`kill` 也没法停下运行中的回合来保住缺失的原生 ID。
 - `acceptsInput`、`acceptsInputAfterTurn`、`workingAfterTurn`：比默认实现更严格的「敲进去的字会不会进输入框」和「这一回合是否仍在运行」判断。
 
 在 `src/drivers/registry.ts` 中注册 driver。还有好几处会枚举 driver；`grep -rn "\bpi\b" src scripts skill docs` 是找到它们的快捷办法。至少包括：`src/disk-usage.ts`（session ID 前缀的匹配模式和会话专属文件名）、`scripts/closure-gate.sh` 里的 closure gate 场景及其 `AHELPA_GATE_<NAME>` 开关、`skill/SKILL.md` 的前置条件、配置说明页 `skill/references/<name>.md` 与 `skill/references/profiles.md`，以及 README 的支持 helper 表。还要加 `tests/<name>-driver.test.ts`，用合成的 pane 抓屏做测试。

@@ -91,7 +91,7 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 - **`still_running` is normal.** Re-wait. The helper is working.
 - **Don't capture early.** It adds no information in the first few minutes.
 - **Don't poll every 30 seconds.** One wait, then one re-wait if needed.
-- **Complex or max-effort reviews can take much longer than 10 minutes.** Keep re-waiting while there is evidence of progress. Intervene only after a concrete stalled prompt, failed tool, or explicit request for help; then use `capture` once and `send` before considering `kill`.
+- **Complex or max-effort reviews can take much longer than 10 minutes.** Keep re-waiting while there is evidence of progress. Intervene only after a concrete stalled prompt, failed tool, or explicit request for help; then use `capture` once and `send` before considering `kill`. To change direction while a turn runs, `interrupt` it and then `send` the new instruction; the session and its context stay.
 
 ## Command Reference
 
@@ -108,7 +108,8 @@ Helpers are full coding agents. A meaningful task typically takes 2–10 minutes
 | `capture <id> --token <tok> [--lines N]` | Snapshot terminal output (debugging only). |
 | `task <id> --file <path> --token <tok>` | Deliver a task file to a running helper. |
 | `model <id> --to <model> --token <tok> [--effort <level>] [--persist]` | Switch a running helper's model. |
-| `kill <id> --token <tok> [--tree]` | Terminate a helper; `--tree` also stops descendants and reports `killed` / `missed`. |
+| `interrupt <id> --token <tok>` | Stop the helper's current turn and keep the session; continue with `send` or `task`. |
+| `kill <id> --token <tok> [--tree]` | Terminate a helper (it exits the TUI first so the native resume ID survives); `--tree` also stops descendants and reports `killed` / `missed`. |
 | `logs <id> --token <tok>` | Read session output (live or archived). |
 | `resume <id> --token <tok> [--safe]` | Resume a completed helper; an existing safe posture is inherited. |
 | `status` | Show all sessions, caller relationship, and daemon state. |

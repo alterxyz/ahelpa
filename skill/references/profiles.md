@@ -119,7 +119,7 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, r
 - Choose the effort with `--effort low|medium|high`; a suffixed `--model` needs the matching `--effort`.
 
 **Runtime quirks**
-- Each helper is Antigravity's own TUI in tmux; resume reopens the same Antigravity conversation. The conversation ID is printed only when the helper exits, so a helper killed before it finished cannot be resumed. See [gemini setup and limits](agy.md).
+- Each helper is Antigravity's own TUI in tmux; resume reopens the same Antigravity conversation. The conversation ID is printed only when the helper exits; `kill` exits it first, so a helper killed before it finished stays resumable. See [gemini setup and limits](agy.md).
 
 ## mistral
 
@@ -140,7 +140,7 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, r
 
 **Runtime quirks**
 - `worker` (default) and `reviewer` use `mistral-large-4-0-3` / `high`. No `advisor`, `--safe`, or runtime model switching.
-- Runs Vibe's own interactive TUI in tmux; attach to watch or type, and Esc interrupts a turn without ending the session. Model/thinking come from a session agent file. The resume token is printed only on exit, so a helper killed before DONE cannot be resumed. See [Vibe setup and limits](vibe.md).
+- Runs Vibe's own interactive TUI in tmux; attach to watch or type, and Esc interrupts a turn without ending the session. Model/thinking come from a session agent file. The resume token is printed only on exit; `kill` exits Vibe first, so a helper killed before DONE stays resumable. See [Vibe setup and limits](vibe.md).
 
 ## deepseek
 

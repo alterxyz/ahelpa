@@ -410,6 +410,17 @@ The new session keeps the job but starts with a fresh inbox and unused send budg
 
 `resume` waits until the new driver reaches an input prompt, then returns a new helper in `needs_attention`. Send the next turn to the new session ID with `send` or `task`, then call `wait`. ahelpa waits for evidence that the new turn was accepted, recreates the FIFO, and resumes daemon monitoring; this prevents an old DONE/NEED_HELP marker from settling the follow-up. Like `launch`, it reports `codexTrust` when the driver answered Codex's "Folder access" screen.
 
+## Interrupt a Turn
+
+Stop what the helper is doing without ending the session, then give it new instructions:
+
+```bash
+ahelpa interrupt "$session_id" --token "$token"
+ahelpa send "$session_id" "Stop that approach; instead ..." --token "$token"
+```
+
+`interrupt` presses the helper's own interrupt key (Escape for Claude Code, Codex, agy, Vibe and Pi), as a person attached to the pane would. While the turn stops it holds a lease that keeps the daemon from nudging the turn or settling it from a turn hook (the lease ends when the command finishes or its process dies, and at the latest after two minutes); the session's status does not change, so a pending `wait` sees nothing provisional. Only one `interrupt` or `kill` works on a session at a time. A pressed key alone is not taken as proof: it waits until the TUI prints a new stop line of its own near the bottom (for example `Interrupted · What should Claude do instead?`, or Codex's `■ Conversation interrupted`), the vendor's composer is ready, and two captures in a row agree. Only then does it record `needs_attention` with reason `interrupted by host` and wake a pending `wait`. If that does not show within about 4 s, the session keeps running and the command reports the failure. `send` or `task` then starts the next turn and re-arms monitoring. It accepts `running` and `needs_attention` sessions and refuses a pane whose CLI has already exited. Kimi has no verified interrupt key and is refused; attach to its pane instead.
+
 ## Reclaim Sessions
 
 Terminate a specific session:
@@ -417,6 +428,8 @@ Terminate a specific session:
 ```bash
 ahelpa kill "$session_id" --token "$token"
 ```
+
+For Claude Code, Codex, agy, Vibe and Pi, which print their native resume ID only as they exit, `kill` first keeps that ID when the session has none yet: right after the archive snapshot it presses the interrupt key on a running turn and waits for a new stop line from the TUI, types the exit command only into the vendor's ready composer while the CLI still owns the pane, and waits a few seconds for the ID. A settled turn gets no interrupt key, only the exit command from a ready, unchanging composer. Text goes only into the vendor's ready composer, never into a dialog or into the shell left after a CLI exits; at a dialog the interrupt key can only cancel. It always goes on to kill; a stuck screen only costs the ID. The killed session can then be resumed.
 
 `kill` preserves an existing settlement archive (including while the terminal drains). For an unsettled session, it captures the last 500 pane lines before killing tmux, then commits `dead` and the snapshot together only if the observed row version still matches. A settlement that wins during capture or termination keeps its status and archive; tree mode skips descendants that settle during capture. Capture or archive-write failures do not prevent termination; an unavailable pane leaves any earlier archive intact. If termination fails and the terminal still exists, the command reports the failure without changing the row or archive. A reserved launch whose terminal does not exist yet is still marked `dead`, cancelling its launch publication and allowing the launcher to roll back.
 
