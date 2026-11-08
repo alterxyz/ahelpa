@@ -156,6 +156,14 @@ describe("capacity settlement and reporting", () => {
     expect(await wait(db, [id], false, 0)).toMatchObject({ reason: "model_capacity" });
   });
 
+  // Without a daemon, wait reads every second but runs the full refresh on the
+  // daemon's 3 s clock, so the second sighting is a full period after the first.
+  test("inline wait confirms on the daemon's 3 s clock, not on each 1 s read", async () => {
+    const started = Date.now();
+    expect(await wait(db, [id], false, 6000)).toMatchObject({ status: "needs_attention", reason: "model_capacity" });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(2900);
+  });
+
   test.each([false, true])("CLI wait reports reason with exit 1 (all=%s)", async all => {
     const out: string[] = [];
     const err: string[] = [];

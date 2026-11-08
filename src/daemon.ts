@@ -466,7 +466,7 @@ export async function refreshSessionStatuses(
   }
 }
 
-const POLL_MS = 3000;
+export const POLL_MS = 3000;
 // The hook can fire a moment before the TUI draws the frame that ends the turn.
 const WAKE_GRACE_MS = 250;
 

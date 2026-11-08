@@ -1,5 +1,5 @@
 import { StateDB } from "../state";
-import { isDaemonRunning, refreshSessionStatuses } from "../daemon";
+import { isDaemonRunning, POLL_MS, refreshSessionStatuses } from "../daemon";
 import { SESSION_STATUS, WAIT_STATUS, type WaitStatus } from "../session-lifecycle";
 import { Wakeup, defaultWakeup } from "../wakeup";
 import { copyFileSync, mkdirSync } from "fs";
@@ -67,11 +67,18 @@ export async function wait(
 ): Promise<WaitResult | WaitResult[]> {
   const deadline = Date.now() + timeoutMs;
   const archive = new Archive(defaultRuntimeLayout.archiveDir());
+  // Without a daemon this loop reads the screen every second, but runs a full
+  // refresh only on the daemon's 3 s clock; the reads between settle only on a
+  // sentinel, so idle counts and attention confirmation keep the daemon's pace.
+  let nextPoll = 0;
 
   while (true) {
     const daemonRunning = isDaemonRunning();
     if (!daemonRunning) {
-      await refreshSessionStatuses(db, sessionIds);
+      const now = Date.now();
+      const full = now >= nextPoll;
+      await refreshSessionStatuses(db, sessionIds, now, !full);
+      if (full) nextPoll = Date.now() + POLL_MS;
     }
 
     const results = sessionIds.map((id): WaitResult => {
