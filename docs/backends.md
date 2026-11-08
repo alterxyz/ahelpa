@@ -2,7 +2,7 @@
 
 [English](backends.md) | [简体中文](zh-CN/backends.md)
 
-This page answers three questions about adding an agent to ahelpa as a helper: **what fits**, **how to decide**, and **roughly how it is wired**. It ends with a registry of every candidate already evaluated. Written 2026-11-06 against ahelpa 0.10.0.
+This page answers three questions about adding an agent to ahelpa as a helper: **what fits**, **how to decide**, and **roughly how it is wired**. It ends with a registry of every candidate already evaluated. Written 2026-11-06 against ahelpa 0.10.0; on 2026-11-07 the two wiring shapes were reduced to one ([how a helper is wired](#how-a-helper-is-wired)).
 
 Before researching or proposing a new backend:
 
@@ -68,7 +68,7 @@ Each gate is a primitive ahelpa cannot work without. Failing one means no driver
 
 | Gate | Because |
 | --- | --- |
-| **The process can live in tmux, or can be bridged into it.** | A session is a tmux session; the daemon captures its pane, `send-keys` delivers input, and `tmux attach` is the human escape hatch. |
+| **Its own interactive TUI runs in tmux, takes keystrokes, and can be read from the pane.** | A session is a tmux session running the vendor's UI: the daemon captures its pane, `send-keys` delivers input, and `tmux attach` lets a person see and step in. Headless and RPC modes do not count ([how a helper is wired](#how-a-helper-is-wired)). |
 | **Several turns in one session, or native resume.** | `send`/`task` deliver follow-ups into a live pane and `resume` rebuilds a settled session from a native token. Without either, a helper degrades to process-per-delivery, which is [declined](#rejected-designs). |
 | **Unattended operation without editing global configuration** (proposal item A6). | Launch must not rewrite files such as the user's CLI settings: the blast radius would reach all of their own sessions. Hooks, permissions, and trust must be reachable by a launch flag, an environment variable, or a per-session file. Where trust must be persisted, it is a documented exception ([security](security.md)), not a default. |
 | **Can read the task file, write the result directory, and print the sentinel.** | File handoff plus the sentinel are the only completion contract; ahelpa prefers files over parsing terminal output. |
@@ -78,7 +78,7 @@ Each gate is a primitive ahelpa cannot work without. Failing one means no driver
 
 | Capability | Because |
 | --- | --- |
-| **Structured turn-end signal and input ownership** (a hook, notify command, or RPC event). | Without it the daemon infers turn end from inactivity; 47 of 63 archived Claude `needs_attention` sessions had already written their summary without printing the sentinel (proposal A6). |
+| **Structured turn-end signal and input ownership** (a session-local hook or notify command). | Without it the daemon infers turn end from inactivity; 47 of 63 archived Claude `needs_attention` sessions had already written their summary without printing the sentinel (proposal A6). |
 | `--model` and `--effort` flags. | `launch --model/--effort` and the role presets set them. Without them the helper uses its native defaults; that is allowed. |
 | A lower-permission posture (`--safe`). | `--safe` is promised "where supported". Where the upstream has none, the driver must **refuse** the flag, as Pi does, rather than ignore it. |
 | Session-scoped trust. | Persistent trust writes state outside the session (Codex and Kimi do, documented in [security](security.md)). Session-scoped trust avoids that. |
@@ -86,18 +86,46 @@ Each gate is a primitive ahelpa cannot work without. Failing one means no driver
 
 Passing the funnel answers **can** it be integrated, not **should** it be. The second question is the owner's: which need does this cover that an existing driver does not? A second provider-neutral open harness next to Pi, for example, needs a reason beyond "it works".
 
-## Three ways to wire one in
+## How a helper is wired
 
-The shapes below come from the code in `src/drivers/`. Pick by what the upstream offers.
+**Rule (owner decision, 2026-11-07): a helper is driven the way a person drives it, through its own interactive TUI in tmux.** ahelpa types with `send-keys` and reads the screen with `capture-pane`. Headless, print, RPC, stream-json and ACP modes are never a helper's transport, and no bridge program sits between tmux and the agent. An upstream whose TUI cannot be driven this way is declined and recorded in the registry. It is not bridged.
 
-| Shape | Drivers | How it works | Choose it when | Cost |
-| --- | --- | --- | --- | --- |
-| **TUI scrape plus hook** | `claude-code`, `codex`, `kimi` | The driver launches the vendor's own TUI in tmux, types with `send-keys`, and reads state from pane captures. Where the upstream accepts a per-invocation hook, the driver registers a session-local one that appends to `.ahelpa/<id>/turns.log` through the hidden `__turn-hook` command (Claude: `--settings` file; Codex: `-c notify=[...]`). Kimi has no hook and relies on inactivity heuristics. | The TUI is stable, a per-session hook exists, and you want the human to be able to attach to the real UI. | Every dialog is a screen-scraping case: trust prompts, update menus, model pickers, capacity stops (`codex.ts` handles several). Upstream UI changes break detection. |
-| **Structured bridge in tmux** | Pi, `agy`, Vibe | A small bridge process runs inside tmux, speaks the upstream's structured mode, and presents ahelpa a plain line protocol (input lines queue, `/exit`, the sentinel; Pi also supports `/abort`). Settlement comes from structured events or child exit, not the screen. | The upstream is a closed-source or fast-moving TUI **and** offers a stable structured mode with turn settlement and native session ids. Prefer this over scraping. | You own a bridge: process-tree cleanup, locks against concurrent writers, refusing or cancelling approval requests you cannot answer. |
+How it works:
 
-Tie-breakers: hook available and TUI stable → scrape plus hook. Structured mode available and TUI volatile → bridge. No TUI but a public in-process API → in-process app. The choice is made during the [spike](#spike-checklist), not before it.
+- **Input.** The task goes in as a file. The pane receives a short instruction through `send-keys` (`Please read and complete the task described in <path>`, plus how to signal). It names the sentinels inside a sentence, which is safe because a sentinel only counts alone on its line. `send` and `task` type follow-ups the same way.
+- **Outcome.** The screen is the authority. A turn is over when the current turn's output shows `[AHELPA:DONE]` or `[AHELPA:NEED_HELP:tags]` after the last sign of work (`src/drivers/sentinels.ts`; Kimi's `detectOutcome` is the plain example). The daemon polls every 3 s, so a turn that prints its sentinel settles within one poll.
+- **No sentinel.** When no sign of work appears for 4 polls (about 12 s, `IDLE_DEBOUNCE` in `src/daemon.ts`, chosen on 2026-06-24 without a measurement), the daemon nudges or marks the session `needs_attention`. A dialog the driver does not recognise ends the same way: a person is called.
+- **Hooks speed things up but never decide.** Claude Code (a `--settings` file) and Codex (`-c notify=[...]`) register a session-local turn-end hook that appends to `.ahelpa/<id>/turns.log` through the hidden `__turn-hook` command. It tells the daemon *when* a turn ended, which shortens the no-sentinel case and ties the event to the right input. It never says whether the work succeeded ("Hooks never imply success", [architecture](architecture.md)). A new driver starts without a hook, as Kimi does, and gets one only if measurements show screen reading falls short.
+- **What a driver knows, and nothing more.** The launch command (auto-update off, permission posture, session-only trust where possible); what the empty, ready composer looks like; what work looks like (spinner, timer, interrupt hint); which dialogs need a person (only session-scoped trust may be answered automatically); the interrupt key and the exit command; where the native resume id is printed, and the resume command.
+- **Lifecycle.** tmux owns the process. On DONE the daemon sends the exit command and reads the native resume id the CLI prints as it exits. `kill` ends the tmux session. At any time a person can run `tmux attach` and see the real UI.
 
-Vibe uses this bridge shape with one headless child per turn: the bridge and native session persist, and every later child resumes that session. Child exit settles the turn; the driver does not depend on an RPC result event.
+### Why a terminal, not a bridge
+
+- **A person can always see and step in.** `tmux attach` shows exactly what the agent shows: what it reads, runs and changes. A person can type to steer, press the CLI's interrupt key to stop one turn and keep the session, answer a dialog, or switch the model. In the bridge era, attaching showed state markers and, at the end, the final answer; a typed line became a queued task; one turn could not be stopped without ending the session (agy's SIGINT ends the whole process); and a headless agent's questions got empty answers (agy's `ask_question`), so the person never learned a question had been asked.
+- **One judge for every helper.** The same sentinel, scoping, nudge, `send`, `wait` and `check` apply to all of them. Each bridge settled turns by its own rules and printed its own markers: a second judge per backend.
+- **No process manager of our own.** tmux owns the process tree. Every bridge had to snapshot descendants, signal them, reap orphans by recorded identity, and in Pi's case hold a lock against concurrent writers. That code existed only because the agent had left the terminal.
+- **Not cheaper to build.** With their bridges, the agy, Vibe and Pi drivers came to 433, 438 and 589 lines; Kimi's screen-only driver is 486 (2026-11-07, `wc -l` over `src/drivers/`).
+- **The vendor's TUI is the surface the vendor supports for people.** It carries slash commands, model menus, approval and trust dialogs, and plugins, which headless modes drop. That is also part of why [ACP was rejected](#rejected-designs).
+
+### Arguments that do not justify leaving the terminal
+
+These were the case for bridges. Each was checked on 2026-11-07:
+
+- *"The TUI changes between releases."* The input side, keystrokes, does not change. The sentinel is text the model prints, independent of the UI, so a UI change cannot turn unfinished work into DONE. At worst a sign of work or a new dialog goes unrecognised and the session is flagged for a person after about 12 s, or a launch fails visibly. Drivers turn auto-update off, so UI changes arrive only when the owner upgrades, and `doctor` plus the closure gate check the version.
+- *"Structured events give an exact turn end."* The sentinel plus the screen already settle a turn within one poll. The no-sentinel case is bounded by the debounce, and a session-local hook can shorten it where the CLI offers one.
+- *"The resume id is known before the first message."* While the helper lives, the tmux session id is all that `send`, `capture`, `attach` and `kill` need. The native id matters only after the process exits, and a graceful exit prints it. Only an abrupt death (SIGKILL, reboot) loses it, which is already true for Claude Code and Codex.
+- *"The vendor recommends headless mode for automation."* ahelpa does not run an unattended pipeline. It gives a host agent a colleague that a person can look over.
+
+### How the drift happened
+
+Recorded so it does not happen again:
+
+- **2026-10-30.** Pi was added as an RPC bridge (commit `03598f7`) so that its host-facing contract matched an existing driver's. The commit records no comparison with Pi's own TUI.
+- **2026-11-06.** This page was written with two wiring shapes and told readers to prefer the bridge over scraping, turning the Pi choice into a rule. The spike checklist asked about structured modes but never asked whether attaching would still show the agent.
+- **2026-11-06.** agy was wired "in the pi shape", although its own spike had shown the TUI path worked (session-only trust, session hooks, sentinel survival); that path was kept only as a fallback. Vibe's card never evaluated Vibe's TUI.
+- **2026-11-07.** The owner attached to a `gemini` helper, saw no progress, asked why three backends differed from Claude Code and Codex, and set the rule above. Pi, agy and Vibe were moved to their TUIs (see their cards).
+
+The lesson: a choice made for one backend became a rule, and nobody restated the principle it traded away (`tmux attach` as the human escape hatch). A precedent is not a reason. Check a new driver against the principles on this page, not against the last driver written.
 
 ## The minimum acceptable driver
 
@@ -110,18 +138,18 @@ The evidence that this floor is real is `kimi`: no turn hook, no `--effort`, no 
 
 ## Driver capability matrix
 
-Hand-written from `src/drivers/*.ts` and `skill/references/*.md` on 2026-11-06. The same columns are the scoring grid for a new candidate: a card's "Grid" section fills them in.
+Hand-written from `src/drivers/*.ts` and `skill/references/*.md` on 2026-11-06; the Pi, agy and Vibe columns were updated on 2026-11-07 for their TUI drivers. The same columns are the scoring grid for a new candidate: a card's "Grid" section fills them in.
 
 | | `claude` (Claude Code) | `codex` | `kimi` | `deepseek-pi` (Pi) | `gemini` (Antigravity) | `mistral` / `deepseek` (Vibe) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Shape | TUI + hook | TUI + hook | TUI, no hook | RPC bridge | stream-json bridge (like Pi) | Per-turn streaming child, persistent bridge |
-| Resume token (`resumeTokenAvailableAfterSubmit`) | After exit only (captured while draining) | After exit only (captured while draining) | Right after the first submit (native `session_*` id) | Right after the first submit (native UUID) | Right after the first submit (conversation UUID from the `init` event, before the first message); the bridge fails a resume whose id agy does not know | sessionId from first event of first turn; `--resume`; unknown id fails |
-| Turn-end signal | Hooks via `--settings` session file: `UserPromptSubmit`, `Stop`, `StopFailure` | Per-invocation `-c notify=[...]` override (`agent-turn-complete`) | None; inactivity heuristics plus sentinel | Native settlement events over RPC | One stream-json `result` event per turn (`status`, `finished_reason`) | Child exit code + assistant-text sentinel |
+| Shape | TUI + hook | TUI + hook | TUI, no hook | TUI (fullscreen), no hook | TUI, no hook | TUI, no hook |
+| Resume token (`resumeTokenAvailableAfterSubmit`) | After exit only (captured while draining) | After exit only (captured while draining) | Right after the first submit (native `session_*` id) | After exit only: `pi --session <uuid>` in the `/quit` exit hint (captured while draining) | After exit only: `agy --conversation=<id>` printed on exit (captured while draining); an unknown id fails the resume | After exit only: `vibe --resume <8 hex>` printed on exit (captured while draining); full UUIDs from bridge-era records still resume |
+| Turn-end signal | Hooks via `--settings` session file: `UserPromptSubmit`, `Stop`, `StopFailure` | Per-invocation `-c notify=[...]` override (`agent-turn-complete`) | None; inactivity heuristics plus sentinel | None; the sentinel must be the transcript's last line with no spinner, else inactivity | None; sentinel in the current turn with no spinner or background task after it, else inactivity | None; sentinel in the latest turn after its last spinner line, else inactivity |
 | `--safe` means | Omits `--dangerously-skip-permissions`; native approvals remain; `--add-dir` for a result dir outside the project | `-s workspace-write -a never` (+ `--add-dir`) | `--yolo` instead of `--auto` (risky actions still ask); not a sandbox | Refused | Refused | Refused |
-| Trust persisted | Not managed by the driver; the user must run `claude` in the project once or launch fails fast | Yes: answering "Folder access" (0.163+) writes the repository root as trusted in Codex's config; the hooks-trust prompt is declined with Escape | Yes: "Trust and continue" is selected in both modes and persisted by Kimi | No trust prompt; bridge passes `--approve --no-extensions --no-mcp --offline` | No trust prompt in print mode; nothing persisted | `--trust` for invocation only; not persisted |
-| Self-update | Not suppressed by the driver (upstream behavior not verified here) | Update dialog dismissed with "Skip"; not suppressed | `KIMI_CODE_NO_AUTO_UPDATE=1` | Not set by the driver (`--offline` is passed; its effect on update checks is not documented in tree) | `AGY_CLI_DISABLE_AUTO_UPDATE=true` (1.5.2 honours only lowercase `true`; `1` still starts the updater) | `VIBE_ENABLE_AUTO_UPDATE=false`, `VIBE_ENABLE_UPDATE_CHECKS=false` |
-| Model / effort | `--model`, `--effort` at launch; runtime switch via the model menu | `--model`, `-c model_reasoning_effort=`; runtime switch via the model menu | `--model <config.toml alias>` only; no effort; no runtime switch | `cc-switch-deep-seek/deepseek-flash` / `high`; `--model provider/id` and `--effort` overrides verified at startup; no runtime switch | Default `--model gemini-4-argon --effort medium`; a suffixed id (`gemini-4-argon-high`) needs a matching `--effort`; no runtime switch | Session agent TOML: defaults respectively to `mistral-large-4-0-3` / `high` and `deepseek-v4-1-flash-1017` / `high`; no runtime switch |
-| Last verified upstream | No pin recorded; `doctor` reports the installed version | 0.163+ (Folder access); capacity phrase seen on 0.154; update dialog formats ≤0.15x and 0.160 | Kimi Code 2.x (`--auto` needs it) | ≥ 1.4.0, tested 1.4.0; 1.5.0 seen 2026-11-06 | Tested 1.5.2 (2026-11-06) | Tested 3.1.0 (2026-11-06) |
+| Trust persisted | Not managed by the driver; the user must run `claude` in the project once or launch fails fast | Yes: answering "Folder access" (0.163+) writes the repository root as trusted in Codex's config; the hooks-trust prompt is declined with Escape | Yes: "Trust and continue" is selected in both modes and persisted by Kimi | No: `--approve` trusts project files for this run only | No: `--settings '{"trustedWorkspaces":[…]}'` trusts for this session only | No: `--trust` for this invocation only |
+| Self-update | Not suppressed by the driver (upstream behavior not verified here) | Update dialog dismissed with "Skip"; not suppressed | `KIMI_CODE_NO_AUTO_UPDATE=1` | `--offline` skips Pi's startup update and catalog checks | `AGY_CLI_DISABLE_AUTO_UPDATE=true` (1.5.2 honours only lowercase `true`; `1` still starts the updater) | `VIBE_ENABLE_AUTO_UPDATE=false`, `VIBE_ENABLE_UPDATE_CHECKS=false` |
+| Model / effort | `--model`, `--effort` at launch; runtime switch via the model menu | `--model`, `-c model_reasoning_effort=`; runtime switch via the model menu | `--model <config.toml alias>` only; no effort; no runtime switch | `--model provider/id`, `--effort` passed as `--thinking`; launch fails unless the footer shows the requested model and level (Pi clamps silently); no runtime switch | Default `--model gemini-4-argon --effort medium`; a suffixed id (`gemini-4-argon-high`) needs a matching `--effort`; no runtime switch | Session agent TOML written by the pane before `vibe` starts: defaults respectively to `mistral-large-4-0-3` / `high` and `deepseek-v4-1-flash-1017` / `high`; no runtime switch |
+| Last verified upstream | No pin recorded; `doctor` reports the installed version | 0.163+ (Folder access); capacity phrase seen on 0.154; update dialog formats ≤0.15x and 0.160 | Kimi Code 2.x (`--auto` needs it) | ≥ 1.4.0 accepted; TUI tested on 1.5.0 (2026-11-07) | ≥ 1.5.2 accepted; TUI tested on 1.5.3 (2026-11-07) | TUI tested on 3.1.0 (2026-11-07) |
 
 ponytail: hand-written, so it will drift from the code; generate it from `AgentDriver` when drift actually causes trouble.
 
@@ -137,9 +165,9 @@ Run this against any candidate that cleared funnel steps 1-2, in a scratch direc
 4. **What prompts remain after skip-permissions.** With the upstream's skip/approve-all flag on, which dialogs still appear (folder trust, hooks trust, MCP approval, tool-specific "dangerous" confirmations, update, onboarding), and which can be answered by keystrokes?
 5. **Session-scoped hooks and settings.** Can hooks, permissions, and trust be registered for one session only (flag, environment variable, per-session file)? If the only route is a global file, the A6 gate fails. How does a session file merge with the user's own?
 6. **Does the sentinel survive rendering?** Make the agent print `[AHELPA:DONE]` through the real TUI and capture it with `tmux capture-pane` at narrow and wide widths: wrapping, markdown rendering, panels, color codes, scrollback. Also check whether the agent echoes the task text (a quoted sentinel is a false positive).
-7. **Structured mode.** Does the non-interactive or RPC mode (`-p`, stream-json, RPC, ACP) keep context across turns, combine with resume, report turn-end events, and say what it does with approval requests headlessly (deny by default?)?
+7. **Quiet stretches, interrupt and exit.** While a turn works, what is the longest stretch with no change at all on the captured screen (waiting on the API, for example)? The no-sentinel debounce must be longer. Which key stops one turn, and does the session survive it? Which command exits cleanly, and does the exit screen print the native resume id?
 
-The spike result decides the wiring shape and the tier, and goes into the candidate's card.
+The spike decides whether the TUI can be driven at all (if not, the candidate is declined, not bridged) and at which tier. The answers go into the candidate's card.
 
 ## After the spike
 
@@ -163,7 +191,8 @@ These came out of the 2026-10-08 design proposal (ahelpa v0.9.0, §6) and still 
 | **Full permission as the only posture** | A tool that always runs with full permission never blocks, at the price of no lower posture. ahelpa launches with full local permissions by default (stated plainly in [security](security.md)), but keeps `--safe` wherever the upstream has a lower posture, and a driver without one refuses the flag. |
 | **One process per delivery, no persistence** | It removes the daemon at the price of losing everything in flight. tmux plus SQLite means no in-flight work is lost when any ahelpa process dies. |
 | **A shared transcript or an unbounded agent-to-agent loop** | Only the host relays. `--after` stays a host-chosen pointer to files. The bounded alternative is job-scoped, budgeted, file-based peer mail, which grants no control and cannot reassign work. |
-| **ACP as the transport** | Wrong bet for four reasons: (1) Confer, the MCP tool that runs nine agents, does not depend on ACP for Claude or Codex either: it uses in-process bridges to the vendors' own official interfaces; (2) there is no first-party ACP for Claude Code or Codex, only their own structured interfaces, and a third-party adapter lags a fast-moving CLI; (3) CLI-only features are lost (slash commands, model menus, approval and trust dialogs, plugin triggers, `tmux attach`); (4) ACP is a stdio session, so whatever holds the client end becomes the process whose death loses the session, while ahelpa's design exists to have no such process. The incremental step that captured most of the value is the structured turn-end hook. This does not forbid a per-upstream [bridge](#three-ways-to-wire-one-in) over that upstream's own structured mode; judge each upstream on its own merits. |
+| **ACP as the transport** | Wrong bet for four reasons: (1) Confer, the MCP tool that runs nine agents, does not depend on ACP for Claude or Codex either: it uses in-process bridges to the vendors' own official interfaces; (2) there is no first-party ACP for Claude Code or Codex, only their own structured interfaces, and a third-party adapter lags a fast-moving CLI; (3) CLI-only features are lost (slash commands, model menus, approval and trust dialogs, plugin triggers, `tmux attach`); (4) ACP is a stdio session, so whatever holds the client end becomes the process whose death loses the session, while ahelpa's design exists to have no such process. The incremental step that captured most of the value is the structured turn-end hook. A per-upstream bridge over the vendor's own structured mode is rejected as well; see the next row. |
+| **A headless or structured bridge (print, RPC, stream-json) as a helper's transport** | Used for Pi, agy and Vibe from 2026-10-30 to 2026-11-07, then removed. A person who attached saw no progress, could not steer or stop a single turn, and never saw the agent's questions. Each bridge was its own turn judge and its own process manager, and it cost as much code as a screen-reading driver. See [why a terminal, not a bridge](#why-a-terminal-not-a-bridge) and [how the drift happened](#how-the-drift-happened). |
 
 ## Evidence rules
 
@@ -181,18 +210,18 @@ Cards live in `docs/backends/<name>.md`, English only (an exception to the bilin
 
 ## Candidate registry
 
-Updated 2026-11-06. Public helper types need not match harness names: Vibe serves `mistral` and `deepseek` (Mistral subscription); Pi serves `deepseek-pi` (configure DeepSeek in CC-Switch and sync to Pi first). Nicknames and harness IDs are disclosed in the [name directory](../skill/references/names.md); only harness IDs are stored in the database. "Stopped at" is the last funnel step the candidate was examined at; a step marked docs-only was read in upstream documentation and not run.
+Updated 2026-11-07. Public helper types need not match harness names: Vibe serves `mistral` and `deepseek` (Mistral subscription); Pi serves `deepseek-pi` (configure DeepSeek in CC-Switch and sync to Pi first). Nicknames and harness IDs are disclosed in the [name directory](../skill/references/names.md); only harness IDs are stored in the database. "Stopped at" is the last funnel step the candidate was examined at; a step marked docs-only was read in upstream documentation and not run.
 
 | Candidate | Layer | Status | Stopped at | Card |
 | --- | --- | --- | --- | --- |
 | `claude` (Claude Code) | Helper backend; also host target | Integrated | n/a | `skill/references/claude-code.md`, [profiles](../skill/references/profiles.md) |
 | `codex` | Helper backend; also host target | Integrated | n/a | `skill/references/codex.md`, [profiles](../skill/references/profiles.md) |
 | `kimi` | Helper backend; also host target | Integrated | n/a | `skill/references/kimi.md`, [profiles](../skill/references/profiles.md) |
-| `deepseek-pi` (Pi) | Helper backend | Integrated; official DeepSeek API backup for `deepseek`; CC-Switch sync required | n/a | `skill/references/pi.md`, [profiles](../skill/references/profiles.md) |
+| `deepseek-pi` (Pi) | Helper backend | Integrated; official DeepSeek API backup for `deepseek`; CC-Switch sync required. Driven through its TUI since 2026-11-07 (RPC bridge 2026-10-30 to 2026-11-07) | n/a | [pi](backends/pi.md), `skill/references/pi.md` |
 | `dsh` | Helper backend | **Removed (2026-11-06)** by the author: too many flourishes; mediocre CLI friendliness | Removed | Legacy records remain inspectable and reclaimable; no new work or resume |
 | Gemini CLI | Helper backend | **Declined (2026-11-06)**: personal accounts are no longer served | Step 2 | [gemini-cli](backends/gemini-cli.md) |
-| `gemini` (Antigravity CLI) | Helper backend | Integrated (2026-11-06) through a stream-json bridge; default `gemini-4-argon` / `medium` | n/a | [agy](backends/agy.md), `skill/references/agy.md` |
-| `mistral` / `deepseek` (Mistral Vibe CLI) | Helper backend | Integrated (2026-11-06); persistent bridge + native resume; defaults respectively to `mistral-large-4-0-3` / `high` and `deepseek-v4-1-flash-1017` / `high` | n/a | [vibe](backends/vibe.md), `skill/references/vibe.md` |
+| `gemini` (Antigravity CLI) | Helper backend | Integrated (2026-11-06); driven through its TUI since 2026-11-07 (stream-json bridge for one day before that); default `gemini-4-argon` / `medium` | n/a | [agy](backends/agy.md), `skill/references/agy.md` |
+| `mistral` / `deepseek` (Mistral Vibe CLI) | Helper backend | Integrated (2026-11-06); driven through its TUI since 2026-11-07 (headless bridge before that); defaults respectively to `mistral-large-4-0-3` / `high` and `deepseek-v4-1-flash-1017` / `high` | n/a | [vibe](backends/vibe.md), `skill/references/vibe.md` |
 | OpenCode | Helper backend | **Candidate**: passes steps 1-2; steps 3-4 read from docs only, not spiked | Step 4, docs-only | [opencode](backends/opencode.md) |
 | dimAgent | Helper backend (CLI) inside a wider product family | **Deferred (2026-11-06)**: two CLIs in flux, one still alpha | Step 2 | [dimagent](backends/dimagent.md) |
 | Raft (formerly Slock) | Peer runtime | **Reference**; no driver | Step 1 | [raft](backends/raft.md) |

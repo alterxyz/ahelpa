@@ -26,8 +26,8 @@ JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver �
 - Claude 检查 `.claude.json` 中的工作区信任，查找键按 NFC 规范化；对 worktree 检查公共仓库的规范根目录，再检查 Git 根目录范围内已信任的祖先目录。支持旧式 `.config.json`、`CLAUDE_CONFIG_DIR` 和自定义 OAuth 的独立信任文件。worktree／子模块的祖先信任无法确认规范 Git 边界时，返回 `unknown`。
 - Codex 使用与 launch 相同的二进制解析方式，检查 `CODEX_HOME`（默认 `~/.codex`）下受支持的 API key／token 认证文件结构。选中的自定义 provider 若配置 `requires_openai_auth = false`，无需 OpenAI 登录；配置了 `env_key` 时，相应环境变量必须存在。profile 选择、额外系统／项目配置层、不支持的 provider 选项、keyring／auto／ephemeral 存储，以及无法识别或读取的认证状态，在只读检查无法确认有效状态时返回 `unknown`。它还会从同一份配置读取 `[projects."<root>"].trust_level`；仓库根目录尚未被信任时，在不改变 `locally_ready` 的前提下追加 `repository root not trusted by Codex: <root> (launch accepts the prompt)`。根目录是最近的包含 `.git` 条目的祖先目录（linked worktree 对应主 checkout）；键只按真实路径精确匹配，不尝试 NFC 或符号链接写法，取第一个带 `trust_level` 的条目：先项目目录自身，再最近的 `.git` 目录（linked worktree 自己的目录），最后是根目录。根目录或项目目录被标为 `untrusted` 时，Codex 会显示 launch 不会应答的受限目录界面，此时 `locally_ready` 为 `false`。任何项目条目的 `trust_level` 若不是 `trusted` 或 `untrusted`，Codex 会拒绝加载该配置，因此报告 `unknown`（`config field types unrecognized`）。不在 git 仓库内时不报告任何内容。
 - Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。模型必须包含模型名称及正整数 `max_context_size`；provider 的 API key 与 OAuth 互斥。缺失或冲突的配置、keyring 和服务身份状态返回 `unknown`。
-- agy 读取 Go 二进制里内嵌的版本串，要求有 Node.js 运行桥接，拒绝低于测试版本 1.5.2 的版本。`PATH` 上有多个不同的 `agy` 时，逐一列出，说明哪个遮住了其他的、它是否在桌面 `.app` 包里。agy 把登录态存在系统钥匙串，doctor 不打开钥匙串，所以登录状态到启动时才确定，此前为 `unknown`。
-- Vibe 检查 PATH 中的 `vibe` 和 Node.js，读取已安装 `mistral-vibe` 的 dist-info 元数据，标记低于测试基线 3.1.0 的版本。doctor 不读钥匙串，登录状态保持 `unknown`，在首次回合确认。
+- agy 读取 Go 二进制里内嵌的版本串，拒绝低于测试版本 1.5.2 的版本。`PATH` 上有多个不同的 `agy` 时，逐一列出，说明哪个遮住了其他的、它是否在桌面 `.app` 包里。agy 把登录态存在系统钥匙串，doctor 不打开钥匙串，所以登录状态到启动时才确定，此前为 `unknown`。
+- Vibe 检查 PATH 中的 `vibe`，读取已安装 `mistral-vibe` 的 dist-info 元数据，标记低于测试基线 3.1.0 的版本。doctor 不读钥匙串，登录状态保持 `unknown`，在首次回合确认。
 
 `doctor` 检查本地凭据和配置的结构，不验证其完整有效性；例如，不检测 JWT claim 键的重复。`locally_ready: true` 表示未发现已知的本地启动阻塞。不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
 
@@ -98,15 +98,15 @@ ahelpa doctor gemini --project /path/to/project
 ahelpa launch gemini --project /path/to/project --task "Review the CLI parser"
 ```
 
-agy 1.5.2 是测试基线，更旧的版本会被拒绝。ahelpa 在 tmux 里用一个很小的 Node 桥接以 headless 方式运行 agy（`--input-format stream-json --output-format stream-json --dangerously-skip-permissions`），因此不会弹信任对话框，也不写 agy 的全局设置或项目目录。同一个 agy 进程处理这个 helper 的所有任务，并保持同一段对话。`resume` 用 `--conversation <id>` 重新打开同一段对话；如果 agy 打开的是另一段对话，resume 失败。`task`、`wait`、`check`、`kill` 沿用通常工作流。
+agy 1.5.2 是测试基线，更旧的版本会被拒绝。ahelpa 在 tmux 里跑 agy 自己的 TUI，带 `--dangerously-skip-permissions`，并用 `--settings` 只在本次会话传入工作区信任，因此不会弹信任对话框，也不写 agy 的全局设置或项目目录。`tmux attach` 看到的就是 agy 本身，按 Esc 只停当前回合、会话保留。helper 干完会退出并打印 conversation ID；`resume` 用 `--conversation <id>` 重新打开这段对话，agy 不认识这个 ID 时 resume 失败。`task`、`wait`、`check`、`kill` 沿用通常工作流。
 
 agy 默认为 `worker`，使用 `--model gemini-4-argon --effort medium`，agy 将其解析为 `gemini-4-argon-medium`（Gemini 4 Argon · medium）；`reviewer` 使用相同模型，以及只审不改的任务合同。agy 的模型 ID 自带 effort：只传 `--effort high` 得到 `gemini-4-argon-high`；带后缀的 `--model`（如 `gemini-3.8-flash-low`）需要配上相同的 `--effort low`，或改用模型族名加 `--effort`。`agy models` 列出账号可用的模型。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。详见 [agy 接入说明](../../skill/references/agy.md)。
 
 **Mistral / DeepSeek (Vibe)**
 
-先完成 Vibe 登录，运行 `ahelpa doctor mistral`，再用 `ahelpa launch mistral --file ./task.md --project /path/to/project` 启动。测试基线为 3.1.0，需要 Node.js。`worker`（默认）和 `reviewer` 都使用 `mistral-large-4-0-3`／`high`。`--model` 接收模型别名，`--effort off|low|medium|high|max` 通过会话专属 agent TOML 写入模型的 thinking；各模型支持的级别不同，见 `ahelpa models mistral`。
+先完成 Vibe 登录，运行 `ahelpa doctor mistral`，再用 `ahelpa launch mistral --file ./task.md --project /path/to/project` 启动。测试基线为 3.1.0。`worker`（默认）和 `reviewer` 都使用 `mistral-large-4-0-3`／`high`。`--model` 接收模型别名，`--effort off|low|medium|high|max` 通过会话专属 agent TOML 写入模型的 thinking；各模型支持的级别不同，见 `ahelpa models mistral`。
 
-桥接持续驻留 tmux，每回合使用一个新 headless 子进程，以 `--resume <sessionId>` 延续同一原生会话。`--trust` 仅对本次调用生效；不写 Vibe 全局配置，关闭自动更新和更新检查。退出码加助手正文暗号决定回合状态，未知 resume ID 明确失败。拒绝 `advisor`、`--safe` 和运行时模型切换。使用 `ahelpa launch deepseek --file ./task.md` 可通过 Mistral 订阅启动 `deepseek-v4-1-flash-1017`／`high`。桥接按会话写完整模型定义，不依赖全局配置；订阅必须包含该模型，否则会报告模型不可用及订阅提示。`deepseek-pi` 是 API 备份，默认 `cc-switch-deep-seek/deepseek-flash`／`high`；需先在 CC-Switch 中配置 DeepSeek 并同步到 Pi。订阅模型不可用或认证失败后，由 host 决定是否回退，运行时不会自动切换路线。小名、内部 harness ID 和完整回退策略见[名字目录](../../skill/references/names.md)。详见 [Vibe 接入说明](../../skill/references/vibe.md)。
+Vibe 自己的 TUI 在 tmux 里运行，`tmux attach` 能看到它，按 Esc 只停当前回合、会话保留。`--trust` 仅对本次调用生效；不写 Vibe 全局配置，关闭自动更新和更新检查。屏幕上的暗号决定回合状态。Vibe 退出时打印会话 ID，`resume` 用 `--resume` 传回；未知 resume ID 明确失败。拒绝 `advisor`、`--safe` 和运行时模型切换。使用 `ahelpa launch deepseek --file ./task.md` 可通过 Mistral 订阅启动 `deepseek-v4-1-flash-1017`／`high`。Vibe 启动前，pane 按会话写好完整模型定义，不依赖全局配置；订阅必须包含该模型，否则会报告模型不可用及订阅提示。`deepseek-pi` 是 API 备份，默认 `cc-switch-deep-seek/deepseek-flash`／`high`；需先在 CC-Switch 中配置 DeepSeek 并同步到 Pi。订阅模型不可用或认证失败后，由 host 决定是否回退，运行时不会自动切换路线。小名、内部 harness ID 和完整回退策略见[名字目录](../../skill/references/names.md)。详见 [Vibe 接入说明](../../skill/references/vibe.md)。
 
 用 `--label` 给 session 打标签，方便识别：
 

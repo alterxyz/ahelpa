@@ -142,7 +142,7 @@ daemon 是可选后台进程，用于监控运行中的 session。它会在 `lau
 | [ACP session setup](https://agentclientprotocol.com/protocol/v1/session-setup) | 原生恢复前必须确认 `loadSession` 能力，而不能默认所有 agent 均支持。 |
 | [Claude hooks](https://code.claude.com/docs/en/hooks) | `Stop`、`StopFailure` 和 `SessionEnd` 是不同生命周期事件；一轮回复结束本身不能证明任务成功。 |
 
-当前实现保留 tmux 与文件交接。接入这些传输方式需要能独立于调用方存活的受管进程，以及能力协商、审批处理、取消和重连测试。后续应保留现有命令契约，每次接入一个 driver；成为默认实现前，验证启动、中断、重启、原生恢复和结果交付，并保持 owner token 与 safe mode 的保证。这些外部结构化传输仍是后续设计方向；Pi 在 tmux 内使用内部 RPC 桥接。
+这些结构化传输方式不用作 helper 的传输层。自 2026-11-07 起，每个 helper 都在 tmux 里跑厂商自己的交互式 TUI，经 `send-keys` 输入，以屏幕上的暗号判定结果；Claude 的 `Stop` 这类 hook 只用来加快识别回合结束。2026-10-30 至 2026-11-07 期间，Pi、agy、Vibe 用过内部结构化桥接，后来被替换，因为人 attach 到 pane 上既看不见也没法引导 agent。规则、理由和这段经过见 [Helper 后端](backends.md#怎么接)。
 
 ### 当前终端驱动
 
@@ -156,7 +156,7 @@ Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration �
 | Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
 | 提交后处理 | 必要时补 Enter；捕获新创建的原生 session ID |
-| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，或 Pi／agy／Vibe 适配器状态标记 |
+| 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，由各 driver 限定在屏幕上的当前回合 |
 
 注册表的名字目录是唯一数据来源：对外名字和小名指向内部 harness ID 加启动 profile，数据库只存 harness ID。`claude` 对应 `claude-code`，`gemini` 对应 `agy`，`mistral` 和 `deepseek` 对应 `vibe`，`deepseek-pi` 对应 `pi`。新会话前缀使用对外名字；resume 按存储的 harness ID、model 和 effort 恢复，并沿用旧会话前缀。旧记录不迁移。DeepSeek 的完整模型定义按会话写入 agent TOML，有无 effort 都会写。
 
@@ -168,26 +168,13 @@ Kimi 会设置 canonical `KIMI_CODE_NO_AUTO_UPDATE=1`，避免 CLI 自更新中�
 
 Kimi 打印 `[AHELPA:DONE]` 后，旧 helper 仍在 draining 时 `resume` 会被拒绝。host 可以等待 daemon 回收终端且 `check` 显示 `idle`，也可以显式 `kill` 后再恢复。所有已结算记录都会保留到 `clean`；已完成及旧版 dead 记录只要带有 `agentResumeId` 就可以恢复。`clean` 仅在终端已回收后删除已结算记录及其 resume 元数据；live、draining 和 attention session 会保留。持久性指通过原生 Kimi session 在新 tmux session 中重新连接，而不是无限保留原 tmux process。
 
-### Pi RPC 桥接（`deepseek-pi`）
+### Pi、agy、Vibe 的 TUI 驱动
 
-`pi.ts` 在交接目录生成 `pi-terminal.mjs`；`pi-terminal-source.ts` 中的 Node 桥接在 tmux 内独占一个 `pi --mode rpc` 子进程。这是 driver 内部协议，公共命令、owner token、文件交接与 daemon 路径不变。`deepseek-pi` 的 `worker`／`reviewer` 均默认 `cc-switch-deep-seek/deepseek-flash`／`high`，需先在 CC-Switch 中配置并同步到 Pi；resume 保留记录中的设置。
+这三个和上面的 driver 一样在 tmux 里跑厂商的 TUI，只读屏幕，不注册回合 hook。原生恢复 id 都取自 CLI 退出时打印的画面，由 daemon 在 draining 期间读取（`resumeTokenAvailableAfterSubmit: false`）。所以在退出画面出现之前就被 kill 的 helper 没有原生 id，这和 Claude Code、Codex 一样。进程树归 tmux 管，closure gate 会检查 `kill` 之后 pane 里的进程一个不剩。2026-10-30 至 2026-11-07 期间这三个后端曾走结构化桥接，见 [Helper 后端](backends.md#偏离是怎么发生的)。
 
-桥接逐行解析 JSON，串行提交本地 FIFO 任务，跨 retry／compaction 保持 running，只在真正结算后输出带会话和回合身份的状态标记；排队任务之间不暴露 idle。`/abort` 清队列并中止，`/exit` 或终止信号有界关闭子进程。终端挂断时跳过 RPC 取消和终端恢复；清理向 Pi 及记录的后代进程组依次发送 TERM、KILL，包括独立进程组的 bash 工具。协议失败后留在拒收任务的故障输入循环，避免后续任务落到 shell。
-
-原生 JSONL 放在 Pi 按物理 cwd 编码的会话目录（先解析符号链接和 `/tmp` 别名）。`PI_CODING_AGENT_DIR` 遵循 Pi 的绝对／相对路径、`~`、`~/…` 和 `file://` 规则。桥接在交付目录的 `pi-process.json` 记录锁路径及桥接／子进程 PID；gate 在 kill 前记录整个 pane 进程树，再按 PID 检查回收，不依赖进程标题。每个 UUID 在 spawn 前取得排他锁，子进程 close 且记录的后代清理完成后才释放；遗留锁拒绝恢复，不按 PID 自动接管。Resume 要求恰好一个匹配 UUID 且头部有效的记录，并核验 RPC 会话身份。正常完成仍由 daemon 回收终端，后续上下文通过原生 resume 延续。详见 [Pi 说明](../../skill/references/pi.md)。
-
-
-### agy stream-json 桥接
-
-`agy.ts` 在交接目录生成 `agy-terminal.mjs`；`agy-terminal-source.ts` 中的 Node 桥接在 tmux 内独占一个 headless agy 子进程（`--input-format stream-json --output-format stream-json --dangerously-skip-permissions`），并设置 `AGY_CLI_DISABLE_AUTO_UPDATE=true`。每行任务变成一条 NDJSON 用户消息，每个回合以一个 `result` 事件结束；桥接串行处理本地 FIFO，输出与 Pi 桥接同类的会话／回合／状态标记。agy 在第一个任务之前就报告 conversation ID，因此 launch 时即记为 resume token；resume 传 `--conversation <id>`，若 agy 报告的 ID 不同（agy 遇到未知 ID 会这样做）则失败。默认 `gemini-4-argon`／`medium`。
-
-停止时发 SIGINT：stdin EOF 会让 agy 先跑完当前回合，SIGTERM 会留下工具进程。agy 把每个工具命令放在独立进程组里，它的 SIGINT 清理又与自身退出竞争，所以桥接在发信号前先快照 agy 的子孙进程（PID、父进程、进程组、启动时间），之后对身份仍然吻合的残留进程先发 TERM 再发 KILL。stderr 可能带有账号信息，只输出固定错误类别。桥接把 bridge／child PID 写进交付目录的 `agy-process.json`；gate 在 helper 存活时记录 pane 进程树，kill 后检查这些 PID。详见 [agy 参考](../../skill/references/agy.md)。
-
-### Vibe streaming 桥接（`mistral` / `deepseek`）
-
-`vibe.ts` 在交付目录生成 `vibe-terminal.mjs`，并在 launch／resume 时把 model／effort 参数传给桥接。桥接启动后、报告 ready 前，根据这些参数写入权限为 0600 的 `ahelpa-helper.toml`。Node 桥接驻留 tmux，串行处理输入行；每回合写一个 0600 prompt 文件，再启动 `vibe --prompt-file <file> --output streaming --trust --agent ahelpa-helper`。首个事件给出 sessionId，之后每回合加 `--resume <id>`；原生 resume 也沿用该 token。每回合子进程退出后桥接继续存活，原生会话保留上下文。
-
-退出码 0 加助手正文中的 DONE 暗号才是 idle；NEED_HELP 优先并带标签报 error；退出码 0 无暗号或 3（中断）是 needs_attention；其他退出报固定错误类别。桥接输出会话／回合／状态标记及运行心跳，引用助手伪造的保留标记。停止时向活跃子进程发 SIGTERM。子进程自然结束或被停止后，都对本回合进程组的残留成员先发 TERM 再发 KILL；显式停止时还快照子孙进程，按记录身份清理另建 session 的工具进程。根进程退出与管道排空分开等待，且均有时限。模型与 thinking 通过 `VIBE_AGENT_PATHS` 加载会话 agent 文件，每次 spawn 均关闭自动更新及检查；不改全局配置。详见 [Vibe 参考](../../skill/references/vibe.md)。
+- **Pi（`deepseek-pi`）。** `pi --tui-mode fullscreen --offline --approve --no-extensions --no-mcp`，外加 `--model` 和 `--thinking`（由 `--effort` 传入）。`--approve` 只在本次运行信任项目文件。Pi 的用户消息在纯文本抓屏里没有任何文字标记，所以只有暗号是对话记录最后一行、编辑框边框上没有转圈时，回合才结算。Pi 放弃的回合（` Error: <状态码>: …`）或按 Esc 中止的回合结算为 `needs_attention`，原因只由状态码生成（过载、限流、认证失败）。启动时页脚必须显示请求的模型和 thinking 级别，因为 Pi 会静默降级不支持的级别。`/quit` 退出；恢复用 `pi --session <uuid>`。在 CC-Switch 中配置并同步到 Pi 后，默认 `cc-switch-deep-seek/deepseek-flash`／`high`。见 [Pi 说明](../../skill/references/pi.md)。
+- **agy（`gemini`）。** `AGY_CLI_DISABLE_AUTO_UPDATE=true agy --dangerously-skip-permissions --settings '{"trustedWorkspaces":[…]}'`，外加 `--conversation`、`--model`、`--effort`。这份设置只在本次会话信任工作目录（字面路径和真实路径）。当前回合（分隔线下的 `> …` 回显）出现暗号，并且既看不到带 `esc to cancel` 的盲文转圈、也看不到后台任务计数（`N task(s)`）时，回合结算；agy 会把耗时命令转成后台任务，结束后自己接着跑。出现信任对话框或未知的 conversation id，启动或恢复直接失败。`/exit` 退出并打印 `agy --conversation=<id>`。默认 `gemini-4-argon`／`medium`。见 [agy 说明](../../skill/references/agy.md)。
+- **Vibe（`mistral` / `deepseek`）。** pane 先写会话 agent 文件 `ahelpa-helper.toml`（权限 0600，DeepSeek 带完整模型定义），再以指向交接目录的 `VIBE_AGENT_PATHS` 启动 `vibe --trust --agent ahelpa-helper`，并关闭自动更新和更新检查；从不写 `~/.vibe`。就绪要等输入框显示 `· ahelpa helper`。最新回合里的暗号出现在最后一个转圈行之后，回合才结算；`invalid_model` 错误结算为 `needs_attention` 并附订阅提示。`/exit` 退出并打印 `vibe --resume <8 位十六进制>`。见 [Vibe 说明](../../skill/references/vibe.md)。
 
 ## Nesting
 
@@ -239,8 +226,5 @@ Session settle 时，最终快照会保存到 `~/.ahelpa/archive/<session-id>/`�
 | `drivers/codex.ts` | Codex driver |
 | `drivers/kimi.ts` | Kimi Code driver |
 | `drivers/pi.ts` | Pi driver |
-| `drivers/pi-terminal-source.ts` | Pi RPC 桥接与生命周期 |
 | `drivers/agy.ts` | agy driver |
-| `drivers/agy-terminal-source.ts` | agy stream-json 桥接与生命周期 |
 | `drivers/vibe.ts` | Vibe driver |
-| `drivers/vibe-terminal-source.ts` | Vibe streaming 桥接与生命周期 |

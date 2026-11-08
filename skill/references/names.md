@@ -8,10 +8,10 @@ Public names belong to ahelpa. A public name and its nicknames point to a harnes
 | --- | --- | --- | --- | --- | --- | --- |
 | `claude` | `claude-code` | Claude Code / `claude-code` | advisor/reviewer: `claude-opus-5-5` / `xhigh`; worker: `claude-sonnet-5-5` / `high` | Claude subscription | `claude` on PATH; sign in and trust the project interactively before launch | Repair subscription/login or project trust first; the host chooses another helper if needed. |
 | `codex` | `gpt` | OpenAI Codex CLI / `codex` | worker/reviewer: `gpt-6-astra` / `medium` | ChatGPT subscription | `codex` on PATH and signed in | Restore login or wait for capacity/quota; the host chooses another helper if needed. |
-| `gemini` | `agy`, `antigravity` | Google Antigravity CLI / `agy` | worker/reviewer: `gemini-4-argon` / `medium` | Google account | `agy` ≥ 1.5.2 and Node.js on PATH; sign in once | Repair Google sign-in or availability; the host chooses another helper if needed. |
+| `gemini` | `agy`, `antigravity` | Google Antigravity CLI / `agy` | worker/reviewer: `gemini-4-argon` / `medium` | Google account | `agy` ≥ 1.5.2 on PATH; sign in once | Repair Google sign-in or availability; the host chooses another helper if needed. |
 | `kimi` | — | Kimi Code CLI / `kimi` | Native model; no effort or role preset | Kimi subscription | Kimi Code 2.x on PATH and signed in; configured model alias if explicitly selected | Repair subscription/login or configuration; the host chooses another helper if needed. |
-| `mistral` | `vibe` | Mistral Vibe CLI / `vibe` | worker/reviewer: `mistral-large-4-0-3` / `high` | Mistral subscription via Vibe login | `vibe` ≥ 3.1.0 and Node.js on PATH; signed in with access to the model | Repair Mistral login or model access; the host chooses another helper if needed. |
-| `deepseek` | `deepseek-vibe` | Mistral Vibe CLI / `vibe` | worker/reviewer: `deepseek-v4-1-flash-1017` / `high` | Mistral subscription via Vibe login | `vibe` ≥ 3.1.0 and Node.js on PATH; subscription includes this model | Subscription first. If the first turn reports `model unavailable (the Mistral subscription may not include it)` or authentication fails, the host may launch `deepseek-pi` through the API. |
+| `mistral` | `vibe` | Mistral Vibe CLI / `vibe` | worker/reviewer: `mistral-large-4-0-3` / `high` | Mistral subscription via Vibe login | `vibe` ≥ 3.1.0 on PATH; signed in with access to the model | Repair Mistral login or model access; the host chooses another helper if needed. |
+| `deepseek` | `deepseek-vibe` | Mistral Vibe CLI / `vibe` | worker/reviewer: `deepseek-v4-1-flash-1017` / `high` | Mistral subscription via Vibe login | `vibe` ≥ 3.1.0 on PATH; subscription includes this model | Subscription first. If the first turn reports `model unavailable (the Mistral subscription may not include it)` or authentication fails, the host may launch `deepseek-pi` through the API. |
 | `deepseek-pi` | `pi` | Pi Coding Agent / `pi` | worker/reviewer: `cc-switch-deep-seek/deepseek-flash` / `high` | Official DeepSeek API | Pi ≥ 1.4.0 and Node.js; configure DeepSeek in CC-Switch and sync to Pi so provider `cc-switch-deep-seek` exists | API backup for `deepseek`. Repair CC-Switch/Pi provider or API credentials when unavailable; the host decides whether to return to the subscription route. |
 
 Fallback is a disclosed policy, not runtime automation. It can describe subscription → API or API → subscription; current entries use subscription first for `deepseek` and its API backup. A different route can change cost, permissions, and native resume behavior. Start a new helper with an explicit handoff when changing routes; do not treat it as continuation of the old native session.
@@ -28,10 +28,10 @@ Explicit `--model` and `--effort` independently override role defaults. `claude`
 
 - [Claude](claude-code.md): trust, roles, hooks, and model switching.
 - [Codex](codex.md): folder access, model selection, and capacity handling.
-- [Gemini](agy.md): account setup, headless behavior, and native conversation continuity.
+- [Gemini](agy.md): account setup, the TUI in tmux, and native conversation continuity.
 - [Kimi](kimi.md): configured aliases, trust, and resume.
 - [Mistral and DeepSeek](vibe.md): per-session model definitions, thinking, subscription access, and cleanup.
-- [DeepSeek API backup](pi.md): CC-Switch setup, RPC controls, session locking, and native takeover.
+- [DeepSeek API backup](pi.md): CC-Switch setup, the TUI in tmux, turn failure reasons, and native takeover.
 
 ## Startup timing
 

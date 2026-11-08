@@ -12,6 +12,10 @@ Instructions for agents working on the ahelpa codebase.
 
 **Platform:** macOS and Linux (x64 and arm64). The runtime is platform-agnostic Bun; only the release/install plumbing is platform-aware.
 
+## Design Rule: Helpers Run in Their Own Terminal UI
+
+Every helper is driven the way a person drives it: the vendor's own interactive TUI in tmux, input through `send-keys`, outcome read from the screen (the `[AHELPA:DONE]` / `[AHELPA:NEED_HELP]` sentinel). Do not add headless, print, RPC, stream-json or ACP bridges, even when the upstream recommends them for automation. A CLI that cannot be driven this way is declined. Hooks may speed up turn-end detection but never decide the outcome. The reasons, and how the project once drifted into bridges (2026-10-30 to 2026-11-07), are in [Helper backends](docs/backends.md#how-a-helper-is-wired). Only the owner changes this rule; a precedent set by an earlier driver is not a reason.
+
 ## Source vs Installed Runtime
 
 | | Source tree | Installed runtime |
@@ -71,7 +75,7 @@ Before closing local runtime work:
 bun run closure:gate
 ```
 
-The gate runs tests, typechecks, builds, and launches `claude` and `codex`; Kimi runs with `AHELPA_GATE_KIMI=1`, `deepseek-pi` runs with `AHELPA_GATE_PI=1`, `gemini` runs with `AHELPA_GATE_AGY=1`, `mistral` runs with `AHELPA_GATE_VIBE=1`, and `deepseek` runs the same Vibe scenario with `AHELPA_GATE_DEEPSEEK=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. Kimi, Pi, agy, and Vibe also verify native resume and context continuity. Pi additionally checks child exit and session-lock release; it requires Node.js and Pi >= 1.4.0, using `cc-switch-deep-seek/deepseek-flash` / `high` after configuring DeepSeek in CC-Switch and syncing to Pi, unless gate overrides are set. agy checks that its bridge and agy process, recorded while the helper is live, are gone after kill; it requires Node.js and agy >= 1.5.2 and uses the `gemini-4-argon` / `medium` default. The Vibe types require Node.js and vibe >= 3.1.0; `mistral` uses `mistral-large-4-0-3` / `high` and `deepseek` uses `deepseek-v4-1-flash-1017` / `high` through an eligible Mistral subscription. Both check context across turns and native resume plus bridge/child cleanup. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
+The gate runs tests, typechecks, builds, and launches `claude` and `codex`; Kimi runs with `AHELPA_GATE_KIMI=1`, `deepseek-pi` runs with `AHELPA_GATE_PI=1`, `gemini` runs with `AHELPA_GATE_AGY=1`, `mistral` runs with `AHELPA_GATE_VIBE=1`, and `deepseek` runs the same Vibe scenario with `AHELPA_GATE_DEEPSEEK=1`. For each, verify that `wait`/`check` can observe session state and `kill` reclaims the session. Kimi, Pi, agy, and Vibe also verify native resume and context continuity. Pi, agy and Vibe run their own TUIs, so their gates also wait for the native ID read from the exit screen and kill a resumed helper mid-turn (`sleep 120`), checking that none of the pane's recorded processes survive. Pi requires Node.js and Pi >= 1.4.0, using `cc-switch-deep-seek/deepseek-flash` / `high` after configuring DeepSeek in CC-Switch and syncing to Pi, unless gate overrides are set. agy requires agy >= 1.5.2 and uses the `gemini-4-argon` / `medium` default. The Vibe types require vibe >= 3.1.0; `mistral` uses `mistral-large-4-0-3` / `high` and `deepseek` uses `deepseek-v4-1-flash-1017` / `high` through an eligible Mistral subscription. If a helper CLI fails during authentication bootstrap, fix that CLI's login state first.
 
 ## Open Work
 
