@@ -3,9 +3,10 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from "os";
 import { join } from "path";
 import { getSelfCommand } from "../src/self-command";
-import { parseTurnPayload, readTurnEvents, turnHookCommand, writeTurnHook } from "../src/turn-hooks";
+import { inputDigest, parseTurnPayload, readTurnEvents, turnHookCommand, writeTurnHook } from "../src/turn-hooks";
 import { claudeCodeDriver } from "../src/drivers/claude-code";
 import { codexDriver } from "../src/drivers/codex";
+import { piDriver, piTurnHookSource } from "../src/drivers/pi";
 import * as capabilities from "../src/drivers/codex-capabilities";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 
@@ -51,8 +52,29 @@ describe("turn hook payloads and append", () => {
     expect(readTurnEvents(join(dir, "turns.log")).event?.turnId).toBe("turn-2");
   });
 
+  test("Pi agent_settled keeps identifiers, the input digest and the failure kind only", () => {
+    const stop = parseTurnPayload("pi", fixture("pi-settled"))!;
+    expect(stop).toMatchObject({ agent: "pi", event: "stop", sessionId: "01a1ba46-1991-7028-89ff-d13bd7453fb0",
+      turnId: "f62d84d8-a956-49dc-a86e-b346f651e604", inputDigest: inputDigest("private task input") });
+    expect(stop.error).toBeUndefined();
+    const payload = JSON.parse(fixture("pi-settled"));
+    expect(parseTurnPayload("pi", JSON.stringify({ ...payload, aborted: true }))).toMatchObject({ event: "stop_failure", error: "aborted" });
+    expect(parseTurnPayload("pi", JSON.stringify({ ...payload, stopReason: "error" }))).toMatchObject({ event: "stop_failure", error: "error" });
+    expect(parseTurnPayload("pi", JSON.stringify({ ...payload, stopReason: "length" }))?.event).toBe("stop");
+    expect(parseTurnPayload("pi", JSON.stringify({ ...payload, input: undefined }))?.inputDigest).toBeUndefined();
+    expect(parseTurnPayload("pi", JSON.stringify({ ...payload, turnId: undefined }))).toBeNull();
+    expect(parseTurnPayload("pi", JSON.stringify({ ...payload, type: "agent_end" }))).toBeNull();
+    writeTurnHook(dir, "pi", fixture("pi-settled"));
+    writeTurnHook(dir, "pi", fixture("pi-settled")); // duplicate delivery
+    writeTurnHook(dir, "pi", JSON.stringify({ ...payload, turnId: "turn-2" }));
+    const log = readFileSync(join(dir, "turns.log"), "utf8");
+    expect(log.trim().split("\n")).toHaveLength(2);
+    expect(log).not.toContain("private");
+    expect(readTurnEvents(join(dir, "turns.log")).event?.turnId).toBe("turn-2");
+  });
+
   test.each(["not json", "null", "[]", "{}", '{"type":"other"}', '{"hook_event_name":"Stop","session_id":"../escape"}'])("ignores malformed or unsupported input: %s", raw => {
-    for (const agent of ["claude-code", "codex", "kimi"]) {
+    for (const agent of ["claude-code", "codex", "pi", "kimi"]) {
       expect(parseTurnPayload(agent, raw)).toBeNull();
       expect(() => writeTurnHook(dir, agent, raw)).not.toThrow();
     }
@@ -93,7 +115,9 @@ describe("turn hook payloads and append", () => {
     };
     await invoke([dir, "claude-code"], fixture("claude-stop"));
     await invoke([dir, "codex", fixture("codex-complete")]);
+    await invoke([dir, "pi"], fixture("pi-settled"));
     expect(readdirSync(dir)).toEqual(["turns.log"]);
+    expect(readFileSync(join(dir, "turns.log"), "utf8")).toContain('"agent":"pi"');
     expect(existsSync(forbiddenHome)).toBe(false);
     mkdirSync(join(root, "not-a-session"));
     await invoke([join(root, "not-a-session"), "codex", fixture("codex-complete")]);
@@ -173,5 +197,44 @@ describe("driver hook launch and resume", () => {
     const array = out.slice(out.indexOf("notify=") + 7, out.lastIndexOf("]") + 1);
     expect(JSON.parse(array)).toEqual(turnHookCommand(defaultRuntimeLayout.sessionDeliveryDir(project, "codex-test"), "codex", kind === "resume" ? "native" : undefined));
     if (kind === "resume") expect(out).toContain("resume native");
+  });
+  test.each(["launch", "resume"])("Pi %s loads the session's turn-hook extension explicitly", kind => {
+    const sessionId = "pi-test";
+    const sessionDir = defaultRuntimeLayout.sessionDeliveryDir(root, sessionId);
+    mkdirSync(sessionDir, { recursive: true });
+    piDriver.prepareLaunchFiles!({ cwd: root, sessionId });
+    const extension = join(sessionDir, "pi-turn-hook.mjs");
+    expect(readFileSync(extension, "utf8")).toBe(piTurnHookSource(turnHookCommand(sessionDir, "pi")));
+    expect(() => piDriver.prepareLaunchFiles!({ cwd: root, sessionId })).toThrow(); // never overwrites
+    const command = kind === "launch" ? piDriver.buildLaunchCommand({ cwd: root, sessionId })
+      : piDriver.buildResumeCommand!({ cwd: root, sessionId, resumeId: "01a1ba46-1991-7028-89ff-d13bd7453fb0" });
+    expect(command).toContain(`--no-extensions --no-mcp -e '${extension}'`);
+    const elsewhere = join(root, "main", ".ahelpa", sessionId);
+    expect(piDriver.buildLaunchCommand({ cwd: root, sessionId, deliveryDir: elsewhere })).toContain(`-e '${join(elsewhere, "pi-turn-hook.mjs")}'`);
+  });
+
+  test("Pi extension sends agent_settled with the last input and stop reason, then forgets them", async () => {
+    const out = join(root, "payloads");
+    mkdirSync(out);
+    const path = join(root, "ext.mjs");
+    writeFileSync(path, piTurnHookSource(["/bin/sh", "-c", `cat > '${out}'/$$.tmp && mv '${out}'/$$.tmp '${out}'/$$.json`]));
+    const handlers: Record<string, (event: unknown, ctx?: unknown) => unknown> = {};
+    (await import(path)).default({ on: (name: string, handler: (event: unknown, ctx?: unknown) => unknown) => { handlers[name] = handler; } });
+    const ctx = { sessionManager: { getSessionId: () => "native-session" } };
+    expect(handlers.input({ text: "the task" })).toBeUndefined();
+    expect(handlers.message_end({ message: { role: "assistant", stopReason: "toolUse" } })).toBeUndefined();
+    handlers.message_end({ message: { role: "toolResult" } });
+    handlers.message_end({ message: { role: "assistant", stopReason: "error", errorMessage: "provider text" } });
+    handlers.agent_settled({ aborted: false }, ctx);
+    handlers.agent_settled({ aborted: true }, ctx);
+    const done = () => readdirSync(out).filter(name => name.endsWith(".json"));
+    for (let i = 0; i < 100 && done().length < 2; i++) await Bun.sleep(20);
+    const payloads = done().map(name => JSON.parse(readFileSync(join(out, name), "utf8")));
+    const first = payloads.find(p => !p.aborted), second = payloads.find(p => p.aborted);
+    expect(first).toMatchObject({ type: "agent_settled", sessionId: "native-session", aborted: false, stopReason: "error", input: "the task" });
+    expect(second).toMatchObject({ aborted: true });
+    expect(second.input).toBeUndefined();
+    expect(first.turnId).not.toBe(second.turnId);
+    expect(JSON.stringify([first, second])).not.toContain("provider text");
   });
 });

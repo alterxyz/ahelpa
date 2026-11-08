@@ -1,6 +1,8 @@
-import { realpathSync } from "fs";
+import { realpathSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
+import { defaultRuntimeLayout } from "../runtime-layout";
 import { shellEscape } from "../shell";
+import { turnHookCommand } from "../turn-hooks";
 import { addReadiness, executableReadiness, findReadinessExecutable, isVersion, readLocalConfig, readPackageVersion, readinessRuntime } from "./readiness";
 import { scanSentinels } from "./sentinels";
 import type { AgentDriver, DetectedOutcome, DriverRuntime, LaunchOptions, ReadinessRuntime } from "./types";
@@ -80,6 +82,39 @@ function validate(opts: LaunchOptions): void {
   }
 }
 
+// The turn-end hook: a one-file extension in the session's result directory,
+// loaded with -e (--no-extensions still loads an explicit file, and nothing is
+// saved to Pi's settings). `agent_settled` fires once per prompt, after retries
+// and compaction, also after an error or Escape; `turn_end` (per model request)
+// and `agent_end` (Pi may still continue) are not final. Plain ESM so Pi's jiti
+// loader imports it natively without a transform cache.
+function hookPath(opts: LaunchOptions & { sessionId: string }): string {
+  return join(opts.deliveryDir ?? defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "pi-turn-hook.mjs");
+}
+
+export function piTurnHookSource(command: string[]): string {
+  return `import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+const command = ${JSON.stringify(command)};
+export default function (pi) {
+  let input, stopReason;
+  pi.on("input", event => { input = event.text; stopReason = undefined; });
+  pi.on("message_end", event => { if (event.message?.role === "assistant") stopReason = event.message.stopReason; });
+  pi.on("agent_settled", (event, ctx) => {
+    const payload = JSON.stringify({ type: "agent_settled", sessionId: ctx.sessionManager.getSessionId(), turnId: randomUUID(),
+      aborted: event.aborted === true, stopReason, input });
+    input = stopReason = undefined;
+    try {
+      const child = spawn(command[0], command.slice(1), { stdio: ["pipe", "ignore", "ignore"] });
+      child.on("error", () => {});
+      child.stdin.on("error", () => {});
+      child.stdin.end(payload);
+    } catch {}
+  });
+}
+`;
+}
+
 function command(opts: LaunchOptions, resumeId?: string): string {
   validate(opts);
   // `--session` also takes paths and ID prefixes; a stored ID must name exactly one session.
@@ -88,6 +123,7 @@ function command(opts: LaunchOptions, resumeId?: string): string {
   // --offline: no startup update or catalog checks. --approve: trust project
   // files for this run only, without the dialog or a saved decision.
   const args = ["--tui-mode", "fullscreen", "--offline", "--approve", "--no-extensions", "--no-mcp"];
+  if (opts.sessionId) args.push("-e", shellEscape(hookPath({ ...opts, sessionId: opts.sessionId })));
   if (resumeId !== undefined) args.push("--session", shellEscape(resumeId));
   if (opts.model !== undefined) args.push("--model", shellEscape(opts.model));
   if (opts.effort !== undefined) args.push("--thinking", shellEscape(opts.effort));
@@ -161,6 +197,12 @@ export const piDriver: AgentDriver = {
   // The native ID appears in the exit hint, which the daemon reads while draining.
   resumeTokenAvailableAfterSubmit: false,
   checkReadiness: checkPiReadiness,
+  turnHooks: true,
+  prepareLaunchFiles(opts) {
+    if (!opts.sessionId) return;
+    const path = hookPath({ ...opts, sessionId: opts.sessionId });
+    writeFileSync(path, piTurnHookSource(turnHookCommand(dirname(path), "pi")), { flag: "wx", mode: 0o600 });
+  },
   launchProfiles: { defaultRole: "worker", profiles: { worker: {}, reviewer: {} } },
   modelCatalog: { models: [],
     effortNote: "Pi uses its native configured model and thinking level. --model <provider>/<model> selects an exact model; --effort support is model-dependent and verified at startup. Runtime model switching and --safe are not supported." },

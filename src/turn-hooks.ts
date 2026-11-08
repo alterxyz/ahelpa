@@ -9,7 +9,7 @@ import { getSelfCommand } from "./self-command";
 import { shellEscape } from "./shell";
 
 export const TURN_HOOK_SUBCOMMAND = "__turn-hook";
-export type TurnHookAgent = "claude-code" | "codex";
+export type TurnHookAgent = "claude-code" | "codex" | "pi";
 export interface TurnEvent {
   ts: string;
   agent: TurnHookAgent;
@@ -75,6 +75,15 @@ export function parseTurnPayload(agent: string, raw: string, boundThread?: strin
         ...(typeof p.stop_hook_active === "boolean" ? { stopHookActive: p.stop_hook_active } : {}),
         ...(p.hook_event_name === "StopFailure" ? { error: id(p.error) ? p.error : "unknown" } : {}), ...metadata };
     }
+    if (agent === "pi") {
+      // Our own extension's payload (pi-turn-hook.mjs): `agent_settled`, once per
+      // prompt after retries and compaction, also after an error or Escape.
+      if (p.type !== "agent_settled" || !id(p.sessionId) || !id(p.turnId)) return null;
+      const error = p.aborted === true ? "aborted" : p.stopReason === "error" ? "error" : undefined;
+      return { ts, agent, event: error ? "stop_failure" : "stop", sessionId: p.sessionId, turnId: p.turnId,
+        ...(error ? { error } : {}), ...(typeof p.input === "string" ? { inputDigest: inputDigest(p.input) } : {}),
+        assistantMessagePresent: false, assistantMessageLength: 0 };
+    }
     if (agent === "codex") {
       if (p.type !== "agent-turn-complete" || !id(p["thread-id"]) || !id(p["turn-id"])) return null;
       const messages = p["input-messages"];
@@ -103,6 +112,8 @@ function parseLogLine(raw: string): TurnEvent | null {
     if (e.agent === "claude-code" && e.event === "prompt" && id(e.sessionId) && id(e.promptId) && digest(e.inputDigest)) return e;
     if (e.agent === "claude-code" && ["stop", "stop_failure"].includes(e.event)
       && id(e.sessionId) && id(e.promptId) && (e.event !== "stop_failure" || id(e.error))) return e;
+    if (e.agent === "pi" && ["stop", "stop_failure"].includes(e.event) && id(e.sessionId) && id(e.turnId)
+      && (e.inputDigest === undefined || digest(e.inputDigest)) && (e.event !== "stop_failure" || id(e.error))) return e;
   } catch {}
   return null;
 }
@@ -127,9 +138,10 @@ export function readTurnEvents(path: string, offset = 0, since = "", agent?: str
       cursor = end + 1;
       if (!next || next.event === "prompt" || (agent && next.agent !== agent)) continue;
       const prompt = prompts.get(JSON.stringify([next.sessionId, next.promptId]));
-      const attributed = currentDigest === undefined || (!!currentDigest && (next.agent === "codex"
-        ? next.inputDigest === currentDigest
-        : prompt?.inputDigest === currentDigest && (!since || Date.parse(prompt.ts) >= Date.parse(since))));
+      // An end event without an input digest never matches: it only woke the daemon.
+      const attributed = currentDigest === undefined || (!!currentDigest && (next.agent === "claude-code"
+        ? prompt?.inputDigest === currentDigest && (!since || Date.parse(prompt.ts) >= Date.parse(since))
+        : next.inputDigest === currentDigest));
       if (attributed && (!since || Date.parse(next.ts) >= Date.parse(since))) {
         // An error in this batch takes precedence over an ordinary Stop.
         if (event?.event !== "stop_failure") event = next;
@@ -192,7 +204,7 @@ export async function runTurnHook(args: string[]): Promise<void> {
     if (agent === "codex" && args.length >= 3) {
       const raw = args.at(-1)!;
       if (raw.length <= 4 * 1024 * 1024) writeTurnHook(dir, agent, raw, args[2] === "--thread" ? args[3] : undefined);
-    } else if (agent === "claude-code") {
+    } else if (agent === "claude-code" || agent === "pi") {
       // Hooks must never hold up the CLI, even if stdin is accidentally left open.
       const reader = Bun.stdin.stream().getReader();
       const deadline = Date.now() + 500;

@@ -114,3 +114,18 @@ test("Claude whole-message paste wrapper normalizes to submitted input while mis
   await refreshSessionStatuses(db, ["session-test"]);
   expect(db.getSession("session-test")?.status).toBe("needs_attention");
 });
+
+test("Pi settles on the current input's digest only; an event without input never decides", async () => {
+  seed("pi");
+  const settled = (turn: string, input?: string, aborted = false) => writeTurnHook(dir, "pi",
+    JSON.stringify({ type: "agent_settled", sessionId: "native", turnId: turn, aborted, stopReason: "stop", ...(input === undefined ? {} : { input }) }));
+  await send(db, "session-test", "tok", "new Pi work");
+  settled("old", initial);
+  settled("no-input");
+  await refreshSessionStatuses(db, ["session-test"]);
+  expect(db.getSession("session-test")?.status).toBe("running");
+  settled("current", "  new Pi work\r\n", true);
+  await refreshSessionStatuses(db, ["session-test"]);
+  expect(db.getSession("session-test")).toMatchObject({ status: "needs_attention" });
+  expect(readFileSync(join(dir, "turns.log"), "utf8")).not.toContain("new Pi work");
+});

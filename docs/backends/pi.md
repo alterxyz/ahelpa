@@ -11,7 +11,7 @@ English only: a dated evidence record for agents, not a user guide. Principles a
 
 ## What it is
 
-Earendil's Pi is a terminal coding agent with read, bash, edit and write tools. ahelpa runs its interactive TUI in tmux, types tasks with `send-keys`, and reads the outcome from `capture-pane`, as for Claude Code, Codex and Kimi. No hook, extension or bridge process is involved.
+Earendil's Pi is a terminal coding agent with read, bash, edit and write tools. ahelpa runs its interactive TUI in tmux, types tasks with `send-keys`, and reads the outcome from `capture-pane`, as for Claude Code, Codex and Kimi. Since 2026-11-08 a one-file extension reports each turn's end to ahelpa (see [Turn-end hook](#turn-end-hook-2026-11-08)); no bridge process is involved.
 
 ## Facts
 
@@ -32,13 +32,22 @@ Measured 2026-11-07 on Pi 1.5.0/macOS with `cc-switch-deep-seek/deepseek-flash` 
 - **Process tree.** Pi's process name is `pi`; a bash tool runs as `/bin/bash -c …` below it. `tmux kill-session` during a running `sleep 97` tool left neither `pi` nor `sleep` 3 s later.
 - **Static screen while working.** Sampling `capture-pane` every 0.25 s through that 22 s turn, the longest stretch without any change was 0.55 s, the sampling resolution: the spinner redraws every 80 ms and tool rows show an `Elapsed Ns` timer. The model was waiting on the API for several of those seconds. Thinking blocks were hidden by the user's `hideThinkingBlock` setting; the spinner kept turning through them.
 
+## Turn-end hook (2026-11-08)
+
+Measured on Pi 1.5.0/macOS with `cc-switch-deep-seek/deepseek-flash` / `high`, through an isolated `AHELPA_HOME`.
+
+- **Loading.** `--no-extensions -e <file>` still loads the explicit file; nothing is written to Pi's settings. The driver writes `.ahelpa/<id>/pi-turn-hook.mjs` (mode 0600, never overwritten) at launch and resume. It is plain ESM, so Pi's jiti loader imports it natively: the `jiti` cache directory under the helper's scratch stayed empty.
+- **Event.** `agent_settled` (since 0.80.4; `aborted` since 1.1.0) fires once per prompt from `_startRun`'s `finally` in `dist/core/agent-session.js`, after retries, compaction and queued messages, also after an error or Escape. `turn_end` fires per model request and `agent_end` before Pi may continue, so neither is final. The payload is only `{aborted}`; the extension adds `ctx.sessionManager.getSessionId()`, a random turn id, the last assistant `stopReason` (from `message_end`) and the last `input` event's text, then pipes that JSON to `ahelpa __turn-hook <dir> pi`. The writer keeps the input's SHA-256 digest only; `errorMessage` (provider text) is never sent.
+- **Attribution.** The `input` text matched the digest ahelpa registered for the typed task line (normalized: trimmed, CRLF to LF). An aborted run or an `error` stop reason is logged as `stop_failure` (`aborted` / `error`).
+- **Timing.** A task that printed DONE: hook at 08:28:46.718, graceful exit sent at 08:28:47.265 (0.55 s, of which 250 ms is the daemon's wake grace). A turn told not to print a signal: hook at 08:29:09.520, `needs_attention` ("turn hook stop") at 08:29:09.825 instead of after the ~12 s fallback. `ahelpa interrupt` during `sleep 40`: the hook logged `stop_failure` / `aborted`; the interrupt itself settled the session as before.
+
 ## Grid
 
 | Column | Value |
 | --- | --- |
-| Shape | Vendor fullscreen TUI in tmux; screen only, no hooks |
+| Shape | Vendor fullscreen TUI in tmux; outcome from the screen; turn-end hook through a session extension (`-e`) |
 | Resume token | Native UUID from the `/quit` hint, read by the daemon while draining; resume `pi --session <uuid>` |
-| Turn-end signal | DONE/NEED_HELP as the transcript's last line with no spinner in the editor border |
+| Turn-end signal | DONE/NEED_HELP as the transcript's last line with no spinner in the editor border; `agent_settled` hook wakes the daemon and ends a no-signal turn attributed to the current input |
 | `--safe` means | Refused; Pi has no approval mode for built-in tools |
 | Trust persisted | No; `--approve` trusts project files for this run only |
 | Self-update | `--offline` skips startup update and catalog checks |
