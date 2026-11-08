@@ -59,6 +59,16 @@ export class Tmux {
     await $`tmux send-keys -t ${name} Enter`.quiet();
   }
 
+  // Whether the vendor CLI still runs in the pane. Helpers run as
+  // `bash -lc "<cli>; exec bash"`: the CLI is the wrapper's child, and once it
+  // exits the wrapper becomes an interactive bash with no children, so keys
+  // would reach bash. #{pane_current_command} reads "bash" in both states.
+  static async paneRunsChild(name: string): Promise<boolean> {
+    const pid = (await $`tmux display-message -p -t ${name} ${"#{pane_pid}"}`.quiet().text()).trim();
+    if (!/^\d+$/.test(pid)) return false;
+    return (await $`pgrep -P ${pid}`.quiet().nothrow()).exitCode === 0;
+  }
+
   // Send a single named key (e.g. "Escape", "C-c") without appending Enter.
   static async sendKey(name: string, key: string): Promise<void> {
     await $`tmux send-keys -t ${name} ${key}`.quiet();
