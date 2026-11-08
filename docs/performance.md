@@ -35,28 +35,28 @@ bash scripts/startup-bench.sh --project /path/to/trusted/repo
 - Use a project the helpers already trust. Claude refuses an untrusted folder.
 - A full run takes about 10 minutes.
 
-## Latest results (2026-11-07, after the poll fix)
+## Latest results (2026-11-07)
 
-Median seconds over 3 runs, with each name's default model. The trivial task is the one above.
+Median seconds over 3 runs, with each name's default model. The trivial task is the one above. `gemini`, `mistral`, `deepseek` and `deepseek-pi` were measured on v0.12.0, after they moved to their own TUIs; `claude`, `codex` and `kimi` come from the earlier run that day, after the poll fix.
 
 | Name | `launch` returned | Wrote the result | `wait` returned |
 | --- | --- | --- | --- |
 | `claude` | 4.3 | 8.4 | 12.3 |
 | `codex` | 5.0 | 11.8 | 15.3 |
-| `gemini` | 3.9 | 16.0 | 24.8 |
+| `gemini` | 2.4 | 16.6 | 40.8 |
 | `kimi` | 2.9 | 10.3 | 15.3 |
-| `mistral` | 4.9 | 13.5 | 21.4 |
-| `deepseek` | 4.9 | 7.4 | 12.3 |
-| `deepseek-pi` | 1.4 | 4.4 | 6.3 |
+| `mistral` | 4.5 | 7.2 | 15.3 |
+| `deepseek` | 4.4 | 10.7 | 15.4 |
+| `deepseek-pi` | 1.9 | 5.3 | 9.3 |
 
-All 21 runs succeeded. The `wait` returns clustered near 6.2, 9.2, 12.3, 15.3, 18.4, 21.4 and 24.5 s, a poll period of about 3.06 s. `gemini` and `mistral` take the longest after writing the result, so their closing turn, not ahelpa, dominates that gap.
+All runs succeeded. The `wait` returns cluster at multiples of the daemon's poll period of about 3 s. The gap between writing the result and `wait` is mostly the model's closing turn, not ahelpa. `gemini` varied most (`wait` 24.5–51.8 s): after editing `summary.md` it kept thinking (one archived screen shows "Thought for 7.5s" before `[AHELPA:DONE]`), with no completion nudge involved.
 
 ## `deepseek` against `deepseek-pi`
 
 | | `deepseek` (Vibe, Mistral subscription) | `deepseek-pi` (Pi, DeepSeek API) |
 | --- | --- | --- |
-| Startup (`launch` returned) | 4.4–4.9 s | 0.8–1.4 s |
-| Trivial task (`wait` returned) | 10.6–12.3 s | 6.3–10.0 s |
+| Startup (`launch` returned) | 4.4–4.9 s | 0.8–1.9 s |
+| Trivial task (`wait` returned) | 10.6–15.4 s | 6.3–10.0 s |
 | The same adversarial review (same brief, same code snapshot) | 9.1 min | 24.9 min |
 | Four bounded real tasks ([case study](case-deepseek-trial-20261106.md)) | 2.6–5.7 min per task | 2.6–8.8 min per task |
 | Review findings | Found the unlogged fallback and two smaller issues | Also found a stale-snapshot reconcile and an untested ordering invariant |
@@ -66,6 +66,16 @@ All 21 runs succeeded. The `wait` returns clustered near 6.2, 9.2, 12.3, 15.3, 1
 
 ## History
 
+- **2026-11-07: Pi, agy and Vibe moved to their own TUIs (v0.12.0).** Median `launch` / wrote / `wait`, bridge (poll-fix run) → TUI:
+
+  | Name | Bridge | TUI |
+  | --- | --- | --- |
+  | `gemini` | 3.9 / 16.0 / 24.8 | 2.4 / 16.6 / 40.8 |
+  | `mistral` | 4.9 / 13.5 / 21.4 | 4.5 / 7.2 / 15.3 |
+  | `deepseek` | 4.9 / 7.4 / 12.3 | 4.4 / 10.7 / 15.4 |
+  | `deepseek-pi` | 1.4 / 4.4 / 6.3 | 1.9 / 5.3 / 9.3 |
+
+  `launch` stays under the 4.5 s reference for all four. The `wait` columns follow the models' closing turns; three runs per name are too few to read a trend into them.
 - **2026-11-07: poll fix.**
   - **Symptom.** Before the fix, `wait` returns clustered at multiples of about 5 s (10, 15, 20, 25, 30).
   - **Cause.** Every daemon poll probed each non-dead session row with its own `tmux has-session` process. With about 600 settled rows, that took about 2.3 s per poll on top of the 3 s sleep, and it grew with history.

@@ -35,17 +35,17 @@ Explicit `--model` and `--effort` independently override role defaults. `claude`
 
 ## Startup timing
 
-Measured 2026-11-07 on one macOS machine, after the daemon poll fix, with each name's default role and model. The task only wrote `ok` into `summary.md`. The table gives the median and range of 3 runs, in seconds from the start of `ahelpa launch`. The reference value for `launch` is 4.5 s; a name that stays above 6 s may have regressed.
+Measured 2026-11-07 on one macOS machine, after the daemon poll fix, with each name's default role and model; `gemini`, `mistral`, `deepseek` and `deepseek-pi` were re-measured on v0.12.0, driven through their own TUIs. The task only wrote `ok` into `summary.md`. The table gives the median and range of 3 runs, in seconds from the start of `ahelpa launch`. The reference value for `launch` is 4.5 s; a name that stays above 6 s may have regressed.
 
 | Name | Default model / effort | `launch` returned | Helper wrote `summary.md` | `wait` returned |
 | --- | --- | --- | --- | --- |
 | `claude` | `claude-opus-5-5` / `xhigh` (advisor) | 4.3 (4.3–4.4) | 8.4 (8.0–9.7) | 12.3 (12.1–12.6) |
 | `codex` | `gpt-6-astra` / `medium` | 5.0 (4.9–5.1) | 11.8 (11.8–15.4) | 15.3 (15.3–21.4) |
-| `gemini` | `gemini-4-argon` / `medium` | 3.9 (3.4–3.9) | 16.0 (15.6–21.6) | 24.8 (24.5–33.8) |
+| `gemini` | `gemini-4-argon` / `medium` | 2.4 (1.9–2.4) | 16.6 (16.5–18.3) | 40.8 (24.5–51.8) |
 | `kimi` | native | 2.9 (2.9–2.9) | 10.3 (10.3–14.5) | 15.3 (12.3–18.4) |
-| `mistral` | `mistral-large-4-0-3` / `high` | 4.9 (4.5–4.9) | 13.5 (11.2–18.0) | 21.4 (15.3–24.5) |
-| `deepseek` | `deepseek-v4-1-flash-1017` / `high` | 4.9 (4.4–5.5) | 7.4 (7.3–7.9) | 12.3 (9.2–12.3) |
-| `deepseek-pi` | `cc-switch-deep-seek/deepseek-flash` / `high` | 1.4 (0.8–1.4) | 4.4 (4.0–5.2) | 6.3 (6.2–9.2) |
+| `mistral` | `mistral-large-4-0-3` / `high` | 4.5 (4.4–4.9) | 7.2 (6.7–10.9) | 15.3 (12.3–15.4) |
+| `deepseek` | `deepseek-v4-1-flash-1017` / `high` | 4.4 (4.4–4.4) | 10.7 (10.6–12.9) | 15.4 (12.3–18.4) |
+| `deepseek-pi` | `cc-switch-deep-seek/deepseek-flash` / `high` | 1.9 (1.9–1.9) | 5.3 (4.7–5.3) | 9.3 (9.3–9.3) |
 
 - **`launch` returned:** the helper is up and has confirmed the task.
 - **Helper wrote `summary.md`:** roughly when the model finished the work.
