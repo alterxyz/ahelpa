@@ -33,13 +33,24 @@ TUI facts measured 2026-11-07 on Vibe 3.1.0/macOS by the migration session (tmux
 - 2026-11-06 (owner's session): DeepSeek through the Mistral subscription needs the full table (`name`, `provider = "mistral"`, `thinking`, `thinking_levels = ["low", "high", "max"]`, `max_context_length = 1048576`, `max_output_tokens = 131072`); the built-in `mistral` provider points at `https://api.mistral.ai/v1` and the key comes from the Keychain. A counting puzzle used 1622 reasoning tokens at `low` and 1335 at `max`, both correct; one sample does not show that the level changes reasoning depth.
 - `vibe --version` is cheap, but doctor reads the installed `mistral-vibe` dist-info metadata instead, preserving its no-execution contract; unrecognized distributions report an unknown version.
 
+## Turn-end hook (2026-11-08)
+
+Measured on Vibe 3.1.0/macOS: a manual pair of TUIs (one with the hook, one without) on the user's default DeepSeek model, then `mistral` helpers through an isolated `AHELPA_HOME`.
+
+- **Loading.** Vibe reads `<root>/.vibe/hooks.toml` for every project root: the trusted cwd plus each `--add-dir` (`harness_files/_harness_manager.py`, `hook_files`). The driver writes `.ahelpa/<id>/vibe-hook/.vibe/hooks.toml` (mode 0600, never overwritten) at launch and resume and passes `--add-dir` on that folder, so the result directory itself is not a workspace root and nothing in `~/.vibe` changes. The hook is `type = "post_agent"`, `match = "main"` (the main session's agent only, never a subagent), `timeout = 10`; its command is the `__turn-hook` wrapper, which exits 0 with empty stdout, so the turn passes through.
+- **Payload.** `{"hook_event_name": "post_agent", "session_id", "parent_session_id": null, "transcript_path", "cwd", "agent_name"}`: no input and no turn id. ahelpa keeps the session id and adds a random turn id; the event wakes the daemon and is never attributed, so the driver leaves `turnHooks` off and a turn without a sentinel still waits for the ~12 s fallback. Attributing by time alone would end the wrong turn when a host sends while the helper is still working.
+- **Firing.** Once per completed main-agent turn (3 payloads for 3 turns). Not on Escape (`Interrupted · What should Vibe do instead?`, no payload), matching the research note that error and Esc do not fire it; the screen and `interrupt` cover those.
+- **Streaming.** The local harness sets `_buffer_completion_output` when any `post_agent_turn` binding exists (`mistralai_vibe_local_harness/runtime.py`), which suggested model text would stop streaming. The TUI path does not show that: with the hook, partial lines of a 1200-word reply appeared at 6, 9 and 12 s, as in the session without it, and the spinner line stayed.
+- **Resume without the hook root.** Hook bindings are persisted with the session; a session created with the hook and resumed by hand (`vibe --resume <uuid>`, no `--add-dir`) answered normally, and `_resolve_hooks` skips a binding with no handler with a log warning only.
+- **Timing.** A `mistral` task that wrote its summary and printed DONE: hook at 08:41:42.413, graceful exit sent at 08:41:42.949 (0.54 s, of which 250 ms is the daemon's wake grace); DONE was already drawn. A reply that put DONE on the same Markdown line (`ok [AHELPA:DONE]`, not a signal) logged its hook at 08:41:01.150 and settled through the fallback at 08:41:10.492, as designed.
+
 ## Grid
 
 | Column | Value |
 | --- | --- |
 | Shape | Vendor TUI in tmux; ahelpa types and reads the screen |
 | Resume token | `Or: vibe --resume <8 hex>` printed by `/exit`, recorded while draining; old full-UUID tokens still resume |
-| Turn-end signal | DONE/NEED_HELP alone on a line in the latest turn, after the last spinner line |
+| Turn-end signal | DONE/NEED_HELP alone on a line in the latest turn, after the last spinner line; a `post_agent` hook in a session `--add-dir` root wakes the daemon (wake only) |
 | `--safe` means | Refused; lower-permission Vibe agents unverified |
 | Trust persisted | No; `--trust` is invocation-only |
 | Self-update | Both `VIBE_ENABLE_AUTO_UPDATE=false` and `VIBE_ENABLE_UPDATE_CHECKS=false` |

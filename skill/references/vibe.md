@@ -69,8 +69,10 @@ Omitting effort omits only `thinking`. Other aliases keep sparse overrides. Per-
 The helper is Vibe's own interactive TUI in tmux, operated like a person at the terminal:
 
 ```text
-VIBE_ENABLE_AUTO_UPDATE=false VIBE_ENABLE_UPDATE_CHECKS=false VIBE_AGENT_PATHS='["<delivery>"]' vibe --trust --agent ahelpa-helper [--resume <id>]
+VIBE_ENABLE_AUTO_UPDATE=false VIBE_ENABLE_UPDATE_CHECKS=false VIBE_AGENT_PATHS='["<delivery>"]' vibe --trust --agent ahelpa-helper --add-dir <delivery>/vibe-hook [--resume <id>]
 ```
+
+`<delivery>/vibe-hook/.vibe/hooks.toml` holds one `post_agent` hook for the main agent. When a turn ends it wakes the daemon, so a printed signal settles within about half a second instead of at the next 3 s poll. Its payload names no input, so it never decides anything: a turn without a signal still waits about 12 s of a quiet screen. It does not fire on Escape.
 
 `--trust` applies only to this invocation; ahelpa writes neither `~/.vibe` configuration nor its trusted-folder list. Vibe itself keeps its usual history, session logs and UI caches under `~/.vibe`. The session agent enables unattended tool execution (`safety = "yolo"`, `bypass_tool_permissions = true`), so no approval dialog appears. `--safe` is refused on launch and resume because lower-permission Vibe agents are unverified.
 

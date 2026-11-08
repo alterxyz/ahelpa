@@ -1,6 +1,7 @@
-import { readdirSync, realpathSync } from "fs";
+import { mkdirSync, readdirSync, realpathSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { shellEscape } from "../shell";
+import { turnHookCommand } from "../turn-hooks";
 import { addReadiness, executableReadiness, findReadinessExecutable, readLocalConfig, readinessRuntime } from "./readiness";
 import { maskSentinels, scanSentinels } from "./sentinels";
 import type { AgentDriver, DriverRuntime, LaunchOptions, ReadinessRuntime, ResumeOptions } from "./types";
@@ -80,6 +81,18 @@ function deliveryDir(opts: LaunchOptions): string {
   return opts.deliveryDir ?? join(opts.cwd, ".ahelpa", opts.sessionId ?? "vibe");
 }
 
+// The turn-end hook: `--add-dir` makes this folder a project root, and Vibe
+// reads <root>/.vibe/hooks.toml from each root (3.1.0, harness_files). A root
+// of its own keeps the result directory out of Vibe's workspace.
+function hookRoot(opts: LaunchOptions): string {
+  return join(deliveryDir(opts), "vibe-hook");
+}
+
+export function vibeHooksToml(command: string[]): string {
+  // A JSON string is a valid TOML basic string. Exit 0 with no output lets the turn end.
+  return `[[hooks]]\nname = "ahelpa-turn"\ntype = "post_agent"\nmatch = "main"\ncommand = ${JSON.stringify(command.map(shellEscape).join(" "))}\ntimeout = 10\n`;
+}
+
 function validate(opts: LaunchOptions): void {
   if (opts.safe) throw new Error("vibe --safe is not supported; lower-permission Vibe agents are unverified");
   if (opts.model !== undefined && !/^[\w.:-]+$/.test(opts.model)) throw new Error("vibe --model must be a model alias, such as mistral-large-4-0-3");
@@ -105,6 +118,7 @@ function command(opts: LaunchOptions, resumeId?: string): string {
   validate(opts);
   const dir = deliveryDir(opts);
   const args = ["--trust", "--agent", "ahelpa-helper"];
+  if (opts.sessionId) args.push("--add-dir", shellEscape(hookRoot(opts)));
   if (resumeId !== undefined) args.push("--resume", shellEscape(resumeId));
   // ponytail: the pane writes the agent file, because launch files are prepared
   // before model and effort reach the driver. The umask stays in the subshell.
@@ -161,8 +175,15 @@ export function checkVibeReadiness(cwd: string, runtime: ReadinessRuntime = read
 export const vibeDriver: AgentDriver = {
   name: "vibe", sessionPrefix: "vibe", resumeTokenAvailableAfterSubmit: false,
   checkReadiness: checkVibeReadiness,
-  // Launch only needs the delivery directory reserved before the pane writes into it.
-  prepareLaunchFiles: validate,
+  // The hook only wakes the daemon: post_agent names no input, so turnHooks stays
+  // off and the screen alone settles the turn (a no-signal turn waits for the fallback).
+  prepareLaunchFiles(opts) {
+    validate(opts);
+    if (!opts.sessionId) return;
+    const dir = join(hookRoot(opts), ".vibe");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writeFileSync(join(dir, "hooks.toml"), vibeHooksToml(turnHookCommand(deliveryDir(opts), "vibe")), { flag: "wx", mode: 0o600 });
+  },
   launchProfiles: { defaultRole: "worker", profiles: {
     worker: { model: "mistral-large-4-0-3", effort: "high" },
     reviewer: { model: "mistral-large-4-0-3", effort: "high" },

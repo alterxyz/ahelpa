@@ -26,9 +26,9 @@ agy 以 `--dangerously-skip-permissions` 运行自己的 TUI，launch／resume �
 
 ## 会话回合 Hooks
 
-Claude 通过 `--settings` 加载 `.ahelpa/<id>/claude-settings.json`，该会话设置文件还写入 `promptSuggestionEnabled: false`，关闭 helper 输入框内的建议文字。Codex 使用仅本次调用生效的 `notify` override。Pi 用 `-e` 加载 `.ahelpa/<id>/pi-turn-hook.mjs`，这是它唯一加载的扩展，在 Pi 进程内运行，并把 payload 经 stdin 交给 hook 命令；不改 Pi 的设置。ahelpa 在 launch 和 resume 时自己不编辑 `~/.claude/settings.json` 或 `~/.codex/config.toml`。（ahelpa 应答 Codex 的 "Folder access" 界面后，由 Codex 自己写入信任记录，见上文。）Claude 现有 project/user hooks 仍会与会话 hooks 合并运行。Codex 的 notify override 会替换本次调用原有的 notify 命令；native hooks 及其信任设置不变。
+Claude 通过 `--settings` 加载 `.ahelpa/<id>/claude-settings.json`，该会话设置文件还写入 `promptSuggestionEnabled: false`，关闭 helper 输入框内的建议文字。Codex 使用仅本次调用生效的 `notify` override。Pi 用 `-e` 加载 `.ahelpa/<id>/pi-turn-hook.mjs`，这是它唯一加载的扩展，在 Pi 进程内运行，并把 payload 经 stdin 交给 hook 命令；不改 Pi 的设置。Vibe 收到 `--add-dir .ahelpa/<id>/vibe-hook`，这个目录里只有 `.vibe/hooks.toml`，内含一条 `post_agent` hook；不碰 `~/.vibe`。ahelpa 在 launch 和 resume 时自己不编辑 `~/.claude/settings.json` 或 `~/.codex/config.toml`。（ahelpa 应答 Codex 的 "Folder access" 界面后，由 Codex 自己写入信任记录，见上文。）Claude 现有 project/user hooks 仍会与会话 hooks 合并运行。Codex 的 notify override 会替换本次调用原有的 notify 命令；native hooks 及其信任设置不变。
 
-隐藏命令 `__turn-hook` 读取 stdin（Claude、Pi）或最后一个 JSON 参数（Codex），过滤支持的事件，仅把标识、时间、失败类型、输入 SHA-256 摘要和消息存在性／长度追加到会话的 `turns.log`。它不打开状态数据库，不执行 payload 中的指令，不输出 stdout。无效输入及不可用文件会被忽略，stdin 读取有时限。写入器要求 `.ahelpa` 下已有的会话目录，并拒绝 symlink 和 hardlink 目标；打开后检查 regular file 只有一个链接且 device／inode 与检查路径一致，通过该 descriptor 写入。保存的 runtime 不存在或不可用时，hook wrapper 静默退出 0。不保留 assistant 正文或 input-messages 内容。这是可信本地进程提供的时机提示，不是经过认证的成功信号或权限边界。
+隐藏命令 `__turn-hook` 读取 stdin（Claude、Pi、Vibe）或最后一个 JSON 参数（Codex），过滤支持的事件，仅把标识、时间、失败类型、输入 SHA-256 摘要和消息存在性／长度追加到会话的 `turns.log`。它不打开状态数据库，不执行 payload 中的指令，不输出 stdout。无效输入及不可用文件会被忽略，stdin 读取有时限。写入器要求 `.ahelpa` 下已有的会话目录，并拒绝 symlink 和 hardlink 目标；打开后检查 regular file 只有一个链接且 device／inode 与检查路径一致，通过该 descriptor 写入。保存的 runtime 不存在或不可用时，hook wrapper 静默退出 0。不保留 assistant 正文或 input-messages 内容。这是可信本地进程提供的时机提示，不是经过认证的成功信号或权限边界。
 
 Hook 对日志文件提供 symlink 和 hardlink 防护，但不能防止已拥有用户权限的进程并发替换会话目录本身。
 

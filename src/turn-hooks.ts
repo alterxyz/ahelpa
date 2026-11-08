@@ -1,5 +1,5 @@
 import { appendFileSync, closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, realpathSync } from "fs";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { basename, dirname, join, resolve } from "path";
 import { codexThreadSource } from "./drivers/codex-rollout";
 import { FIFO } from "./fifo";
@@ -9,7 +9,7 @@ import { getSelfCommand } from "./self-command";
 import { shellEscape } from "./shell";
 
 export const TURN_HOOK_SUBCOMMAND = "__turn-hook";
-export type TurnHookAgent = "claude-code" | "codex" | "pi";
+export type TurnHookAgent = "claude-code" | "codex" | "pi" | "vibe";
 export interface TurnEvent {
   ts: string;
   agent: TurnHookAgent;
@@ -83,6 +83,13 @@ export function parseTurnPayload(agent: string, raw: string, boundThread?: strin
       return { ts, agent, event: error ? "stop_failure" : "stop", sessionId: p.sessionId, turnId: p.turnId,
         ...(error ? { error } : {}), ...(typeof p.input === "string" ? { inputDigest: inputDigest(p.input) } : {}),
         assistantMessagePresent: false, assistantMessageLength: 0 };
+    }
+    if (agent === "vibe") {
+      // post_agent with match = "main": once per main-agent turn, not on Escape
+      // or an API error. It names neither the input nor the turn, so the event
+      // only wakes the daemon (the driver keeps turnHooks off).
+      if (p.hook_event_name !== "post_agent" || !id(p.session_id) || p.parent_session_id != null) return null;
+      return { ts, agent, event: "stop", sessionId: p.session_id, turnId: randomUUID(), ...metadata };
     }
     if (agent === "codex") {
       if (p.type !== "agent-turn-complete" || !id(p["thread-id"]) || !id(p["turn-id"])) return null;
@@ -204,7 +211,7 @@ export async function runTurnHook(args: string[]): Promise<void> {
     if (agent === "codex" && args.length >= 3) {
       const raw = args.at(-1)!;
       if (raw.length <= 4 * 1024 * 1024) writeTurnHook(dir, agent, raw, args[2] === "--thread" ? args[3] : undefined);
-    } else if (agent === "claude-code" || agent === "pi") {
+    } else if (agent === "claude-code" || agent === "pi" || agent === "vibe") {
       // Hooks must never hold up the CLI, even if stdin is accidentally left open.
       const reader = Bun.stdin.stream().getReader();
       const deadline = Date.now() + 500;

@@ -69,7 +69,7 @@ function deliveryCategory(parts: string[]): Category {
     case "inbox": return "delivery.mail";
     case "claude-settings.json": case "dsh-terminal.mjs": case "dsh.patch.yml":
     case "pi-terminal.mjs": case "pi-process.json": case "pi-turn-hook.mjs":
-    case "vibe-terminal.mjs": case "vibe-process.json": case "ahelpa-helper.toml": return "delivery.bridge";
+    case "vibe-terminal.mjs": case "vibe-process.json": case "ahelpa-helper.toml": case "vibe-hook": return "delivery.bridge";
     default: return "delivery.other";
   }
 }

@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { getSelfCommand } from "../src/self-command";
+import { shellEscape } from "../src/shell";
 import { inputDigest, parseTurnPayload, readTurnEvents, turnHookCommand, writeTurnHook } from "../src/turn-hooks";
 import { claudeCodeDriver } from "../src/drivers/claude-code";
 import { codexDriver } from "../src/drivers/codex";
 import { piDriver, piTurnHookSource } from "../src/drivers/pi";
+import { vibeDriver, vibeHooksToml } from "../src/drivers/vibe";
 import * as capabilities from "../src/drivers/codex-capabilities";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 
@@ -73,8 +75,24 @@ describe("turn hook payloads and append", () => {
     expect(readTurnEvents(join(dir, "turns.log")).event?.turnId).toBe("turn-2");
   });
 
+  test("Vibe post_agent keeps the session id only, gets a fresh turn id, and skips subagents", () => {
+    const stop = parseTurnPayload("vibe", fixture("vibe-post-agent"))!;
+    expect(stop).toMatchObject({ agent: "vibe", event: "stop", sessionId: "4d047f6d-ab28-b6c5-c120-6f10228b82ba" });
+    expect(stop.inputDigest).toBeUndefined();
+    expect(JSON.stringify(stop)).not.toContain("private");
+    const payload = JSON.parse(fixture("vibe-post-agent"));
+    expect(parseTurnPayload("vibe", JSON.stringify({ ...payload, parent_session_id: "parent" }))).toBeNull();
+    expect(parseTurnPayload("vibe", JSON.stringify({ ...payload, hook_event_name: "post_tool" }))).toBeNull();
+    expect(parseTurnPayload("vibe", JSON.stringify({ ...payload, session_id: "../x" }))).toBeNull();
+    writeTurnHook(dir, "vibe", fixture("vibe-post-agent"));
+    writeTurnHook(dir, "vibe", fixture("vibe-post-agent")); // the next turn of the same session
+    const lines = readFileSync(join(dir, "turns.log"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(lines).toHaveLength(2);
+    expect(lines[0].turnId).not.toBe(lines[1].turnId);
+  });
+
   test.each(["not json", "null", "[]", "{}", '{"type":"other"}', '{"hook_event_name":"Stop","session_id":"../escape"}'])("ignores malformed or unsupported input: %s", raw => {
-    for (const agent of ["claude-code", "codex", "pi", "kimi"]) {
+    for (const agent of ["claude-code", "codex", "pi", "vibe", "kimi"]) {
       expect(parseTurnPayload(agent, raw)).toBeNull();
       expect(() => writeTurnHook(dir, agent, raw)).not.toThrow();
     }
@@ -116,8 +134,9 @@ describe("turn hook payloads and append", () => {
     await invoke([dir, "claude-code"], fixture("claude-stop"));
     await invoke([dir, "codex", fixture("codex-complete")]);
     await invoke([dir, "pi"], fixture("pi-settled"));
+    await invoke([dir, "vibe"], fixture("vibe-post-agent"));
     expect(readdirSync(dir)).toEqual(["turns.log"]);
-    expect(readFileSync(join(dir, "turns.log"), "utf8")).toContain('"agent":"pi"');
+    expect(readFileSync(join(dir, "turns.log"), "utf8")).toMatch(/"agent":"pi"[\s\S]*"agent":"vibe"/);
     expect(existsSync(forbiddenHome)).toBe(false);
     mkdirSync(join(root, "not-a-session"));
     await invoke([join(root, "not-a-session"), "codex", fixture("codex-complete")]);
@@ -236,5 +255,26 @@ describe("driver hook launch and resume", () => {
     expect(second.input).toBeUndefined();
     expect(first.turnId).not.toBe(second.turnId);
     expect(JSON.stringify([first, second])).not.toContain("provider text");
+  });
+  test.each(["launch", "resume"])("Vibe %s adds its own hook root whose post_agent hook runs silently", async kind => {
+    const sessionId = "mistral-test";
+    const sessionDir = defaultRuntimeLayout.sessionDeliveryDir(root, sessionId);
+    mkdirSync(sessionDir, { recursive: true });
+    vibeDriver.prepareLaunchFiles!({ cwd: root, sessionId });
+    const hooks = join(sessionDir, "vibe-hook", ".vibe", "hooks.toml");
+    expect(statSync(hooks).mode & 0o777).toBe(0o600);
+    expect(() => vibeDriver.prepareLaunchFiles!({ cwd: root, sessionId })).toThrow(); // never overwrites
+    const parsed = Bun.TOML.parse(readFileSync(hooks, "utf8")) as { hooks: Record<string, unknown>[] };
+    expect(parsed.hooks).toEqual([{ name: "ahelpa-turn", type: "post_agent", match: "main", timeout: 10,
+      command: turnHookCommand(sessionDir, "vibe").map(shellEscape).join(" ") }]);
+    expect(vibeDriver.turnHooks).toBeUndefined(); // the event names no input: it wakes the daemon, never decides
+    const command = kind === "launch" ? vibeDriver.buildLaunchCommand({ cwd: root, sessionId })
+      : vibeDriver.buildResumeCommand!({ cwd: root, sessionId, resumeId: "d68ff081" });
+    expect(command).toContain(`--add-dir '${join(sessionDir, "vibe-hook")}'`);
+    // Vibe runs the line through a shell with the payload on stdin; empty stdout and exit 0 pass the turn through.
+    const child = Bun.spawn(["/bin/sh", "-c", parsed.hooks[0].command as string], { stdin: new Blob([fixture("vibe-post-agent")]), stdout: "pipe", stderr: "pipe",
+      env: { ...process.env, AHELPA_HOME: join(root, "home") } });
+    expect([await child.exited, await new Response(child.stdout).text()]).toEqual([0, ""]);
+    expect(readFileSync(join(sessionDir, "turns.log"), "utf8")).toContain('"agent":"vibe"');
   });
 });
