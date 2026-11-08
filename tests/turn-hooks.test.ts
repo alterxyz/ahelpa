@@ -65,6 +65,8 @@ describe("turn hook payloads and append", () => {
     expect(parseTurnPayload("pi", JSON.stringify({ ...payload, stopReason: "length" }))?.event).toBe("stop");
     expect(parseTurnPayload("pi", JSON.stringify({ ...payload, input: undefined }))?.inputDigest).toBeUndefined();
     expect(parseTurnPayload("pi", JSON.stringify({ ...payload, turnId: undefined }))).toBeNull();
+    expect(parseTurnPayload("pi", JSON.stringify({ ...payload, sessionId: undefined }))).toBeNull();
+    expect(parseTurnPayload("pi", JSON.stringify({ ...payload, sessionId: "../escape" }))).toBeNull();
     expect(parseTurnPayload("pi", JSON.stringify({ ...payload, type: "agent_end" }))).toBeNull();
     writeTurnHook(dir, "pi", fixture("pi-settled"));
     writeTurnHook(dir, "pi", fixture("pi-settled")); // duplicate delivery
@@ -73,6 +75,9 @@ describe("turn hook payloads and append", () => {
     expect(log.trim().split("\n")).toHaveLength(2);
     expect(log).not.toContain("private");
     expect(readTurnEvents(join(dir, "turns.log")).event?.turnId).toBe("turn-2");
+    const forged = JSON.parse(log.trim().split("\n")[0]);
+    writeFileSync(join(dir, "turns.log"), JSON.stringify({ ...forged, inputDigest: "not-a-digest" }) + "\n");
+    expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
   });
 
   test("Vibe post_agent keeps the session id only, gets a fresh turn id, and skips subagents", () => {
@@ -240,21 +245,30 @@ describe("driver hook launch and resume", () => {
     const handlers: Record<string, (event: unknown, ctx?: unknown) => unknown> = {};
     (await import(path)).default({ on: (name: string, handler: (event: unknown, ctx?: unknown) => unknown) => { handlers[name] = handler; } });
     const ctx = { sessionManager: { getSessionId: () => "native-session" } };
+    const done = () => readdirSync(out).filter(name => name.endsWith(".json")).map(name => JSON.parse(readFileSync(join(out, name), "utf8")));
+    // The handler resolves only after the hook has written: Pi defers a new prompt until then.
+    const settle = async (aborted = false) => {
+      const seen = new Set(done().map(p => p.turnId));
+      await handlers.agent_settled({ aborted }, ctx);
+      const added = done().filter(p => !seen.has(p.turnId));
+      expect(added).toHaveLength(1);
+      return added[0];
+    };
     expect(handlers.input({ text: "the task" })).toBeUndefined();
     expect(handlers.message_end({ message: { role: "assistant", stopReason: "toolUse" } })).toBeUndefined();
-    handlers.message_end({ message: { role: "toolResult" } });
     handlers.message_end({ message: { role: "assistant", stopReason: "error", errorMessage: "provider text" } });
-    handlers.agent_settled({ aborted: false }, ctx);
-    handlers.agent_settled({ aborted: true }, ctx);
-    const done = () => readdirSync(out).filter(name => name.endsWith(".json"));
-    for (let i = 0; i < 100 && done().length < 2; i++) await Bun.sleep(20);
-    const payloads = done().map(name => JSON.parse(readFileSync(join(out, name), "utf8")));
-    const first = payloads.find(p => !p.aborted), second = payloads.find(p => p.aborted);
-    expect(first).toMatchObject({ type: "agent_settled", sessionId: "native-session", aborted: false, stopReason: "error", input: "the task" });
-    expect(second).toMatchObject({ aborted: true });
-    expect(second.input).toBeUndefined();
-    expect(first.turnId).not.toBe(second.turnId);
-    expect(JSON.stringify([first, second])).not.toContain("provider text");
+    handlers.message_end({ message: { role: "toolResult", stopReason: "stop" } }); // only assistant messages count
+    expect(await settle()).toMatchObject({ type: "agent_settled", sessionId: "native-session", aborted: false, stopReason: "error", input: "the task" });
+    const forgotten = await settle(true); // settled forgets the input and the stop reason
+    expect(forgotten.aborted).toBe(true);
+    expect([forgotten.input, forgotten.stopReason]).toEqual([undefined, undefined]);
+    handlers.message_end({ message: { role: "assistant", stopReason: "error" } });
+    handlers.input({ text: "next" }); // a new input forgets the old stop reason
+    const next = await settle();
+    expect([next.input, next.stopReason]).toEqual(["next", undefined]);
+    const payloads = done();
+    expect(new Set(payloads.map(p => p.turnId)).size).toBe(3);
+    expect(JSON.stringify(payloads)).not.toContain("provider text");
   });
   test.each(["launch", "resume"])("Vibe %s adds its own hook root whose post_agent hook runs silently", async kind => {
     const sessionId = "mistral-test";

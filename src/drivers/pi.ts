@@ -84,10 +84,12 @@ function validate(opts: LaunchOptions): void {
 
 // The turn-end hook: a one-file extension in the session's result directory,
 // loaded with -e (--no-extensions still loads an explicit file, and nothing is
-// saved to Pi's settings). `agent_settled` fires once per prompt, after retries
-// and compaction, also after an error or Escape; `turn_end` (per model request)
-// and `agent_end` (Pi may still continue) are not final. Plain ESM so Pi's jiti
-// loader imports it natively without a transform cache.
+// saved to Pi's settings). `agent_settled` fires when a started run settles,
+// after retries, compaction and queued input, also after an error or Escape;
+// `turn_end` (per model request) and `agent_end` (Pi may still continue) are
+// not final. Pi defers a prompt typed while settled handlers run, so awaiting
+// the hook (2 s at most) writes the event before the next run can start. Plain
+// ESM so Pi's jiti loader imports it natively without a transform cache.
 function hookPath(opts: LaunchOptions & { sessionId: string }): string {
   return join(opts.deliveryDir ?? defaultRuntimeLayout.sessionDeliveryDir(opts.cwd, opts.sessionId), "pi-turn-hook.mjs");
 }
@@ -100,15 +102,16 @@ export default function (pi) {
   let input, stopReason;
   pi.on("input", event => { input = event.text; stopReason = undefined; });
   pi.on("message_end", event => { if (event.message?.role === "assistant") stopReason = event.message.stopReason; });
-  pi.on("agent_settled", (event, ctx) => {
+  pi.on("agent_settled", async (event, ctx) => {
     const payload = JSON.stringify({ type: "agent_settled", sessionId: ctx.sessionManager.getSessionId(), turnId: randomUUID(),
       aborted: event.aborted === true, stopReason, input });
     input = stopReason = undefined;
     try {
       const child = spawn(command[0], command.slice(1), { stdio: ["pipe", "ignore", "ignore"] });
-      child.on("error", () => {});
       child.stdin.on("error", () => {});
+      const done = new Promise(resolve => { child.on("error", resolve); child.on("close", resolve); setTimeout(resolve, 2000).unref(); });
       child.stdin.end(payload);
+      await done;
     } catch {}
   });
 }
