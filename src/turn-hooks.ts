@@ -2,6 +2,8 @@ import { appendFileSync, closeSync, constants, fstatSync, lstatSync, openSync, r
 import { createHash } from "crypto";
 import { basename, dirname, join, resolve } from "path";
 import { codexThreadSource } from "./drivers/codex-rollout";
+import { FIFO } from "./fifo";
+import { defaultRuntimeLayout } from "./runtime-layout";
 import { TASK_INSTRUCTION_PREFIX } from "./file-handoff";
 import { getSelfCommand } from "./self-command";
 import { shellEscape } from "./shell";
@@ -178,6 +180,8 @@ export function writeTurnHook(sessionDir: string, agent: string, raw: string, re
       event.threadVerified = resumeThread !== undefined || (first ? first.threadVerified === true : source === "main");
     }
     appendFileSync(fd, JSON.stringify(event) + "\n");
+    // A turn just ended: wake the daemon instead of leaving it to the next poll.
+    if (event.event !== "prompt") void FIFO.tryWrite(defaultRuntimeLayout.daemonWakePath(), "turn").catch(() => {});
   } catch {} finally { if (fd !== undefined) try { closeSync(fd); } catch {} }
 }
 

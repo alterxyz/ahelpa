@@ -14,6 +14,7 @@ import { shellEscape } from "./shell";
 import type { AgentDriver, DriverRuntime } from "./drivers/types";
 import { deliverTurn } from "./turn-delivery";
 import { planSessionHandoff } from "./file-handoff";
+import { FIFO } from "./fifo";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
 const PID_FILE = defaultRuntimeLayout.daemonPidPath();
@@ -459,14 +460,32 @@ export async function refreshSessionStatuses(
   }
 }
 
+const POLL_MS = 3000;
+// The hook can fire a moment before the TUI draws the frame that ends the turn.
+const WAKE_GRACE_MS = 250;
+
+// Wait for the next poll, or less when a turn-end hook writes to the wake pipe:
+// a finished turn is then read at once instead of up to 3 s later. Without the
+// pipe this is the plain 3 s poll.
+export async function waitForNextPoll(wakePath: string | undefined, pollMs = POLL_MS): Promise<boolean> {
+  const started = Date.now();
+  let woke = false;
+  if (wakePath) try { woke = (await FIFO.read(wakePath, pollMs)) !== null; } catch {}
+  const rest = pollMs - (Date.now() - started);
+  await Bun.sleep(woke ? WAKE_GRACE_MS : Math.max(0, rest));
+  return woke;
+}
+
 export async function daemonLoop(db: StateDB): Promise<void> {
+  let wakePath: string | undefined = defaultRuntimeLayout.daemonWakePath();
+  try { await FIFO.create(wakePath); } catch { wakePath = undefined; }
   while (true) {
     const sessions = db.listActiveSessions();
     if (sessions.length === 0) break; // Auto-exit when no sessions
 
     await refreshSessionStatuses(db);
 
-    await Bun.sleep(3000); // Poll every 3 seconds
+    await waitForNextPoll(wakePath);
   }
 }
 

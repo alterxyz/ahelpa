@@ -124,6 +124,11 @@ export class RuntimeLayout {
     return join(this.tmpDir, "scratch", sessionId);
   }
 
+  // The daemon waits on this pipe between polls; a turn-end hook writes to it.
+  daemonWakePath(): string {
+    return join(this.ahelpaHomeDir(), "daemon.wake");
+  }
+
   fifoPath(sessionId: string): string {
     return join(this.tmpDir, `${sessionId}.pipe`);
   }
