@@ -127,6 +127,10 @@ export class RuntimeLayout {
   fifoPath(sessionId: string): string {
     return join(this.tmpDir, `${sessionId}.pipe`);
   }
+
+  interventionLeasePath(sessionId: string): string {
+    return join(this.tmpDir, "interventions", sessionId);
+  }
 }
 
 export const defaultRuntimeLayout = new RuntimeLayout();

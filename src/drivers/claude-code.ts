@@ -436,8 +436,8 @@ export const claudeCodeDriver: AgentDriver = {
     return !/\b(?:enter\s+to\s+(?:confirm|select)|esc(?:ape)?\s+to\s+cancel|do\s+you\s+want\s+to\s+(?:proceed|allow)|permission\s+(?:required|request)|(?:requires?|waiting\s+for)\s+(?:approval|permission))\b|\ballow\b[^\r\n]*\?[^\S\r\n]*$|^[^\S\r\n]*\d+\.\s+\S/imu.test(belowComposer);
   },
 
-  // Claude's working line reads "esc to interrupt".
-  interruptKey: "Escape",
+  // Esc stops the turn: "⎿  Interrupted · What should Claude do instead?" (2026-11-07).
+  interrupt: { key: "Escape", stopped: /Interrupted · What should Claude do instead\?/ },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
     await runtime.sendKeys(sessionId, "/exit");

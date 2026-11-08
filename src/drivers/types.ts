@@ -107,8 +107,9 @@ export interface AgentDriver {
   // which may count history rows as work and then hold the event forever.
   workingAfterTurn?(captureOutput: string): boolean;
   gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void>;
-  // The tmux key that stops the running turn and keeps the session, as a
-  // person would press it. Omitted where no key was verified; `interrupt` then
-  // refuses, and `kill` cannot recover a missing native ID before stopping.
-  interruptKey?: string;
+  // How a person stops one turn and keeps the session: the tmux key, and the
+  // line the TUI prints once the turn really stopped (a key press alone proves
+  // nothing). Omitted where neither was verified on the real TUI; `interrupt`
+  // then refuses, and `kill` cannot stop a running turn to keep its native ID.
+  interrupt?: { key: string; stopped: RegExp };
 }

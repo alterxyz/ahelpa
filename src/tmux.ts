@@ -59,14 +59,16 @@ export class Tmux {
     await $`tmux send-keys -t ${name} Enter`.quiet();
   }
 
-  // Whether the vendor CLI still runs in the pane. Helpers run as
-  // `bash -lc "<cli>; exec bash"`: the CLI is the wrapper's child, and once it
-  // exits the wrapper becomes an interactive bash with no children, so keys
-  // would reach bash. #{pane_current_command} reads "bash" in both states.
-  static async paneRunsChild(name: string): Promise<boolean> {
+  // Whether the vendor CLI still owns the pane. create() runs it as
+  // `bash -lc "<cli>; exec bash"`; once the CLI exits the wrapper execs an
+  // interactive `bash`, so the pane process's own arguments change. A job the
+  // user starts in that shell does not change them, and #{pane_current_command}
+  // reads "bash" in both states, so neither can tell the two apart.
+  static async vendorAlive(name: string): Promise<boolean> {
     const pid = (await $`tmux display-message -p -t ${name} ${"#{pane_pid}"}`.quiet().text()).trim();
     if (!/^\d+$/.test(pid)) return false;
-    return (await $`pgrep -P ${pid}`.quiet().nothrow()).exitCode === 0;
+    const args = (await $`ps -o args= -p ${pid}`.quiet().nothrow().text()).trim();
+    return args.startsWith("bash -lc ");
   }
 
   // Send a single named key (e.g. "Escape", "C-c") without appending Enter.

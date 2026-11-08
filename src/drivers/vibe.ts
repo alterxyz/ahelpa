@@ -209,7 +209,7 @@ export const vibeDriver: AgentDriver = {
   detectActivity(output) { return working(parse(output)) ? "working" : "idle"; },
   acceptsInput(output) { return ready(parse(output)); },
   // Esc stops one turn and its tool and keeps the session (2026-11-07, vibe 3.1.0).
-  interruptKey: "Escape",
+  interrupt: { key: "Escape", stopped: /Interrupted · What should Vibe do instead\?/ },
 
   async gracefulExit(sessionId, runtime) { await runtime.sendKeys(sessionId, "/exit"); },
 };

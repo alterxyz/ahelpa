@@ -558,8 +558,8 @@ export const codexDriver: AgentDriver = {
 
   workingAfterTurn: codexSpinnerVisible,
 
-  // Codex's working line reads "esc to interrupt".
-  interruptKey: "Escape",
+  // Esc stops the turn: "■ Conversation interrupted - use /feedback …" (2026-11-07).
+  interrupt: { key: "Escape", stopped: /^■ Conversation interrupted\b/m },
 
   async gracefulExit(sessionId: string, runtime: DriverRuntime): Promise<void> {
     // Exiting prints the resume command; Escape only dismisses UI elements.

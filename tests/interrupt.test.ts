@@ -4,6 +4,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import { Archive } from "../src/archive";
 import { interrupt, kill } from "../src/commands/session-ops";
+import { refreshSessionStatuses } from "../src/daemon";
+import { interventionLeaseActive, takeInterventionLease } from "../src/intervention-lease";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 import { SESSION_STATUS } from "../src/session-lifecycle";
 import { StateDB } from "../src/state";
@@ -34,6 +36,7 @@ function session(id: string, agentType = "agy") {
 beforeEach(() => {
   root = mkdtempSync(join(realpathSync(tmpdir()), "interrupt-"));
   spyOn(defaultRuntimeLayout, "archiveDir").mockReturnValue(join(root, "archive"));
+  spyOn(defaultRuntimeLayout, "interventionLeasePath").mockImplementation((id) => join(root, "interventions", id));
   db = new StateDB(":memory:");
   screen = "working";
   keys = [];
@@ -43,7 +46,7 @@ beforeEach(() => {
   spyOn(Tmux, "hasSession").mockResolvedValue(true);
   spyOn(Tmux, "kill").mockResolvedValue();
   // After the CLI exits the pane falls back to bash.
-  spyOn(Tmux, "paneRunsChild").mockImplementation(async () => screen !== "exited");
+  spyOn(Tmux, "vendorAlive").mockImplementation(async () => screen !== "exited");
   spyOn(Tmux, "sendKey").mockImplementation(async (_id, key) => {
     keys.push(key);
     if (key === "Escape" && screen === "working") screen = "ready";
@@ -112,15 +115,15 @@ test("kill reads Codex's composer after the interrupt despite history rows", asy
   expect(db.getSession("c")!.agentResumeId).toBe(ID);
 });
 
-test("kill exits a settled Codex turn whose history rows read as work", async () => {
-  // Codex counts history rows as activity; Escape on its idle composer only dismisses UI.
+test("kill exits a settled Codex turn without pressing the interrupt key", async () => {
+  // Codex counts history rows as activity; a settled turn's rows are history.
   const settled = ["• Explored", "  └ Read ahelpa-task.md", "• Ran ls", "› Ask Codex to do anything", "  GPT-6-Astra medium · ~/project"].join("\n");
   const exited = ["To continue this session, run:", `  codex resume ${ID}`, "bash-3.2$"].join("\n");
   spyOn(Tmux, "capture").mockImplementation(async () => (keys.includes("/exit") ? exited : settled));
   session("c", "codex");
   db.updateStatus("c", SESSION_STATUS.NeedsAttention);
   await kill(db, "c", "c-token");
-  expect(keys).toEqual(["Escape", "/exit"]);
+  expect(keys).toEqual(["/exit"]);
   expect(db.getSession("c")!.agentResumeId).toBe(ID);
 });
 
@@ -178,7 +181,7 @@ test("kill never types into a permission overlay that the strict check vetoes", 
 test("kill never types into the shell left after the CLI exited", async () => {
   // A stale Codex composer above the bash prompt that the wrapper starts.
   spyOn(Tmux, "capture").mockResolvedValue(["• Ran bun test", "› Ask Codex to do anything", "bash-3.2$"].join("\n"));
-  spyOn(Tmux, "paneRunsChild").mockResolvedValue(false);
+  spyOn(Tmux, "vendorAlive").mockResolvedValue(false);
   session("c", "codex");
   await kill(db, "c", "c-token");
   expect(keys).toEqual([]);
@@ -195,42 +198,92 @@ test("kill does not exit while a Codex reply keeps streaming without a spinner",
   expect(db.getSession("c")!.status).toBe(SESSION_STATUS.Dead);
 }, 15000);
 
-test("interrupt claims the turn before pressing the key", async () => {
+test("interrupt holds a lease, not a status, while the turn stops", async () => {
   session("s");
-  let statusAtKey: string | undefined;
+  const seen: Array<{ status: string; lease: boolean }> = [];
   spyOn(Tmux, "sendKey").mockImplementation(async (_id, key) => {
-    statusAtKey = db.getSession("s")!.status;
+    seen.push({ status: db.getSession("s")!.status, lease: interventionLeaseActive("s") });
     keys.push(key);
     screen = "ready";
   });
   await interrupt(db, "s", "s-token");
-  expect(statusAtKey).toBe(SESSION_STATUS.NeedsAttention);
+  // A waiter sees running until the stop is confirmed, and the daemon is held off.
+  expect(seen).toEqual([{ status: SESSION_STATUS.Running, lease: true }]);
+  expect(interventionLeaseActive("s")).toBe(false);
 });
 
-test("interrupt reports failure and hands the turn back when the turn does not stop", async () => {
+test("interrupt leaves the turn running and releases the lease when it does not stop", async () => {
   session("s");
   const notify = spyOn(defaultWakeup, "notify");
   spyOn(Tmux, "sendKey").mockImplementation(async (_id, key) => { keys.push(key); });
-  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("did not visibly stop");
+  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("did not show that its turn stopped");
   expect(db.getSession("s")!.status).toBe(SESSION_STATUS.Running);
   expect(notify).not.toHaveBeenCalled();
+  expect(interventionLeaseActive("s")).toBe(false);
 }, 15000);
 
-test("interrupt refuses a pane whose CLI already exited", async () => {
+test("interrupt needs the TUI's own stop line, not just a quiet ready screen", async () => {
+  // Escape had no effect on a reply that paused between chunks: same screen, no "Interrupted" line.
   session("s");
-  spyOn(Tmux, "paneRunsChild").mockResolvedValue(false);
-  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("no running agy");
-  expect(keys).toEqual([]);
+  spyOn(Tmux, "capture").mockResolvedValue([RULE, "> Run sleep 120", RULE, "partial reply …", RULE, ">", RULE, "? for shortcuts      Gemini 4 Argon · medium"].join("\n"));
+  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("did not show that its turn stopped");
   expect(db.getSession("s")!.status).toBe(SESSION_STATUS.Running);
-});
+}, 15000);
 
-test("interrupt does not publish over a row that changed while it waited", async () => {
+test("interrupt publishes across a metadata write but not across a new turn", async () => {
   session("s");
   spyOn(Tmux, "sendKey").mockImplementation(async (_id, key) => {
     keys.push(key);
     screen = "ready";
-    db.updateResumeId("s", ID); // any concurrent write bumps the version
+    db.updateResumeId("s", ID); // metadata: version moves, same turn
   });
-  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("changed");
-  expect(new Archive(defaultRuntimeLayout.archiveDir()).get("s") ?? null).toBeNull();
+  await interrupt(db, "s", "s-token");
+  expect(db.getSession("s")!.status).toBe(SESSION_STATUS.NeedsAttention);
+
+  session("t");
+  screen = "working";
+  spyOn(Tmux, "sendKey").mockImplementation(async (_id, key) => {
+    keys.push(key);
+    screen = "ready";
+    db.updateStatus("t", SESSION_STATUS.Idle); // a settlement won meanwhile
+  });
+  await expect(interrupt(db, "t", "t-token")).rejects.toThrow("changed to idle");
+  expect(db.getSession("t")!.status).toBe(SESSION_STATUS.Idle);
+});
+
+test("interrupt keeps the turn running when publishing the archive fails", async () => {
+  session("s");
+  spyOn(Archive.prototype, "save").mockImplementation(() => { throw new Error("disk full"); });
+  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("disk full");
+  expect(db.getSession("s")!.status).toBe(SESSION_STATUS.Running);
+  expect(interventionLeaseActive("s")).toBe(false);
+});
+
+test("kill does not exit after an interrupt key that left no stop line", async () => {
+  // A running Codex turn whose screen reads as work but shows no spinner, and
+  // Escape changed nothing: no "Conversation interrupted" line, so no exit.
+  const paused = ["• Explored", "  └ Read ahelpa-task.md", "• Ran ls", "› Ask Codex to do anything", "  GPT-6-Astra medium · ~/project"].join("\n");
+  spyOn(Tmux, "capture").mockResolvedValue(paused);
+  session("c", "codex");
+  await kill(db, "c", "c-token");
+  expect(keys).toEqual(["Escape"]);
+  expect(db.getSession("c")!.status).toBe(SESSION_STATUS.Dead);
+}, 15000);
+
+test("the daemon leaves a leased session alone", async () => {
+  session("s");
+  screen = "ready"; // idle with no signal: normally the idle fallback, then needs_attention
+  spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set(["s"]));
+  takeInterventionLease("s");
+  for (let poll = 0; poll < 6; poll++) await refreshSessionStatuses(db, ["s"]);
+  expect(db.getSession("s")!.status).toBe(SESSION_STATUS.Running);
+  expect(keys).toEqual([]);
+});
+
+test("interrupt refuses a pane whose CLI already exited", async () => {
+  session("s");
+  spyOn(Tmux, "vendorAlive").mockResolvedValue(false);
+  await expect(interrupt(db, "s", "s-token")).rejects.toThrow("no running agy");
+  expect(keys).toEqual([]);
+  expect(db.getSession("s")!.status).toBe(SESSION_STATUS.Running);
 });

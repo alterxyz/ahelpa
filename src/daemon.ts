@@ -1,6 +1,7 @@
 import { existsSync, appendFileSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, statSync, renameSync } from "fs";
 import { getSelfCommand } from "./self-command";
 import { readTurnEvents } from "./turn-hooks";
+import { interventionLeaseActive } from "./intervention-lease";
 import { StateDB, type SessionRecord } from "./state";
 import { Tmux } from "./tmux";
 import { Archive } from "./archive";
@@ -288,6 +289,9 @@ export async function refreshSessionStatuses(
         }
         continue;
       }
+
+      // A host interrupt or kill is pressing keys; leave the turn to it.
+      if (interventionLeaseActive(session.id)) continue;
 
       // A flag raised after the current turn was delivered can be a misread
       // screen; an archived Claude helper printed DONE three minutes later. Keep watching

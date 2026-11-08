@@ -22,6 +22,7 @@ import { readTaskFile } from "../task-input";
 import { normalizeTurnInput } from "../turn-hooks";
 import { deliverTurn } from "../turn-delivery";
 import { settle } from "../settle";
+import { releaseInterventionLease, takeInterventionLease } from "../intervention-lease";
 import { resolveParentId } from "../caller-identity";
 
 interface AuthContext { db: StateDB; session: SessionRecord; }
@@ -150,6 +151,8 @@ const POLL_MS = 500;
 // ponytail: fixed bounds; a slower TUI only loses its resume ID, never the kill.
 const STOP_POLLS = 8;
 const EXIT_POLLS = 12;
+// The TUI prints its "interrupted" line just above the composer.
+const STOP_TAIL_LINES = 15;
 
 type Driver = ReturnType<typeof getHarnessDriver>;
 
@@ -160,19 +163,16 @@ function composerReady(driver: Driver): ((output: string) => boolean) | undefine
   return driver.acceptsInputAfterTurn?.bind(driver) ?? driver.acceptsInput?.bind(driver);
 }
 
-async function vendorHasPane(sessionId: string): Promise<boolean> {
-  return Tmux.paneRunsChild(sessionId);
-}
-
-// A key press is not proof that work stopped. Stopped means a ready composer
-// on two consecutive identical captures: a reply still streaming without a
-// spinner keeps changing the screen and never passes.
-async function stoppedScreen(sessionId: string, ready: (output: string) => boolean): Promise<string | null> {
+// A ready composer on two identical captures in a row. After an interrupt key
+// that is not enough (a reply can pause between chunks), so the TUI's own
+// "interrupted" line must also show near the bottom.
+async function settledScreen(sessionId: string, ready: (output: string) => boolean, stopped?: RegExp): Promise<string | null> {
   let previous: string | null = null;
   for (let attempt = 0; attempt < STOP_POLLS; attempt++) {
     await Bun.sleep(POLL_MS);
     const output = await Tmux.capture(sessionId, 80);
-    if (ready(output) && output === previous) return output;
+    const shown = !stopped || stopped.test(output.split("\n").slice(-STOP_TAIL_LINES).join("\n"));
+    if (ready(output) && shown && output === previous) return output;
     previous = output;
   }
   return null;
@@ -181,54 +181,49 @@ async function stoppedScreen(sessionId: string, ready: (output: string) => boole
 export const interrupt = withAuth(async ({ db, session }) => {
   const driver = getHarnessDriver(session.agentType);
   const ready = composerReady(driver);
-  if (!driver.interruptKey || !ready) {
+  if (!driver.interrupt || !ready) {
     throw new Error(`${session.agentType} has no verified interrupt key; attach with \`tmux attach -t ${session.id}\` and interrupt it there`);
   }
   if (session.status !== SESSION_STATUS.Running && session.status !== SESSION_STATUS.NeedsAttention) {
     throw new Error(`Session ${session.id} is ${session.status}; only a running or flagged turn can be interrupted`);
   }
-  if (!(await vendorHasPane(session.id))) {
+  if (!(await Tmux.vendorAlive(session.id))) {
     throw new Error(`Session ${session.id} has no running ${session.agentType} in its pane; nothing to interrupt`);
   }
-  // Claim the turn before the key: a flagged row is watched for a signal only,
-  // so the daemon cannot nudge it or end it from a turn hook while we wait.
-  let claimed = session;
-  if (session.status === SESSION_STATUS.Running) {
-    if (!db.compareAndSetStatus(session.id, SESSION_STATUS.Running, SESSION_STATUS.NeedsAttention, session.version)) {
-      throw new Error(`Session ${session.id} changed to ${db.getSession(session.id)?.status ?? "missing"} before it could be interrupted`);
-    }
-    claimed = db.getSession(session.id)!;
-  }
-  let output: string | null = null;
+  takeInterventionLease(session.id);
   try {
-    await Tmux.sendKey(session.id, driver.interruptKey);
-    output = await stoppedScreen(session.id, ready);
-  } finally {
-    if (output === null && session.status === SESSION_STATUS.Running) {
-      // Unconfirmed: hand the turn back to the monitor unless something settled it.
-      db.compareAndSetStatus(session.id, SESSION_STATUS.NeedsAttention, SESSION_STATUS.Running, claimed.version);
+    await Tmux.sendKey(session.id, driver.interrupt.key);
+    const output = await settledScreen(session.id, ready, driver.interrupt.stopped);
+    if (output === null) {
+      throw new Error(`Sent ${driver.interrupt.key} to ${session.id}, but it did not show that its turn stopped; it stays ${session.status}. Inspect it with \`capture\`.`);
     }
+    // Metadata writes move the version without a new turn or a settlement; only those are retried.
+    const archive = new Archive(defaultRuntimeLayout.archiveDir());
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const current = db.getSession(session.id);
+      if (!current || current.status !== session.status || current.turnStartedAt !== session.turnStartedAt) {
+        throw new Error(`Session ${session.id} changed to ${current?.status ?? "missing"} while it was interrupted; the interrupt key was sent`);
+      }
+      if (await settle(db, archive, defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
+        status: SESSION_STATUS.NeedsAttention,
+        lastOutput: output.slice(-500),
+        reason: "interrupted by host",
+      }, current.status, current.version)) {
+        return `interrupted ${session.id}; it waits for \`send\` or \`task\``;
+      }
+    }
+    throw new Error(`Session ${session.id} kept changing while it was interrupted; the interrupt key was sent`);
+  } finally {
+    releaseInterventionLease(session.id);
   }
-  if (output === null) {
-    throw new Error(`Sent ${driver.interruptKey} to ${session.id}, but its turn did not visibly stop; it stays ${db.getSession(session.id)?.status ?? "missing"}. Inspect it with \`capture\`.`);
-  }
-  const settled = await settle(db, new Archive(defaultRuntimeLayout.archiveDir()), defaultWakeup, session.id, SESSION_STATUS.NeedsAttention, {
-    status: SESSION_STATUS.NeedsAttention,
-    lastOutput: output.slice(-500),
-    reason: "interrupted by host",
-  }, SESSION_STATUS.NeedsAttention, claimed.version);
-  if (!settled) {
-    throw new Error(`Session ${session.id} changed to ${db.getSession(session.id)?.status ?? "missing"} while it was interrupted; the interrupt key was sent`);
-  }
-  return `interrupted ${session.id}; it waits for \`send\` or \`task\``;
 });
 
 // Claude, Codex and the TUI drivers print their native ID only as they exit.
 // Before a kill takes the terminal, stop the turn and exit the TUI the way a
 // person would, so the session stays resumable. Text plus Enter goes only into
-// the vendor's ready composer, never into a dialog or a shell left after the
-// CLI exited. The interrupt key goes only to a visibly working turn; at a
-// dialog that reads as work it can only cancel. Any doubt skips to the kill.
+// the vendor's ready composer, never into a dialog or the shell left after the
+// CLI exits. The interrupt key goes only to a running turn that reads as work;
+// at a dialog that reads as work it can only cancel. Any doubt skips to the kill.
 async function preserveResumeId(db: StateDB, session: SessionRecord, screen?: string): Promise<void> {
   if (session.agentResumeId || session.launchPid) return;
   if (session.status !== SESSION_STATUS.Running && session.status !== SESSION_STATUS.NeedsAttention
@@ -236,14 +231,17 @@ async function preserveResumeId(db: StateDB, session: SessionRecord, screen?: st
   let driver: Driver;
   try { driver = getHarnessDriver(session.agentType); } catch { return; }
   const ready = composerReady(driver);
-  if (driver.resumeTokenAvailableAfterSubmit || !driver.interruptKey || !ready) return;
+  if (driver.resumeTokenAvailableAfterSubmit || !driver.interrupt || !ready) return;
+  takeInterventionLease(session.id);
   try {
     const output = screen ?? await Tmux.capture(session.id, 80);
-    const working = driver.detectActivity(output) === "working";
+    // A settled turn has ended; its history rows are not work, and it gets no key.
+    const working = session.status === SESSION_STATUS.Running && driver.detectActivity(output) === "working";
     if (!working && !ready(output)) return;
-    if (!(await vendorHasPane(session.id))) return;
-    if (working) await Tmux.sendKey(session.id, driver.interruptKey);
-    if (await stoppedScreen(session.id, ready) === null || !(await vendorHasPane(session.id))) return;
+    if (!(await Tmux.vendorAlive(session.id))) return;
+    if (working) await Tmux.sendKey(session.id, driver.interrupt.key);
+    if (await settledScreen(session.id, ready, working ? driver.interrupt.stopped : undefined) === null) return;
+    if (!(await Tmux.vendorAlive(session.id))) return;
     await driver.gracefulExit(session.id, driverRuntime);
     for (let attempt = 0; attempt < EXIT_POLLS; attempt++) {
       await Bun.sleep(POLL_MS);
@@ -252,6 +250,8 @@ async function preserveResumeId(db: StateDB, session: SessionRecord, screen?: st
     }
   } catch {
     // Best effort: the kill proceeds without a native ID.
+  } finally {
+    releaseInterventionLease(session.id);
   }
 }
 
