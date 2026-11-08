@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { getDriver } from "../src/drivers/registry";
+import { getDriver, HELPER_NAMES } from "../src/drivers/registry";
 import type { DriverRuntime } from "../src/drivers/types";
 
 type ProbeRuntime = DriverRuntime & {
@@ -168,7 +168,7 @@ describe("claude-code submit nudge adversarial regressions", () => {
       }
       for (const prepare of ["prepareForTask", "prepareForResume"] as const) {
         const runtime = probeRuntime([screen]);
-        await expect(driver[prepare]("claude-test", runtime)).rejects.toThrow("did not reach its input prompt");
+        await expect(driver[prepare]!("claude-test", runtime)).rejects.toThrow("did not reach its input prompt");
         expect(runtime.sent).toEqual([]);
         expect(runtime.keys).toEqual([]);
       }
@@ -276,7 +276,7 @@ describe("claude-code adversarial readiness and turn isolation", () => {
   ])("live trust fixture %s", (name) => {
     test.each(["prepareForTask", "prepareForResume"] as const)("%s rejects the consent dialog without sending input", async (prepare) => {
       const runtime = probeRuntime([claudeTrustFixtures[name]]);
-      await expect(getDriver("claude-code")[prepare]("claude-test", runtime)).rejects.toThrow("has not trusted");
+      await expect(getDriver("claude-code")[prepare]!("claude-test", runtime)).rejects.toThrow("has not trusted");
       expect(runtime.captures).toHaveLength(1);
       expect(runtime.sent).toEqual([]);
       expect(runtime.keys).toEqual([]);
@@ -286,7 +286,7 @@ describe("claude-code adversarial readiness and turn isolation", () => {
   test("indented post-option chevron does not establish a normal composer", async () => {
     const screen = "Accessing workspace:\n/tmp/project\n ❯ No, exit\n   Yes, I trust this folder\n Enter to confirm\n  ❯ example";
     const runtime = probeRuntime([screen]);
-    await expect(getDriver("claude-code").prepareForResume("claude-test", runtime)).rejects.toThrow("has not trusted");
+    await expect(getDriver("claude-code").prepareForResume!("claude-test", runtime)).rejects.toThrow("has not trusted");
     expect(runtime.sent).toEqual([]);
     expect(runtime.keys).toEqual([]);
   });
@@ -296,7 +296,7 @@ describe("claude-code adversarial readiness and turn isolation", () => {
     const screen = "Select a phrase\n  ❯ Yes, I trust this folder\n Enter to confirm";
     const runtime = probeRuntime([screen]);
     const driver = getDriver("claude-code");
-    await expect(driver.prepareForResume("claude-test", runtime)).rejects.toThrow("has not trusted");
+    await expect(driver.prepareForResume!("claude-test", runtime)).rejects.toThrow("has not trusted");
     expect(driver.detectActivity(screen)).toBe("booting");
     expect(runtime.sent).toEqual([]);
     expect(runtime.keys).toEqual([]);
@@ -313,11 +313,11 @@ describe("claude-code adversarial readiness and turn isolation", () => {
     const driver = getDriver("claude-code");
     for (const prepare of ["prepareForTask", "prepareForResume"] as const) {
       const blocked = probeRuntime([`${wrapped}\n  ❯ 1. Example choice`]);
-      await expect(driver[prepare]("claude-test", blocked)).rejects.toThrow("has not trusted");
+      await expect(driver[prepare]!("claude-test", blocked)).rejects.toThrow("has not trusted");
       expect(blocked.sent).toEqual([]);
       expect(blocked.keys).toEqual([]);
       const ready = probeRuntime([`${wrapped}\n❯\u00a0\n  bypass permissions on`]);
-      await driver[prepare]("claude-test", ready);
+      await driver[prepare]!("claude-test", ready);
       expect(ready.captures).toHaveLength(1);
       expect(ready.sent).toEqual([]);
       expect(ready.keys).toEqual([]);
@@ -334,7 +334,7 @@ describe("claude-code adversarial readiness and turn isolation", () => {
       "❯ Y\n  es, proceed",
     ]) {
       const runtime = probeRuntime([`Accessing workspace:\n  Yes, I trust this folder\n${choice}\nEnter to confirm`]);
-      await expect(driver.prepareForResume("claude-test", runtime)).rejects.toThrow("has not trusted");
+      await expect(driver.prepareForResume!("claude-test", runtime)).rejects.toThrow("has not trusted");
       expect(runtime.sent).toEqual([]);
       expect(runtime.keys).toEqual([]);
     }
@@ -342,7 +342,7 @@ describe("claude-code adversarial readiness and turn isolation", () => {
 
   test("a composer before the last dialog fragment does not clear the later consent prompt", async () => {
     const screen = "Accessing workspace:\n❯ Try asking about this codebase\nQuick safety check: Is this a project you created or one you trust?\n ❯ No, exit";
-    await expect(getDriver("claude-code").prepareForResume("claude-test", probeRuntime([screen])))
+    await expect(getDriver("claude-code").prepareForResume!("claude-test", probeRuntime([screen])))
       .rejects.toThrow("has not trusted");
   });
 
@@ -377,7 +377,7 @@ describe("claude-code adversarial readiness and turn isolation", () => {
       "  No, exit\n  Yes, I trust this folder\nEnter to confirm · Esc to cancel",
     ]) {
       const runtime = probeRuntime([screen]);
-      await expect(driver[prepare]("claude-test", runtime)).rejects.toThrow(
+      await expect(driver[prepare]!("claude-test", runtime)).rejects.toThrow(
         "Claude Code has not trusted the project directory; run `claude` there once and choose 'Yes, I trust this folder', then relaunch",
       );
       expect(runtime.captures).toHaveLength(1);
@@ -394,7 +394,7 @@ describe("claude-code adversarial readiness and turn isolation", () => {
       const screen = `Claude Code v2.1.291\nOpus | 0 tokens\n❯ Try "how does ${file} work?"\n  bypass permissions on (shift+tab to cycle)`;
       for (const prepare of ["prepareForTask", "prepareForResume"] as const) {
         const runtime = probeRuntime([screen]);
-        await driver[prepare]("claude-test", runtime);
+        await driver[prepare]!("claude-test", runtime);
         expect(runtime.sent).toEqual([]);
       }
     },
@@ -420,7 +420,7 @@ describe("claude-code adversarial readiness and turn isolation", () => {
     ]) {
       for (const prepare of ["prepareForTask", "prepareForResume"] as const) {
         const runtime = probeRuntime([screen]);
-        await driver[prepare]("claude-test", runtime);
+        await driver[prepare]!("claude-test", runtime);
         expect(runtime.captures).toHaveLength(1);
         expect(runtime.sent).toEqual([]);
         expect(runtime.keys).toEqual([]);
@@ -484,7 +484,7 @@ describe("driver launch protocol", () => {
       "› Implement {feature}",
     ]);
 
-    await driver[prepare]("codex-test", runtime);
+    await driver[prepare]!("codex-test", runtime);
 
     expect(runtime.sent).toEqual([]);
     expect(runtime.captures).toHaveLength(61);
@@ -632,7 +632,7 @@ describe("driver launch protocol", () => {
     const driver = getDriver("claude-code");
     const runtime = probeRuntime([dialog]);
 
-    await expect(driver[prepare]("claude-test", runtime)).rejects.toThrow(
+    await expect(driver[prepare]!("claude-test", runtime)).rejects.toThrow(
       "Claude Code has not trusted the project directory; run `claude` there once and choose 'Yes, I trust this folder', then relaunch",
     );
     expect(runtime.captures).toHaveLength(1);
@@ -1040,4 +1040,12 @@ describe("resumed turn status", () => {
       "› Task\n• [AHELPA:DONE]\n› Implement {feature}\n  gpt-5.5 high",
     )).toBe("idle");
   });
+});
+
+test("native resume is optional, but a driver has all four resume members or none", () => {
+  const members = ["resumeTokenAvailableAfterSubmit", "buildResumeCommand", "extractResumeToken", "prepareForResume"] as const;
+  for (const { driver } of HELPER_NAMES) {
+    const present = members.filter(member => driver[member] !== undefined);
+    expect([0, members.length]).toContain(present.length);
+  }
 });

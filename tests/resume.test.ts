@@ -25,7 +25,7 @@ describe("extractResumeToken", () => {
       "│   claude --resume dc8ca9c2-766b-4d52-9623-1ff9d44b2075 │",
       "╰─────────────────────────────────────╯",
     ].join("\n");
-    expect(driver.extractResumeToken(output)).toBe("dc8ca9c2-766b-4d52-9623-1ff9d44b2075");
+    expect(driver.extractResumeToken!(output)).toBe("dc8ca9c2-766b-4d52-9623-1ff9d44b2075");
   });
 
   test("codex extracts resume ID from exit output", () => {
@@ -34,26 +34,26 @@ describe("extractResumeToken", () => {
       "Token usage: total=23,324 input=23,209 (+ 2,432 cached) output=115",
       "To continue this session, run codex resume 019ed880-4604-7ad1-8ba7-dcbbba1f34f3",
     ].join("\n");
-    expect(driver.extractResumeToken(output)).toBe("019ed880-4604-7ad1-8ba7-dcbbba1f34f3");
+    expect(driver.extractResumeToken!(output)).toBe("019ed880-4604-7ad1-8ba7-dcbbba1f34f3");
   });
 
   test("kimi extracts resume ID after the first message", () => {
     const driver = getDriver("kimi");
-    expect(driver.extractResumeToken(
+    expect(driver.extractResumeToken!(
       "Welcome to Kimi Code!\n│  Session:   session_bce9aed7-8ee0-42ba-8ee8-5326e673db72  │",
     )).toBe("session_bce9aed7-8ee0-42ba-8ee8-5326e673db72");
   });
 
   test("returns null when no resume token present", () => {
     const driver = getDriver("claude-code");
-    expect(driver.extractResumeToken("some random output\nno resume here")).toBeNull();
+    expect(driver.extractResumeToken!("some random output\nno resume here")).toBeNull();
   });
 });
 
 describe("buildResumeCommand", () => {
   test("claude-code builds resume command with --resume flag", () => {
     const driver = getDriver("claude-code");
-    const cmd = driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: "abc-123" });
+    const cmd = driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: "abc-123" });
     expect(cmd).toContain("claude --resume");
     expect(cmd).toContain("abc-123");
     expect(cmd).toContain("--dangerously-skip-permissions");
@@ -61,21 +61,21 @@ describe("buildResumeCommand", () => {
 
   test("claude-code safe resume omits danger flag", () => {
     const driver = getDriver("claude-code");
-    const cmd = driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: "abc-123", safe: true });
+    const cmd = driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: "abc-123", safe: true });
     expect(cmd).toContain("claude --resume");
     expect(cmd).not.toContain("--dangerously-skip-permissions");
   });
 
   test("codex builds resume command", () => {
     const driver = getDriver("codex");
-    const cmd = driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: "abc-123" });
+    const cmd = driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: "abc-123" });
     expect(cmd).toContain(" resume 'abc-123' ");
     expect(cmd).toContain("--dangerously-bypass");
   });
 
   test("kimi builds resume command with its native --session flag", () => {
     const driver = getDriver("kimi");
-    const cmd = driver.buildResumeCommand({
+    const cmd = driver.buildResumeCommand!({
       cwd: "/tmp/project",
       resumeId: "session_bce9aed7-8ee0-42ba-8ee8-5326e673db72",
       model: "review-model",
@@ -87,13 +87,13 @@ describe("buildResumeCommand", () => {
   });
 
   test("resume commands carry model and effort", () => {
-    const claude = getDriver("claude-code").buildResumeCommand({
+    const claude = getDriver("claude-code").buildResumeCommand!({
       cwd: "/tmp/project", resumeId: "abc-123", model: "opus", effort: "max",
     });
     expect(claude).toContain("--model 'opus'");
     expect(claude).toContain("--effort 'max'");
 
-    const codex = getDriver("codex").buildResumeCommand({
+    const codex = getDriver("codex").buildResumeCommand!({
       cwd: "/tmp/project", resumeId: "abc-123", model: "gpt-5.5", effort: "high",
     });
     expect(codex).toContain("--model 'gpt-5.5'");
@@ -279,6 +279,25 @@ describe("resume command", () => {
     const command = tmuxSpy.mock.calls[0]?.[1];
     expect(command).toContain(`AHELPA_HOME=${shellEscape(defaultRuntimeLayout.ahelpaHomeDir())}`);
     expect(command).toContain(`AHELPA_TMP_DIR=${shellEscape(defaultRuntimeLayout.tmpDir)}`);
+  });
+
+  test("refuses, before creating anything, a helper whose CLI has no native resume", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({ id: "plain-old", parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: TEST_PROJECT });
+    db.updateStatus("plain-old", "dead");
+    db.updateResumeId("plain-old", "resume-id");
+    // Native resume is optional: a driver may leave all four resume members out.
+    const driver = getDriver("codex");
+    const saved = driver.buildResumeCommand;
+    driver.buildResumeCommand = undefined;
+    const create = spyOn(Tmux, "create").mockResolvedValue();
+    try {
+      await expect(resume({ db, sessionId: "plain-old", ownerToken: "tok" })).rejects.toThrow("has no native resume");
+    } finally {
+      driver.buildResumeCommand = saved;
+    }
+    expect(create).not.toHaveBeenCalled();
+    expect(db.listSessions()).toHaveLength(1);
   });
 
   test("rejects a legacy relative project path instead of guessing its original working directory", async () => {

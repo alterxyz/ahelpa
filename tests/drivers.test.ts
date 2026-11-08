@@ -77,7 +77,7 @@ describe("Drivers", () => {
       model: "gpt-5.6",
       effort: "xhigh",
     });
-    const resume = driver.buildResumeCommand({
+    const resume = driver.buildResumeCommand!({
       cwd: "/tmp/project",
       resumeId: "resume-token",
       model: "gpt-5.6",
@@ -137,7 +137,7 @@ describe("safe mode and a result directory outside the project", () => {
     const driver = getDriver("claude-code");
     const base = { cwd: project(), sessionId: "helper-1", deliveryDir: outside, safe: true };
     const settings = `--settings ${shellEscape(join(outside, "claude-settings.json"))}`;
-    for (const command of [driver.buildLaunchCommand(base), driver.buildResumeCommand({ ...base, resumeId: "native" })]) {
+    for (const command of [driver.buildLaunchCommand(base), driver.buildResumeCommand!({ ...base, resumeId: "native" })]) {
       expect(command).toEndWith(` --add-dir ${shellEscape(outside)}`);
       expect(command.indexOf(settings)).toBeGreaterThan(-1);
       expect(command.indexOf(settings)).toBeLessThan(command.indexOf("--add-dir"));
@@ -147,7 +147,7 @@ describe("safe mode and a result directory outside the project", () => {
   test("codex adds the directory for launch and resume, quoted for the shell", async () => {
     const driver = getDriver("codex");
     const base = { cwd: project(), sessionId: "helper-1", deliveryDir: outside, safe: true };
-    for (const command of [driver.buildLaunchCommand(base), driver.buildResumeCommand({ ...base, resumeId: "native" })]) {
+    for (const command of [driver.buildLaunchCommand(base), driver.buildResumeCommand!({ ...base, resumeId: "native" })]) {
       expect(command).toContain(` -s workspace-write -a never --add-dir ${shellEscape(outside)} `);
       // The shell must see the path as one argument, whatever characters it holds.
       const child = Bun.spawn(["bash", "-c", command], { stdout: "pipe", stderr: "pipe" });
@@ -169,7 +169,7 @@ describe("safe mode and a result directory outside the project", () => {
       { cwd: dir, safe: true },
     ]) {
       expect(driver.buildLaunchCommand(opts)).not.toContain("--add-dir");
-      expect(driver.buildResumeCommand({ ...opts, ...resume })).not.toContain("--add-dir");
+      expect(driver.buildResumeCommand!({ ...opts, ...resume })).not.toContain("--add-dir");
     }
   });
 });

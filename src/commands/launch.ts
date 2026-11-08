@@ -559,7 +559,7 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
     }
 
     let initialResumeId: string | null = null;
-    if (plan.driver.resumeTokenAvailableAfterSubmit) {
+    if (plan.driver.resumeTokenAvailableAfterSubmit && plan.driver.extractResumeToken) {
       try {
         const startupOutput = await driverRuntime.capture(plan.sessionId, 80);
         initialResumeId = plan.driver.extractResumeToken(startupOutput);
@@ -660,6 +660,9 @@ export async function resume(input: ResumeInput): Promise<ResumeResult> {
     throw new Error(
       `Cannot resume: session ${input.sessionId} must be idle or dead (current status: ${oldSession.status})`,
     );
+  }
+  if (!driver.buildResumeCommand || !driver.prepareForResume) {
+    throw new Error(`Cannot resume: ${oldSession.agentType} has no native resume; launch a new helper`);
   }
   if (!oldSession.agentResumeId) {
     throw new Error(`Session ${input.sessionId} has no resume token`);

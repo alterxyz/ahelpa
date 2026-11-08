@@ -153,7 +153,7 @@ describe("driver hook launch and resume", () => {
     expect(hook.command).toContain(sessionDir);
     expect(settings.hooks.StopFailure).toEqual(settings.hooks.Stop);
     const command = kind === "launch" ? claudeCodeDriver.buildLaunchCommand({ cwd: root, sessionId })
-      : claudeCodeDriver.buildResumeCommand({ cwd: root, sessionId, resumeId: "native" });
+      : claudeCodeDriver.buildResumeCommand!({ cwd: root, sessionId, resumeId: "native" });
     expect(command).toContain(`--settings '${defaultRuntimeLayout.claudeSettingsPath(root, sessionId)}'`);
     expect(command).toContain("--dangerously-skip-permissions");
     if (kind === "resume") expect(command).toContain("--resume 'native'");
@@ -164,7 +164,7 @@ describe("driver hook launch and resume", () => {
     const project = join(root, `spaces 'quote' \\backslash`);
     mkdirSync(project);
     const opts = { cwd: project, sessionId: "codex-test", resumeId: "native", model: "m", effort: "high" };
-    const command = kind === "launch" ? codexDriver.buildLaunchCommand({ cwd: project, sessionId: opts.sessionId, model: opts.model, effort: opts.effort }) : codexDriver.buildResumeCommand(opts);
+    const command = kind === "launch" ? codexDriver.buildLaunchCommand({ cwd: project, sessionId: opts.sessionId, model: opts.model, effort: opts.effort }) : codexDriver.buildResumeCommand!(opts);
     const child = Bun.spawn(["bash", "-c", command], { stdout: "pipe", stderr: "pipe" });
     const out = await new Response(child.stdout).text();
     expect(await child.exited).toBe(0);

@@ -1,7 +1,6 @@
-// A host intervention (interrupt, or a kill that keeps the native ID) presses
-// keys and waits for the TUI to show that its turn stopped. While the lease
-// holds, the daemon leaves the session alone: no nudge, no settlement from a
-// turn hook, no idle fallback. The session status is not touched, so `wait`
+// A host interrupt presses the interrupt key and waits for the TUI to show
+// that its turn stopped. While the lease holds, the daemon leaves the session
+// alone: no nudge, no settlement from a turn hook, no idle fallback. The session status is not touched, so `wait`
 // never sees a provisional result and a failed intervention has nothing to undo.
 // One holder at a time; only the holder releases it. The lease lives as long as
 // its holder process, however slow one tmux call is, and ends when that process

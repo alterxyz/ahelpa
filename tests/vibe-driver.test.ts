@@ -72,7 +72,7 @@ test("vibe launch writes a private agent file in the pane and starts the TUI wit
   expect(readFileSync(agent, "utf8")).toBe(vibeAgentToml({ model: "mistral-large-4-0-3", effort: "high" }));
   rmSync(agent);
   const id = "d68ff081-471f-e406-e656-19de4c5781d5";
-  const resume = await run(driver.buildResumeCommand({ cwd: project, deliveryDir, resumeId: id, model: "deepseek-v4-1-flash-1017" }));
+  const resume = await run(driver.buildResumeCommand!({ cwd: project, deliveryDir, resumeId: id, model: "deepseek-v4-1-flash-1017" }));
   expect(resume.slice(0, 5)).toEqual(["--trust", "--agent", "ahelpa-helper", "--resume", id]);
   expect(readFileSync(agent, "utf8")).toContain('name = "deepseek-v4-1-flash-1017"');
   expect(driver.buildLaunchCommand({ cwd: "/tmp/project", sessionId: "mistral-0123456789ab" }))
@@ -99,7 +99,7 @@ test("vibe agent files select the model and thinking, with full definitions for 
 test("vibe validates model and effort before launch", () => {
   const launch = (opts: object) => driver.buildLaunchCommand({ cwd: "/tmp/project", ...opts });
   expect(() => launch({ safe: true })).toThrow("--safe is not supported");
-  expect(() => driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: "d68ff081", safe: true })).toThrow("--safe");
+  expect(() => driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: "d68ff081", safe: true })).toThrow("--safe");
   expect(() => launch({ model: "gemini 4" })).toThrow("model alias");
   expect(() => launch({ effort: "minimal" })).toThrow("off, low, medium, high, max");
   expect(() => launch({ model: 'alias"\nmalicious' })).toThrow("model alias");
@@ -143,7 +143,7 @@ test("vibe waits for its session agent and reports a model the subscription lack
     ["───────────────────────────────────────── Mistral Large 4[high] · accept edits ─", ">", "", "─".repeat(80), "…/project ⧉   ctx   0%"]);
   expect(driver.acceptsInput!(booting)).toBe(false);
   const io = runtime([booting, readyScreen]);
-  await driver.prepareForResume("test", io);
+  await driver.prepareForResume!("test", io);
   expect(io.captures).toBe(2);
   const failed = screen(banner, task(), ["✕ Error: API error occurred: Status 400. Body:", '  {"object":"error","message":"Invalid model:',
     '  deepseek-v4-1-flash-1017","type":"invalid_mo', '  del","param":null,"code":"1500","raw_status_code":400}', "  Run /retry [additional instructions] to try again.", ""],
@@ -174,11 +174,11 @@ test("vibe treats the question dialog and screens without a composer as needing 
 
 test("vibe takes its resume ID from the exit message only", async () => {
   const exit = "Total tokens used this session: input=181,868 output=714 (total=182,582)\nTo continue this session, run: vibe --continue\nOr: vibe --resume d68ff081\n";
-  expect(driver.extractResumeToken(exit)).toBe("d68ff081");
-  expect(driver.extractResumeToken("Or: vibe --resume d68ff081-471f-e406-e656-19de4c5781d5")).toBe("d68ff081-471f-e406-e656-19de4c5781d5");
-  expect(driver.extractResumeToken(doneScreen)).toBeNull();
-  expect(driver.extractResumeToken("  • /branch, /fork: Resume the copy with vibe --resume <id>.")).toBeNull();
-  expect(driver.extractResumeToken("  Or: vibe --resume deadbeef")).toBeNull();
+  expect(driver.extractResumeToken!(exit)).toBe("d68ff081");
+  expect(driver.extractResumeToken!("Or: vibe --resume d68ff081-471f-e406-e656-19de4c5781d5")).toBe("d68ff081-471f-e406-e656-19de4c5781d5");
+  expect(driver.extractResumeToken!(doneScreen)).toBeNull();
+  expect(driver.extractResumeToken!("  • /branch, /fork: Resume the copy with vibe --resume <id>.")).toBeNull();
+  expect(driver.extractResumeToken!("  Or: vibe --resume deadbeef")).toBeNull();
   await expect(driver.switchModel("test", runtime([]), { model: "mistral-large-4-0-3" })).rejects.toThrow("not supported");
   const io = runtime([]); await driver.gracefulExit("test", io); expect(io.sent).toEqual(["/exit"]);
 });
@@ -195,7 +195,7 @@ test("vibe submission requires a new turn and startup is bounded", async () => {
   expect(await driver.afterTaskSubmitted("test", runtime([workingScreen]))).toBe(true);
   expect(await driver.afterTaskSubmitted("test", runtime([submitted]))).toBe(false);
   await driver.prepareForTask("test", runtime(["", screen(banner), readyScreen]));
-  await driver.prepareForResume("test", runtime([screen(task(), answer("[AHELPA:DONE]"), ["✓ Resumed session d68ff081.", ""], composer())]));
+  await driver.prepareForResume!("test", runtime([screen(task(), answer("[AHELPA:DONE]"), ["✓ Resumed session d68ff081.", ""], composer())]));
   const fallback = screen(banner, ["┌─ Warnings ───────────────────────────────────────────────────────────────────┐",
     "│ • Model 'no-such-alias' is not available — running 'Mistral Large 4'. Pick   │", "└──────────────────────────────────────────────────────────────────────────────┘"], composer());
   await expect(driver.prepareForTask("test", runtime([fallback]))).rejects.toThrow("vibe model no-such-alias is not available");

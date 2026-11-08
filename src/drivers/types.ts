@@ -82,13 +82,19 @@ export interface AgentDriver {
     profiles: Partial<Record<HelperRole, { model?: string; effort?: string }>>;
   };
   modelCatalog: AgentModelCatalog;
-  resumeTokenAvailableAfterSubmit: boolean;
   checkReadiness?(cwd: string, runtime?: ReadinessRuntime): DriverReadiness;
   buildLaunchCommand(opts: LaunchOptions): string;
-  buildResumeCommand(opts: ResumeOptions): string;
-  extractResumeToken(captureOutput: string): string | null;
   prepareForTask(sessionId: string, runtime: DriverRuntime): Promise<void | StartupNotes>;
-  prepareForResume(sessionId: string, runtime: DriverRuntime): Promise<void | StartupNotes>;
+  // Native resume is optional. A helper is its ahelpa ID, the tmux session
+  // name ahelpa gives it at launch; the CLI's own conversation ID only lets
+  // `resume` reopen a finished or killed helper, which is rare. Record it where
+  // the CLI shows it anyway (after the first submit, or as it exits on DONE),
+  // and never press keys or delay a kill to get it. Without all four members,
+  // `resume` refuses.
+  resumeTokenAvailableAfterSubmit?: boolean;
+  buildResumeCommand?(opts: ResumeOptions): string;
+  extractResumeToken?(captureOutput: string): string | null;
+  prepareForResume?(sessionId: string, runtime: DriverRuntime): Promise<void | StartupNotes>;
   afterTaskSubmitted(
     sessionId: string,
     runtime: DriverRuntime,
@@ -110,6 +116,6 @@ export interface AgentDriver {
   // How a person stops one turn and keeps the session: the tmux key, and the
   // line the TUI prints once the turn really stopped (a key press alone proves
   // nothing). Omitted where neither was verified on the real TUI; `interrupt`
-  // then refuses, and `kill` cannot stop a running turn to keep its native ID.
+  // then refuses.
   interrupt?: { key: string; stopped: RegExp };
 }

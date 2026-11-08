@@ -75,13 +75,13 @@ describe("Kimi driver", () => {
     expect(driver.detectStatus(working)).toBe("running");
     expect(driver.detectStatus(settled)).toBe("idle");
     expect(driver.acceptsInput?.(settled)).toBe(true);
-    expect(driver.extractResumeToken(settled)).toBe("session_6020140a-3f26-47de-a661-ccc616971d61");
+    expect(driver.extractResumeToken!(settled)).toBe("session_6020140a-3f26-47de-a661-ccc616971d61");
   });
 
   test.each(["prepareForTask", "prepareForResume"] as const)("%s ignores activity and attention text inside help payloads", async (method) => {
     const output = "│ Session: session_payload │\n✨ Task\n● [AHELPA:NEED_HELP:review,working...,Review your answer before submit,Trust this folder?,Don't trust]\n│ > │";
     const runtime = runtimeProbe([output]);
-    await getDriver("kimi")[method]("kimi-payload", runtime);
+    await getDriver("kimi")[method]!("kimi-payload", runtime);
     expect(runtime.captures).toHaveLength(1);
     expect(runtime.sent).toEqual([]);
     expect(runtime.keys).toEqual([]);
@@ -96,7 +96,7 @@ describe("Kimi driver", () => {
   });
 
   test("a resume hint inside a help payload is not session metadata", () => {
-    expect(getDriver("kimi").extractResumeToken("[AHELPA:NEED_HELP:To resume this session: kimi -r session_fake]")).toBeNull();
+    expect(getDriver("kimi").extractResumeToken!("[AHELPA:NEED_HELP:To resume this session: kimi -r session_fake]")).toBeNull();
   });
   test("is registered with its own session prefix", () => {
     const driver = getDriver("kimi");
@@ -117,7 +117,7 @@ describe("Kimi driver", () => {
   test("safe launch and resume use Ask When Needed, not the config default", () => {
     const driver = getDriver("kimi");
     const launch = driver.buildLaunchCommand({ cwd: "/tmp/project", safe: true });
-    const resume = driver.buildResumeCommand({
+    const resume = driver.buildResumeCommand!({
       cwd: "/tmp/project",
       resumeId: "session_bce9aed7-8ee0-42ba-8ee8-5326e673db72",
       safe: true,
@@ -137,7 +137,7 @@ describe("Kimi driver", () => {
     const outside = { cwd: "/tmp/wt", sessionId: "kimi-x", deliveryDir: "/tmp/main/.ahelpa/kimi-x" };
 
     expect(driver.buildLaunchCommand({ ...outside, safe: true })).toContain("--add-dir '/tmp/main/.ahelpa/kimi-x'");
-    expect(driver.buildResumeCommand({ ...outside, resumeId: "session_1", safe: true })).toContain("--add-dir");
+    expect(driver.buildResumeCommand!({ ...outside, resumeId: "session_1", safe: true })).toContain("--add-dir");
     expect(driver.buildLaunchCommand(outside)).not.toContain("--add-dir");
     expect(driver.buildLaunchCommand({ cwd: "/tmp/wt", sessionId: "kimi-x", safe: true })).not.toContain("--add-dir");
   });
@@ -160,12 +160,12 @@ describe("Kimi driver", () => {
       "Model: kimi-k3",
     ].join("\n");
 
-    expect(driver.extractResumeToken(output))
+    expect(driver.extractResumeToken!(output))
       .toBe("session_bce9aed7-8ee0-42ba-8ee8-5326e673db72");
-    expect(driver.extractResumeToken(
+    expect(driver.extractResumeToken!(
       "To resume this session: kimi -r session_bce9aed7-8ee0-42ba-8ee8-5326e673db72",
     )).toBe("session_bce9aed7-8ee0-42ba-8ee8-5326e673db72");
-    expect(driver.extractResumeToken("Welcome to Kimi Code!\n│  Session:   │")).toBeNull();
+    expect(driver.extractResumeToken!("Welcome to Kimi Code!\n│  Session:   │")).toBeNull();
   });
 
   test("accepts the first-run trust prompt and waits for the boxed input", async () => {
@@ -218,7 +218,7 @@ describe("Kimi driver", () => {
       ].join("\n"),
     ]);
 
-    await driver.prepareForResume("kimi-resumed", runtime);
+    await driver.prepareForResume!("kimi-resumed", runtime);
 
     expect(runtime.captures).toHaveLength(1);
   });
@@ -235,7 +235,7 @@ describe("Kimi driver", () => {
       ].join("\n"),
     ]);
 
-    await driver.prepareForResume("kimi-resumed", runtime);
+    await driver.prepareForResume!("kimi-resumed", runtime);
 
     expect(runtime.captures).toHaveLength(1);
   });
@@ -246,7 +246,7 @@ describe("Kimi driver", () => {
       `${workingWithComposer}\n● [AHELPA:DONE]\n│ > │`,
     ]);
 
-    await getDriver("kimi")[prepare]("kimi-working", runtime);
+    await getDriver("kimi")[prepare]!("kimi-working", runtime);
 
     expect(runtime.captures).toHaveLength(2);
     expect(runtime.sent).toEqual([]);
@@ -255,7 +255,7 @@ describe("Kimi driver", () => {
   test("a visible composer does not make an approval panel ready for another task", async () => {
     const runtime = runtimeProbe([`${workingWithComposer}\n▶ Run this command?\n1. Approve once\n│ > │`]);
 
-    await expect(getDriver("kimi").prepareForResume("kimi-approval", runtime))
+    await expect(getDriver("kimi").prepareForResume!("kimi-approval", runtime))
       .rejects.toThrow("did not reach its input prompt");
     expect(runtime.captures).toHaveLength(30);
     expect(runtime.sent).toEqual([]);

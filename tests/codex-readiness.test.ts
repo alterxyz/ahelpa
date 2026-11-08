@@ -58,7 +58,7 @@ describe("codex readiness against live menus and history", () => {
       "  3. Skip until next version",
       prompt,
     ].join("\n")]);
-    await driver.prepareForResume("replay", runtime);
+    await driver.prepareForResume!("replay", runtime);
     expect(runtime.sent).toEqual([]);
     expect(runtime.captures).toBe(1);
   });
@@ -91,13 +91,13 @@ describe("codex readiness against live menus and history", () => {
     "› 1. fix the bug\n  2. add a regression test\n  gpt-6.1-sol high",
   ])("a numbered draft is treated as a menu and fails safe", async (screen) => {
     const runtime = replay([screen]);
-    await expect(driver.prepareForResume("replay", runtime)).rejects.toThrow("did not reach its input prompt");
+    await expect(driver.prepareForResume!("replay", runtime)).rejects.toThrow("did not reach its input prompt");
     expect(runtime.sent).toEqual([]);
   });
 
   test.each(["prepareForTask", "prepareForResume"] as const)("%s rejects a picker with its last item selected", async (prepare) => {
     const runtime = replay(["Select Model and Effort\n  1. gpt-6.1-sol\n› 2. gpt-6-astra\nenter to select · esc to close"]);
-    await expect(driver[prepare]("replay", runtime)).rejects.toThrow("did not reach its input prompt");
+    await expect(driver[prepare]!("replay", runtime)).rejects.toThrow("did not reach its input prompt");
     expect(runtime.sent).toEqual([]);
   });
 
@@ -126,7 +126,7 @@ describe("codex readiness against live menus and history", () => {
 
   test("historical update rows never trigger Skip", async () => {
     const runtime = replay(["› Explain the update menu\n• Update available · 0.160.0 → 0.160.1\n  1. Update now\n  2. Skip\n› 1. fix the bug"]);
-    await expect(driver.prepareForResume("replay", runtime)).rejects.toThrow("did not reach its input prompt");
+    await expect(driver.prepareForResume!("replay", runtime)).rejects.toThrow("did not reach its input prompt");
     expect(runtime.sent).toEqual([]);
   });
 
@@ -151,13 +151,13 @@ describe("codex readiness against live menus and history", () => {
       "enter continue · esc skip",
     ].join("\n");
     const runtime = replay([menu]);
-    await expect(driver.prepareForResume("replay", runtime)).rejects.toThrow("did not reach its input prompt");
+    await expect(driver.prepareForResume!("replay", runtime)).rejects.toThrow("did not reach its input prompt");
     expect(runtime.sent).toEqual(["2"]);
   });
 
   test("a historical numbered user turn does not hide a later empty composer", async () => {
     const runtime = replay(["› 1. fix the bug\n• Ran tests\n• Completed it\n›"]);
-    await driver.prepareForResume("replay", runtime);
+    await driver.prepareForResume!("replay", runtime);
     expect(runtime.sent).toEqual([]);
   });
 
@@ -245,7 +245,7 @@ function sequence(screens: string[]) {
 describe("codex Folder access screen", () => {
   test.each(PREPARE.flatMap((prepare) => FOLDER_SCREENS.map(([name, screen]) => [prepare, name, screen])))("%s presses Enter once on Trust and continue and reports the root: %s", async (prepare, _name, screen) => {
     const runtime = replay([screen, prompt]);
-    expect(await driver[prepare]("replay", runtime)).toEqual({ codexTrust: "<repo root>" });
+    expect(await driver[prepare]!("replay", runtime)).toEqual({ codexTrust: "<repo root>" });
     expect(runtime.keys).toEqual(["Enter"]);
     expect(runtime.sent).toEqual([]);
     expect(runtime.captures).toBe(2);
@@ -278,7 +278,7 @@ describe("codex Folder access screen", () => {
   });
 
   test.each(PREPARE.map((prepare) => [prepare] as const))("%s that fails on a later screen after the Enter still names the trust", async (prepare) => {
-    const message = await failure(driver[prepare]("replay", sequence([folder120, "Some new screen\n› 1. Continue\n  2. Quit"])));
+    const message = await failure(driver[prepare]!("replay", sequence([folder120, "Some new screen\n› 1. Continue\n  2. Quit"])));
     expect(message).toContain("did not reach its input prompt");
     expect(message).toContain("Folder access was accepted for <repo root>");
   });
@@ -294,7 +294,7 @@ describe("codex Folder access screen", () => {
   test.each(FOLDER_SCREENS)("Enter is never sent while row 2 is highlighted: %s", async (_name, folder) => {
     const screen = folder;
     const runtime = replay([rowTwo(screen)]);
-    await expect(driver.prepareForResume("replay", runtime)).rejects.toThrow("did not reach its input prompt");
+    await expect(driver.prepareForResume!("replay", runtime)).rejects.toThrow("did not reach its input prompt");
     expect(runtime.keys).toEqual([]);
     expect(runtime.sent).toEqual([]);
     expect(runtime.captures).toBe(20);
@@ -337,7 +337,7 @@ describe("codex Folder access screen", () => {
     ["quoted in a reply", `› Show me the screen\n• It reads:\n  Folder access\n  <dir>\n› 1. Trust and continue\n  2. Quit\n${prompt}`],
   ])("scrollback is never answered: %s", async (_name, screen) => {
     const runtime = replay([screen]);
-    expect(await driver.prepareForResume("replay", runtime)).toBeUndefined();
+    expect(await driver.prepareForResume!("replay", runtime)).toBeUndefined();
     expect(runtime.keys).toEqual([]);
     expect(runtime.sent).toEqual([]);
   });

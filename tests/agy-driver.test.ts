@@ -47,7 +47,7 @@ test("agy is registered with the Gemini 4 Argon medium default", () => {
 test("agy runs its own TUI with updates off, permissions skipped and session-only trust", () => {
   const command = driver.buildLaunchCommand({ cwd: "/tmp/project's files", deliveryDir: "/tmp/results", model: "gemini-4-argon", effort: "high" });
   expect(command).toBe(`cd '/tmp/project'\\''s files' && AGY_CLI_DISABLE_AUTO_UPDATE=true agy --dangerously-skip-permissions --settings '{"trustedWorkspaces":["/tmp/project'\\''s files"]}' --model 'gemini-4-argon' --effort 'high'`);
-  const resume = driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: id });
+  const resume = driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: id });
   expect(resume).toEndWith(`--conversation '${id}'`);
   // agy compares the literal working directory, so a linked path also trusts its real path.
   const real = root(); const link = join(root(), "link"); symlinkSync(real, link);
@@ -58,7 +58,7 @@ test("agy runs its own TUI with updates off, permissions skipped and session-onl
 test("agy validates model and effort before launch", () => {
   const launch = (opts: object) => driver.buildLaunchCommand({ cwd: "/tmp/project", ...opts });
   expect(() => launch({ safe: true })).toThrow("--safe is not supported");
-  expect(() => driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: id, safe: true })).toThrow("--safe");
+  expect(() => driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: id, safe: true })).toThrow("--safe");
   expect(() => launch({ model: "gemini 4" })).toThrow("agy models");
   expect(() => launch({ effort: "minimal" })).toThrow("low, medium, high, xhigh, max");
   // A suffixed ID carries its effort; agy itself refuses a contradiction.
@@ -110,8 +110,8 @@ test("agy reads working, dialogs and the ready composer from the screen", () => 
 
 test("agy finds the conversation ID it prints on exit", async () => {
   expect(driver.resumeTokenAvailableAfterSubmit).toBe(false);
-  expect(driver.extractResumeToken(done())).toBeNull();
-  expect(driver.extractResumeToken(exitScreen)).toBe(id);
+  expect(driver.extractResumeToken!(done())).toBeNull();
+  expect(driver.extractResumeToken!(exitScreen)).toBe(id);
   await expect(driver.switchModel("test", runtime([]), { model: "gemini-4-argon-high" })).rejects.toThrow("not supported");
   const io = runtime([]); await driver.gracefulExit("test", io); expect(io.sent).toEqual(["/exit"]);
 });
@@ -139,7 +139,7 @@ test("agy startup is bounded and refuses a lost conversation or a trust dialog",
   await expect(driver.prepareForTask("test", io)).rejects.toThrow("input prompt");
   expect(io.captures).toBe(120);
   // agy starts a new conversation, with only this warning, when the ID is unknown.
-  await expect(driver.prepareForResume("test", runtime([`warning: conversation "${id}" not found\n\n${ready}`])))
+  await expect(driver.prepareForResume!("test", runtime([`warning: conversation "${id}" not found\n\n${ready}`])))
     .rejects.toThrow("did not find the conversation");
   await expect(driver.prepareForTask("test", runtime(["Do you trust the contents of this project?\n\n> Yes, I trust this folder"])))
     .rejects.toThrow("session-only trust did not apply");

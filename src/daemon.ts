@@ -244,7 +244,7 @@ export async function refreshSessionStatuses(
           try {
             const output = await Tmux.capture(session.id, 50);
             const driver = getHarnessDriver(session.agentType);
-            const resumeId = driver.extractResumeToken(output);
+            const resumeId = driver.extractResumeToken?.(output);
             if (resumeId) {
               db.updateResumeId(session.id, resumeId);
               log(`${session.id}: captured resume token`);
@@ -290,7 +290,7 @@ export async function refreshSessionStatuses(
         continue;
       }
 
-      // A host interrupt or kill is pressing keys; leave the turn to it.
+      // A host interrupt is pressing keys; leave the turn to it.
       if (interventionLeaseActive(session.id)) continue;
 
       // A flag raised after the current turn was delivered can be a misread

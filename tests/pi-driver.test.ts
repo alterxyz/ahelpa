@@ -28,19 +28,19 @@ test("Pi is registered", () => { expect(getDriver("pi")).toBe(getDriver("deepsee
 test("Pi launches its fullscreen TUI with quoted arguments and resumes by exact native UUID", () => {
   const command = driver.buildLaunchCommand({ cwd: "/tmp/project's files", model: "provider/model's id", effort: "high" });
   expect(command).toBe("cd '/tmp/project'\\''s files' && pi --tui-mode fullscreen --offline --approve --no-extensions --no-mcp --model 'provider/model'\\''s id' --thinking 'high'");
-  const resume = driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: id });
+  const resume = driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: id });
   expect(resume).toBe(`cd '/tmp/project' && pi --tui-mode fullscreen --offline --approve --no-extensions --no-mcp --session '${id}'`);
   for (const resumeId of ["01a1b8e2", "/tmp/session.jsonl", `${id} --model x`]) {
-    expect(() => driver.buildResumeCommand({ cwd: "/tmp/project", resumeId })).toThrow("native session UUID");
+    expect(() => driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId })).toThrow("native session UUID");
   }
 });
 test.each(["", "model", "/model", "provider/", " /model", "provider/ \t"])("Pi rejects ambiguous model %s", model => {
   expect(() => driver.buildLaunchCommand({ cwd: "/tmp/project", model })).toThrow("<provider>/<model>");
-  expect(() => driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: id, model })).toThrow("<provider>/<model>");
+  expect(() => driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: id, model })).toThrow("<provider>/<model>");
 });
 test("Pi rejects safe launch/resume and unsupported model switching, and exits with /quit", async () => {
   expect(() => driver.buildLaunchCommand({ cwd: "/tmp/project", safe: true })).toThrow("--safe");
-  expect(() => driver.buildResumeCommand({ cwd: "/tmp/project", resumeId: id, safe: true })).toThrow("--safe");
+  expect(() => driver.buildResumeCommand!({ cwd: "/tmp/project", resumeId: id, safe: true })).toThrow("--safe");
   expect(() => driver.buildLaunchCommand({ cwd: "/tmp/project", effort: "wrong" })).toThrow("--effort");
   for (const effort of ["off", "minimal", "low", "medium", "high", "xhigh", "max"]) expect(driver.buildLaunchCommand({ cwd: "/tmp/project", effort })).toContain(`--thinking '${effort}'`);
   const io = runtime([]);
@@ -95,9 +95,9 @@ test("Pi accepts input only into the empty idle composer", () => {
 });
 test("Pi reads the native session UUID from the exit hint", () => {
   expect(driver.resumeTokenAvailableAfterSubmit).toBe(false);
-  expect(driver.extractResumeToken(`${done}\nTo resume this session: pi --session ${id}\n`)).toBe(id);
-  expect(driver.extractResumeToken(`To resume this session: pi --session-dir /tmp/s --session ${id}`)).toBe(id);
-  expect(driver.extractResumeToken(screen(done))).toBeNull();
+  expect(driver.extractResumeToken!(`${done}\nTo resume this session: pi --session ${id}\n`)).toBe(id);
+  expect(driver.extractResumeToken!(`To resume this session: pi --session-dir /tmp/s --session ${id}`)).toBe(id);
+  expect(driver.extractResumeToken!(screen(done))).toBeNull();
 });
 test("Pi submission requires a running turn or a signal that was not there before", async () => {
   const ready = screen(task);
@@ -109,17 +109,17 @@ test("Pi submission requires a running turn or a signal that was not there befor
   expect(await driver.afterTaskSubmitted("test", runtime([screen(done)]))).toBe(false);
 });
 test.each(["prepareForTask", "prepareForResume"] as const)("Pi %s has bounded startup and fails fast on startup errors", async method => {
-  await driver[method]("test", runtime(["loading", screen("")]));
+  await driver[method]!("test", runtime(["loading", screen("")]));
   for (const [output, message] of [
     ['Error: Model "nosuchprov/x" not found. Use --list-models to see available models.\nbash-3.2$', "nosuchprov"],
     ["No session found matching 'abc'\nbash-3.2$", "No session found"],
     ["Session found in different project: /other\nFork this session into current directory? [y/N] ", "Fork this session"],
     [screen(' Warning: Model "zz" not found for provider "p". Using custom model id.', { right: "zz • high" }), "custom model id"],
-  ]) await expect(driver[method]("test", runtime([output]))).rejects.toThrow(message);
+  ]) await expect(driver[method]!("test", runtime([output]))).rejects.toThrow(message);
   // A resumed transcript's own errors are padded and do not stop startup.
-  await driver[method]("test", runtime([screen(" Error: This operation was aborted")]));
+  await driver[method]!("test", runtime([screen(" Error: This operation was aborted")]));
   const io = runtime(["loading"]);
-  await expect(driver[method]("test", io)).rejects.toThrow("input prompt");
+  await expect(driver[method]!("test", io)).rejects.toThrow("input prompt");
   expect(io.captures).toBe(30);
 });
 test("Pi startup rejects a model or thinking level the footer shows Pi did not apply", async () => {

@@ -151,8 +151,8 @@ describe("Codex bounded help probe and command integration", () => {
       console.log(JSON.stringify({
         launch: codexDriver.buildLaunchCommand({ cwd: ${JSON.stringify(cwd)}, model: "gpt-6.1-sol", effort: "high" }),
         safe: codexDriver.buildLaunchCommand({ cwd: ${JSON.stringify(cwd)}, safe: true }),
-        resume: codexDriver.buildResumeCommand({ cwd: ${JSON.stringify(cwd)}, resumeId: "recorded", model: "gpt-6.1-sol", effort: "high" }),
-        legacyResume: codexDriver.buildResumeCommand({ cwd: ${JSON.stringify(cwd)}, resumeId: "legacy", safe: true })
+        resume: codexDriver.buildResumeCommand!({ cwd: ${JSON.stringify(cwd)}, resumeId: "recorded", model: "gpt-6.1-sol", effort: "high" }),
+        legacyResume: codexDriver.buildResumeCommand!({ cwd: ${JSON.stringify(cwd)}, resumeId: "legacy", safe: true })
       }));
     `], {
       env: { ...process.env, PATH: path, AHELPA_TEST_CODEX_PROBE_LOG: join(root, "probe.log") },

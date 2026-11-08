@@ -96,7 +96,7 @@ describe("launch profiles", () => {
   });
 
   test.each(["codex", "claude-code"])("native %s resume still leaves unspecified model and effort unchanged", (agent) => {
-    const command = getDriver(agent).buildResumeCommand({ cwd: "/tmp/project", resumeId: "old-session" });
+    const command = getDriver(agent).buildResumeCommand!({ cwd: "/tmp/project", resumeId: "old-session" });
     expect(command).not.toContain("--model");
     expect(command).not.toContain("--effort");
     expect(command).not.toContain("model_reasoning_effort");
