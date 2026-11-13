@@ -254,14 +254,15 @@ export const claudeCodeDriver: AgentDriver = {
   launchProfiles: {
     defaultRole: "advisor",
     profiles: {
-      advisor: { model: "claude-opus-5-5", effort: "xhigh" },
+      advisor: { model: "claude-fable-5-2", effort: "medium" },
       worker: { model: "claude-sonnet-5-5", effort: "high" },
-      reviewer: { model: "claude-opus-5-5", effort: "xhigh" },
+      reviewer: { model: "claude-fable-5-2", effort: "high" },
     },
   },
   resumeTokenAvailableAfterSubmit: false,
   modelCatalog: {
     models: [
+      { name: "claude-fable-5-2", efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" },
       { name: "claude-opus-5-5", efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" },
       { name: "claude-sonnet-5-5", efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" },
       { name: "fable" },

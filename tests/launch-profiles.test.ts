@@ -22,9 +22,9 @@ describe("launch profiles", () => {
     });
   });
 
-  test("Claude defaults to an Opus 5.5 advisor at xhigh effort", () => {
+  test("Claude defaults to a Fable 5.2 advisor at medium effort", () => {
     expect(resolveLaunchProfile(getDriver("claude-code"), {})).toEqual({
-      role: "advisor", model: "claude-opus-5-5", effort: "xhigh",
+      role: "advisor", model: "claude-fable-5-2", effort: "medium",
     });
   });
 
@@ -41,7 +41,7 @@ describe("launch profiles", () => {
 
   test("an explicit model overrides only the profile model", () => {
     expect(resolveLaunchProfile(getDriver("claude-code"), { model: "custom-model" })).toEqual({
-      role: "advisor", model: "custom-model", effort: "xhigh",
+      role: "advisor", model: "custom-model", effort: "medium",
     });
   });
 
@@ -59,7 +59,7 @@ describe("launch profiles", () => {
 
   test("reviewers get each driver's review preset", () => {
     expect(resolveLaunchProfile(getDriver("claude-code"), { role: "reviewer" })).toEqual({
-      role: "reviewer", model: "claude-opus-5-5", effort: "xhigh",
+      role: "reviewer", model: "claude-fable-5-2", effort: "high",
     });
     expect(resolveLaunchProfile(getDriver("codex"), { role: "reviewer" })).toEqual({
       role: "reviewer", model: "gpt-6-astra", effort: "medium",
@@ -107,12 +107,12 @@ describe("launch profiles", () => {
     const claude = getDriver("claude-code");
     expect(codex.modelCatalog.models.find((model) => model.name === "gpt-6.1-sol"))
       .toMatchObject({ efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" });
-    for (const name of ["claude-opus-5-5", "claude-sonnet-5-5"]) {
+    for (const name of ["claude-fable-5-2", "claude-opus-5-5", "claude-sonnet-5-5"]) {
       expect(claude.modelCatalog.models.find((model) => model.name === name))
         .toMatchObject({ efforts: ["low", "medium", "high", "xhigh", "max"], defaultEffort: "medium" });
     }
     expect(resolveLaunchProfile(codex, {}).effort).toBe("medium");
-    expect(resolveLaunchProfile(claude, {}).effort).toBe("xhigh");
+    expect(resolveLaunchProfile(claude, {}).effort).toBe("medium");
   });
 });
 

@@ -42,9 +42,9 @@ switch (command) {
     const roleIndex = args.indexOf("--role");
     const role = roleIndex === -1 ? (args[0] === "claude" ? "advisor" : ["codex", "deepseek-pi", "gemini", "mistral", "deepseek"].includes(args[0]) ? "worker" : null)
       : args[roleIndex + 1];
-    const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : args[0] === "claude" ? (role === "advisor" ? "claude-opus-5-5" : "claude-sonnet-5-5")
+    const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : args[0] === "claude" ? (role === "advisor" ? "claude-fable-5-2" : "claude-sonnet-5-5")
       : args[0] === "codex" ? "gpt-6-astra" : args[0] === "gemini" ? "gemini-4-argon" : args[0] === "mistral" ? "mistral-large-4-0-3" : args[0] === "deepseek" ? "deepseek-v4-1-flash-1017" : args[0] === "deepseek-pi" ? "cc-switch-deep-seek/deepseek-flash" : null;
-    const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude" && role === "advisor" ? "xhigh" : args[0] === "kimi" ? null : ["codex", "gemini"].includes(args[0]) ? "medium" : "high";
+    const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude" && role === "advisor" ? "medium" : args[0] === "kimi" ? null : ["codex", "gemini"].includes(args[0]) ? "medium" : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
     const task = args[args.indexOf("--task") + 1];
@@ -488,7 +488,7 @@ describe("closure gate", () => {
     expect(launches[1].args.slice(-2)).toEqual(["--role", "worker"]);
     expect(launches[2].args).not.toContain("--role");
     for (const [label, role, model, effort] of [
-      ["claude-advisor", "advisor", "claude-opus-5-5", "xhigh"],
+      ["claude-advisor", "advisor", "claude-fable-5-2", "medium"],
       ["claude-worker", "worker", "claude-sonnet-5-5", "high"],
       ["codex-worker", "worker", "gpt-6-astra", "medium"],
     ]) {

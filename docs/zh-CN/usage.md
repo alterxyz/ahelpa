@@ -226,12 +226,12 @@ Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未�
 | 启动方式 | 实际默认值 |
 | --- | --- |
 | `launch codex` | `worker`、`gpt-6-astra`、`medium` |
-| `launch claude` | `advisor`、`claude-opus-5-5`、`xhigh` |
+| `launch claude` | `advisor`、`claude-fable-5-2`、`medium` |
 | `launch claude --role worker` | `worker`、`claude-sonnet-5-5`、`high` |
-| `launch claude --role reviewer` | `reviewer`、`claude-opus-5-5`、`xhigh` |
+| `launch claude --role reviewer` | `reviewer`、`claude-fable-5-2`、`high` |
 | `launch codex --role reviewer` | `reviewer`、`gpt-6-astra`、`medium` |
 
-口语中的 extra-high 在 CLI 中写作 `xhigh`；`extra` 不是 Claude 接受的 effort 值。完整模型 ID 固定选择 5.5，避免不同提供方的 `opus`、`sonnet` 别名指向不同版本。两款模型均支持 `high`、`xhigh`。依据见 [Claude 模型配置](https://code.claude.com/docs/en/model-config)。
+默认 effort 为 `medium`，任务需要时可用 `high`（reviewer 预设已用 `high`）。口语中的 extra-high 在 CLI 中写作 `xhigh`；`extra` 不是 Claude 接受的 effort 值。完整模型 ID 把 `advisor` 与 `reviewer` 固定为 Fable 5.2（`claude-fable-5-2`），`worker` 固定为 Sonnet 5.5（`claude-sonnet-5-5`），避免不同提供方的 `fable`、`opus`、`sonnet` 别名指向不同版本。`claude-opus-5-5` 仍可通过 `--model` 显式选择。三款模型均支持 `high`、`xhigh`。依据见 [Claude 模型配置](https://code.claude.com/docs/en/model-config)。
 
 显式 `--model`、`--effort` 分别覆盖对应默认值。角色不改变权限；只有 `reviewer` 会改变任务文件，它使用只审不改的合同（见[读取结果](#读取结果)）。`launch` 返回最终选择，`check` 包含 `role`、`model`、`effort`，`status` 显示角色列。旧会话未知的字段保持 `null`；resume 沿用记录，不重新套用新启动预设。Kimi 不接受 `--role`，保持原有 CLI 默认设置。
 

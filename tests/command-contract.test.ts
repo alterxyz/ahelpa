@@ -88,7 +88,7 @@ describe("command contract", () => {
     expect(codex).toContain("reviewer: gpt-6-astra; effort: medium");
     expect(codex).not.toContain("advisor");
     const claude = renderModelsText("claude-code");
-    expect(claude).toContain("advisor (default): claude-opus-5-5; effort: xhigh");
+    expect(claude).toContain("advisor (default): claude-fable-5-2; effort: medium");
     expect(claude).toContain("worker: claude-sonnet-5-5; effort: high");
     expect(claude).toContain("model defaults may differ from launch defaults");
     expect(renderModelsText("kimi")).not.toContain("Launch defaults");

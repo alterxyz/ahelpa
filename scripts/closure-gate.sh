@@ -100,8 +100,8 @@ run_gate() (
   case "$agent:$requested_role" in
     claude: | claude:advisor)
       expected_role="advisor"
-      expected_model="claude-opus-5-5"
-      expected_effort="xhigh"
+      expected_model="claude-fable-5-2"
+      expected_effort="medium"
       ;;
     claude:worker)
       expected_role="worker"

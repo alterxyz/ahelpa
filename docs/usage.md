@@ -225,12 +225,12 @@ Choose the role first. Claude defaults to `advisor` for analysis, planning, and 
 | Launch | Effective defaults |
 | --- | --- |
 | `launch codex` | `worker`, `gpt-6-astra`, `medium` |
-| `launch claude` | `advisor`, `claude-opus-5-5`, `xhigh` |
+| `launch claude` | `advisor`, `claude-fable-5-2`, `medium` |
 | `launch claude --role worker` | `worker`, `claude-sonnet-5-5`, `high` |
-| `launch claude --role reviewer` | `reviewer`, `claude-opus-5-5`, `xhigh` |
+| `launch claude --role reviewer` | `reviewer`, `claude-fable-5-2`, `high` |
 | `launch codex --role reviewer` | `reviewer`, `gpt-6-astra`, `medium` |
 
-`xhigh` is the CLI spelling for the intended extra-high effort; `extra` is not an accepted Claude effort value. The full Claude model IDs pin 5.5 instead of relying on provider-specific `opus` and `sonnet` aliases. Both models support `high` and `xhigh`. See [Claude model configuration](https://code.claude.com/docs/en/model-config).
+`medium` is the default effort; use `high` when the task calls for it (the reviewer preset already does). `xhigh` is the CLI spelling for the extra-high effort; `extra` is not an accepted Claude effort value. The full Claude model IDs pin `advisor` and `reviewer` to Fable 5.2 (`claude-fable-5-2`) and `worker` to Sonnet 5.5 (`claude-sonnet-5-5`) instead of relying on provider-specific `fable`, `opus` and `sonnet` aliases. `claude-opus-5-5` stays selectable with `--model`. All three models support `high` and `xhigh`. See [Claude model configuration](https://code.claude.com/docs/en/model-config).
 
 Explicit `--model` and `--effort` override defaults independently. Roles do not impose different permissions. Only `reviewer` changes the task file: its contract is the review-only version (see [Read Results](#read-results)). `launch` reports the effective selection, `check` includes `role`, `model`, and `effort`, and `status` shows the role column. Old sessions keep unknown values as `null`; resume uses the stored selection without applying new launch presets. Kimi does not accept `--role` and retains its existing native defaults.
 

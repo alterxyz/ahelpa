@@ -13,7 +13,7 @@ Verify with `command -v claude` or `command -v codex`, not `command -v claude-co
 
 Claude Code is launched with `--dangerously-skip-permissions --verbose` by default. Use `ahelpa launch claude --safe ...` to omit `--dangerously-skip-permissions`.
 
-The default role is `advisor`, using `claude-opus-5-5` with `xhigh` effort for analysis, plans, and review. For implementation against a clear objective, pass `--role worker` to use `claude-sonnet-5-5` with `high`. For read-only adversarial review, pass `--role reviewer` (`claude-opus-5-5`, `xhigh`); its task contract forbids modifying anything outside the result directory. Explicit model/effort options override those defaults; roles do not change permissions.
+The default role is `advisor`, using `claude-fable-5-2` with `medium` effort for analysis, plans, and review; use `--effort high` when the task calls for it. For implementation against a clear objective, pass `--role worker` to use `claude-sonnet-5-5` with `high`. For read-only adversarial review, pass `--role reviewer` (`claude-fable-5-2`, `high`); its task contract forbids modifying anything outside the result directory. Explicit model/effort options override those defaults; roles do not change permissions.
 
 Launch and resume also pass `--settings` pointing to session-local `claude-settings.json` with Stop/StopFailure hooks. They append metadata to `turns.log` without editing user settings; other Claude hooks continue to merge.
 
