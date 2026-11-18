@@ -15,9 +15,17 @@ const SUFFIX = new RegExp(`-(${EFFORTS.join("|")})$`);
 // the composer, and each submitted turn follows one. Menus, questions and the
 // trust dialog also put rows like `> 1. red` at column 0, but after a blank line.
 const RULE = String.raw`─{20,}[ \t]*`;
-const EMPTY_COMPOSER = new RegExp(String.raw`^${RULE}\n>[ \t]*\n${RULE}$`, "gm");
+// Since 1.5.7 a composer nobody has typed in yet (fresh launch or resume) names
+// the agent mode in grey: "> Auto mode: edits & safe commands auto-approved
+// (shift+tab to cycle)", likewise Plan and Accept-edits. The first keystroke
+// removes it for the rest of the session (1.5.8, 2026-11-12, at 100x30). Only
+// these three hints are matched exactly: a wider pattern would also match a
+// real typed draft of the same shape, so a new wording in a future agy fails
+// launch loudly ("did not reach its input prompt") until it is added here.
+const MODE_HINT = String.raw`(?:Auto mode: edits & safe commands auto-approved|Plan mode: research & plan only|Accept-edits mode: file edits auto-approved) \(shift\+tab to cycle\)`;
+const EMPTY_COMPOSER = new RegExp(String.raw`^${RULE}\n>(?: ${MODE_HINT})?[ \t]*\n${RULE}$`, "gm");
 // A turn echo keeps its wrapped lines (indented two) so repeated tasks differ by path.
-const USER_TURN = new RegExp(String.raw`^${RULE}\n> \S.*(?:\n  \S.*)*`, "gm");
+const USER_TURN = new RegExp(String.raw`^${RULE}\n> (?!${MODE_HINT}[ \t]*\n${RULE}$)\S.*(?:\n  \S.*)*`, "gm");
 // The live status line above the composer: a Braille frame, then "Generating...".
 const SPINNER = /^[⠀-⣿][ \t]+\S/m;
 // A background task the agent will resume from when it ends ("· 1 task(s) · /tasks").

@@ -109,6 +109,45 @@ test("agy reads working, dialogs and the ready composer from the screen", () => 
   expect(driver.detectActivity(working() + "\n\nbash-3.2$")).toBe("idle");
 });
 
+// Screens from agy 1.5.8 at 100x30 (2026-11-12): until the first keystroke the
+// composer names the agent mode, and the footer gains the mode.
+test("agy reads a composer that only shows the agent-mode hint as empty", async () => {
+  const modeFooter = "? for shortcuts                                      auto · Gemini 4 Argon · medium";
+  const hints = [
+    "Auto mode: edits & safe commands auto-approved (shift+tab to cycle)",
+    "Plan mode: research & plan only (shift+tab to cycle)",
+    "Accept-edits mode: file edits auto-approved (shift+tab to cycle)",
+  ];
+  for (const hint of hints) expect(driver.acceptsInput!(banner + composer(modeFooter, hint))).toBe(true);
+  const fresh = banner + composer(modeFooter, hints[0]);
+  await driver.prepareForTask("test", runtime([fresh]));
+  expect(driver.detectActivity(fresh)).toBe("idle");
+  // A resumed conversation shows the hint under the earlier turns, whose signal still counts.
+  const resumed = banner + answered() + composer(modeFooter, hints[0]);
+  await driver.prepareForResume!("test", runtime([resumed]));
+  expect(driver.detectOutcome(resumed)).toEqual({ status: "idle", needHelpTags: null });
+  expect(await driver.afterTaskSubmitted("test", runtime([fresh]), { beforeOutput: fresh })).toBe(false);
+  expect(await driver.afterTaskSubmitted("test", runtime([working()]), { beforeOutput: fresh })).toBe(true);
+  // The same words as a submitted turn are a turn: no rule closes an echo.
+  const echoed = `${banner}${turnRule}\n> ${hints[0]}\n\n  Noted.\n\n${composer(modeFooter)}`;
+  expect(await driver.afterTaskSubmitted("test", runtime([echoed]), { beforeOutput: fresh })).toBe(true);
+});
+
+// A typed draft shaped like the hint stays a draft: only the three hints agy is
+// known to show count as an empty composer, so launch fails loudly instead of
+// typing a task onto the user's text.
+test("agy does not read a typed draft shaped like the mode hint as an empty composer", async () => {
+  const modeFooter = "? for shortcuts                                      auto · Gemini 4 Argon · medium";
+  const draft = "Review mode: explain this keyboard shortcut (shift+tab to cycle)";
+  const screen = banner + composer(modeFooter, draft);
+  expect(driver.acceptsInput!(screen)).toBe(false);
+  const io = runtime([screen]);
+  await expect(driver.prepareForTask("test", io)).rejects.toThrow("input prompt");
+  expect(io.captures).toBe(120);
+  // The draft still counts as text in the composer, so nothing was submitted over it.
+  expect(await driver.afterTaskSubmitted("test", runtime([screen]), { beforeOutput: screen })).toBe(false);
+});
+
 test("agy finds the conversation ID it prints on exit", async () => {
   expect(driver.resumeTokenAvailableAfterSubmit).toBe(false);
   expect(driver.extractResumeToken!(done())).toBeNull();
