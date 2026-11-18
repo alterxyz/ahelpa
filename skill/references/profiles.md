@@ -1,6 +1,6 @@
 # Helper Profiles
 
-Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. Pi and Antigravity are newly integrated and are not represented in that sample. Defaults (model, effort, roles) are in [names.md](names.md); this file only says which to pick and what to put in the task.
+Callee profiles for choosing a helper type, role, model, and contract. The historical profiles come from an analysis of 750 archived ahelpa sessions (codex 479, claude 255, kimi 12). They describe observed delegation behavior on coding tasks, not capability rankings: the archive reflects what this host assigned to each type, so the load mix biases every comparison. Pi and Antigravity are newly integrated and are not represented in that sample; `glm` has its own first observations below. Defaults (model, effort, roles) are in [names.md](names.md); this file only says which to pick and what to put in the task.
 
 Every profile assumes the task file ends with the `## ahelpa contract` and `## ahelpa signals` sections ahelpa appends. Do not weaken them.
 
@@ -155,6 +155,33 @@ Uses the Vibe harness and Mistral subscription, with `deepseek-v4-1-flash-1017` 
 - It wrote placeholder ticket numbers next to real ones, labelled as placeholders. Ask for obviously fake placeholders or none.
 - Vibe loads the whole AGENTS.md and skills from `.agents/skills`, `.vibe/skills`, `~/.agents/skills` and `~/.vibe/skills`, not `.claude/skills`, and runs no Claude Code hooks. Project rules enforced only by Claude hooks are not enforced for this helper.
 
+## glm
+
+Uses the Pi harness with `magpie/opencode-go/glm-5.3` / `high` for both `worker` and `reviewer`, through the OpenCode Go plan and the local magpie gateway. First observations, all from 2026-11-18: one scripted comparison and three real helper tasks, mostly one run each. Read them as first impressions, not rates.
+
+**Best at**
+- Bounded work with a clear spec. In a scripted comparison (8 tasks; GLM through `pi -p`, Sonnet 5.5 and Opus 5.5 through `claude -p`, so the harnesses differ) it matched both on six on the first run: a spec implementation with hidden tests (149/149), a root-cause bug fix in a small codebase (12/12), a seeded diff review with two decoys (6 hits, no false alarm), multi-constraint formatting (9/9), multi-step log statistics (9/9), and a "do not edit the tests" trap (tests untouched, the wrong test named in its notes). The counting puzzle timed out on the first run and was correct on a rerun; the regex-engine task timed out on the first run and on one rerun.
+- Mechanical sweeps as a real helper: it brought 15 Markdown files, English and Simplified Chinese, in line with a registry change in 7.5 min, stayed inside `--scope`, and its summary listed what it inspected and left alone and what looked wrong but out of scope. The host's review changed two phrasings that claimed more than had been verified.
+- A narrow rework after review: two findings (a pattern in a driver with a failing-first test, and wording in a document) fixed in 3.5 min, inside `--scope`, with the old-pattern failure shown in a scratch copy.
+- Honest scoping: all three real summaries said what was not run.
+
+**Watch for**
+- It failed to stop in two of the eight scripted tasks. On the counting puzzle it had the right answer after one tool call, then started a factorial brute-force check "to verify" and hung until the 10 min timeout without writing the answer. On a hard open task (write a regex engine, 1051 checks) it timed out twice with no code written, after long thinking and reading CPython's parser; Sonnet 5.5 scored 1036 in 50 s and Opus 5.5 1050 in 145 s.
+- Slow: over the six scripted tasks it finished on the first run, about 2 to 11 times Sonnet 5.5's wall time (25 s against 11 s at the fastest, 415 s against 38 s on the largest) and 1.3 to 7.4 times Opus 5.5's (25 s against 19 s, 415 s against 56 s). As a reviewer on a real diff it took 17.5 min against 3.5 min for `codex`.
+- A shallower review than `codex` on the same blind brief: both ruled "ship" and both findings lists were correct, but GLM's five mutations were all killed, while `codex` also found two surviving mutants (real test gaps) and flagged document claims the verification did not support.
+- Scratch files outside its directory (`/tmp/*.py`) and one process that outlived its timed-out run, in the headless comparison.
+- A third-party index (Artificial Analysis v5.0.1, read 2026-11-18) puts GLM-5.3 at its highest thinking level about level with Sonnet 5.5 at medium, below Sonnet 5.5 at high and well below Opus 5.5, with a much lower knowledge-accuracy score. Do not make it the fact-checker.
+- Asked which model it is, it answers "GLM-4.6"; the gateway and the provider both report `glm-5.3` as served.
+
+**Give it**
+- A clear spec, a file list, `--scope`, and an acceptance command in `--check`.
+- A stop rule in the task: write a working version first, then verify; stop when the acceptance command passes; no exhaustive checks.
+- Not the open or hard problems where it must judge when the work is done, and not the review that decides shipping: use `codex` or `claude`, or follow it with a blind reviewer on another model.
+
+**Runtime quirks**
+- Same driver as `deepseek-pi`: no `--safe`, no runtime model switch; magpie must be running.
+- The plan's pricing page (read 2026-11-18) lists a monthly allowance of $500 for GLM-5.3 on Go, 20% of it per 5-hour window and 50% per week, with "higher usage limits" through 2026-11-22. Read it again after that date before leaning on it for bulk work.
+
 ## Task type to helper
 
 | Task | Helper | Role | Contract emphasis |
@@ -169,6 +196,7 @@ Uses the Vibe harness and Mistral subscription, with `deepseek-v4-1-flash-1017` 
 | Brainstorming and alternatives | gemini | worker | Many options with trade-offs, not a verdict; the host or another model chooses |
 | Strategy (landscape, scenarios, options, the write-up) | gemini, then a red-team pass on a different model | worker | Goals, constraints, and facts; several strategies, each with assumptions and failure modes; the other model attacks the assumptions; the owner decides |
 | Docs that must match code exactly | claude | worker (or advisor if judgment-heavy) | Source files to cite, no code changes |
+| Bounded mechanical work with a clear spec (name or list sweeps across files, small fixes, log and data processing) when time is not tight | glm | worker | Spec, file list, `--scope`, `--check`, and a stop rule (working version first; stop when the check passes) |
 
 ## What the host must do regardless
 

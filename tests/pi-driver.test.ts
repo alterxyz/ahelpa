@@ -4,7 +4,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, w
 import { tmpdir } from "os";
 import { join } from "path";
 import { checkPiReadiness, piDriver as driver } from "../src/drivers/pi";
-import { getDriver } from "../src/drivers/registry";
+import { getDriver, getHarnessDriver } from "../src/drivers/registry";
 import type { DriverRuntime } from "../src/drivers/types";
 const id = "01a1b8e2-7a54-7263-8a4c-692c479607b9";
 const roots: string[] = [];
@@ -25,6 +25,8 @@ function screen(transcript: string, { top = border, draft = "", right = "deepsee
 const done = `${task}\n\n\n Hello!\n\n [AHELPA:DONE]`;
 
 test("Pi is registered", () => { expect(getDriver("pi")).toBe(getDriver("deepseek-pi")); });
+// Stored sessions resolve by harness ID: a second public name on Pi must not take over old records.
+test("the pi harness still resolves to deepseek-pi after glm joined it", () => { expect(getHarnessDriver("pi")).toBe(getDriver("deepseek-pi")); });
 test("Pi launches its fullscreen TUI with quoted arguments and resumes by exact native UUID", () => {
   const command = driver.buildLaunchCommand({ cwd: "/tmp/project's files", model: "provider/model's id", effort: "high" });
   expect(command).toBe("cd '/tmp/project'\\''s files' && pi --tui-mode fullscreen --offline --approve --no-extensions --no-mcp --model 'provider/model'\\''s id' --thinking 'high'");

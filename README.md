@@ -89,6 +89,7 @@ For longer tasks, use `ahelpa launch codex --file ./task.md`. Choose exactly one
 | `mistral` | Bounded Mistral tasks with independent acceptance checks. |
 | `deepseek` | DeepSeek tasks through the subscription first. |
 | `deepseek-pi` | DeepSeek's backup when an API route is needed. |
+| `glm` | GLM tasks through the OpenCode Go plan. |
 
 See the [name directory](skill/references/names.md), or run `ahelpa models`, for nicknames, actual backends, model defaults, login prerequisites, and fallback policies. The host chooses any fallback; the runtime never switches automatically.
 
@@ -98,7 +99,7 @@ Choose roles by task: `claude` defaults to `advisor`, with `worker` for executio
 
 | Command | Purpose |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, or `deepseek`); `--after` chains hands, and explicit `--role reviewer` adds blind review and target evidence; `--scope` reports changes outside the given globs in `wait` evidence |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | Start a helper (`claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, `deepseek`, or `glm`); `--after` chains hands, and explicit `--role reviewer` adds blind review and target evidence; `--scope` reports changes outside the given globs in `wait` evidence |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | Block until helpers settle or timeout |
 | `check [--parent <id>] [--job <id>]` | Non-blocking status poll with inline refresh and caller relationship |
 | `models [agent]` | List launch-time model options |
@@ -146,7 +147,7 @@ For isolated tests or automation, set `AHELPA_HOME` to override the state/archiv
 
 ## Security Posture
 
-Helpers run with the same local user permissions as the host process by default. Use `--project` to constrain working directories, `--safe` where supported to omit or bound default danger flags, git worktrees for risky tasks, and keep secrets out of task prompts and result artifacts. `gemini`, `mistral`, `deepseek`, and `deepseek-pi` reject `--safe` and require full local permissions. On Kimi's first launch in a directory, ahelpa automatically selects **Trust and continue**; that trust persists in Kimi and allows the directory's project MCP servers. This happens with or without `--safe`. For Kimi, `--safe` only omits `--yolo` and restores native approvals; it is not a sandbox. On Codex 0.163+, ahelpa also accepts the one-time "Folder access" prompt for the git repository root, with or without `--safe`, and Codex keeps that trust. See [docs/security.md](docs/security.md) for details.
+Helpers run with the same local user permissions as the host process by default. Use `--project` to constrain working directories, `--safe` where supported to omit or bound default danger flags, git worktrees for risky tasks, and keep secrets out of task prompts and result artifacts. `gemini`, `mistral`, `deepseek`, `deepseek-pi`, and `glm` reject `--safe` and require full local permissions. On Kimi's first launch in a directory, ahelpa automatically selects **Trust and continue**; that trust persists in Kimi and allows the directory's project MCP servers. This happens with or without `--safe`. For Kimi, `--safe` only omits `--yolo` and restores native approvals; it is not a sandbox. On Codex 0.163+, ahelpa also accepts the one-time "Folder access" prompt for the git repository root, with or without `--safe`, and Codex keeps that trust. See [docs/security.md](docs/security.md) for details.
 
 ## Development
 

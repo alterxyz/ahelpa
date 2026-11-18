@@ -1,6 +1,6 @@
 # Pi
 
-Public name: `deepseek-pi`. The `pi` nickname uses the same profile and prefix.
+Public names: `deepseek-pi` (the `pi` nickname uses the same profile and prefix) and `glm`.
 
 The `deepseek-pi` type is the official DeepSeek API backup for the subscription-first `deepseek` route (see [names](names.md)). Install `@earendil-works/pi-coding-agent` ≥ 1.4.0 (a Node.js program). Configure DeepSeek in CC-Switch and sync it to Pi so provider `cc-switch-deep-seek` exists. The terminal driver is tested with 1.5.0; 1.4.0 and newer are accepted, older releases are refused with an upgrade message. `ahelpa doctor deepseek-pi` checks installed metadata without executing the CLI or reading credentials; authentication remains unknown until launch.
 
@@ -12,6 +12,16 @@ ahelpa launch deepseek-pi --role reviewer --file ./review.md
 `worker` is the default role; `reviewer` applies the read-only review contract. Both default to `cc-switch-deep-seek/deepseek-flash` / `high`; `advisor` is unsupported. These defaults also apply when launching with the `pi` nickname. To select explicitly, pass `--model provider/id` and `--effort <level>`; thinking levels depend on the selected model. Pi clamps an unsupported level without a warning, so startup reads the footer's `model • level` and refuses the launch when it differs from the request; a model Pi does not know (its "Using custom model id" warning) is refused too. Runtime `ahelpa model`, including `--persist`, is unsupported; launch with the desired options instead.
 
 `pi` is a nickname for `deepseek-pi` and the stable stored harness ID. Existing sessions resolve without a database migration; resume keeps their recorded model and effort. New session IDs start with `deepseek-pi-`.
+
+## The `glm` name: OpenCode Go plan
+
+`glm` (no nicknames) is a second public name on this same Pi driver, so it shares every limit below: launch and resume reject `--safe`, runtime `ahelpa model` switching is unsupported, and `--model <provider>/<model>` and `--effort` select at launch only. `worker` (default) and `reviewer` both use `magpie/opencode-go/glm-5.3` / `high`; the catalog offers efforts `low`, `high`, `max`; there is no `advisor`. New session IDs start with `glm-`, and resume uses Pi's native session ID as for `deepseek-pi`.
+
+The route is the OpenCode Go plan (a flat-rate plan with 5-hour, 7-day and monthly windows), reached through the local magpie gateway. magpie is a local desktop app that serves an OpenAI-compatible endpoint on localhost and writes a `magpie` provider into Pi's `~/.pi/agent/models.json`. Prerequisites: Pi ≥ 1.4.0 and Node.js; OpenCode Go added as a provider in magpie; Pi connected in magpie so `pi --list-models glm` shows `magpie  opencode-go/glm-5.3`; magpie running.
+
+There is no fallback entry. A used-up plan window has not been observed yet (2026-11-18); if the provider answers 429, Pi reports `Pi: rate limited (429)` and the host decides what to use next. Only `high` has been run; `low` and `max` come from the provider's model list.
+
+Verified 2026-11-18 with Pi 1.5.2 and magpie 0.1.4501: a launch with this model reached the composer, the footer read `opencode-go/glm-5.3 • high`, and a trivial task finished with `[AHELPA:DONE]`. Observed the same day: `magpie provider test opencode-go` reported HTTP 400 for another plan model ("hosted outside Europe and the United States"; the response says to select Global under the OpenCode console's privacy regions, not tried); `glm-5.3` answered without that setting. Also observed 2026-11-18: asked which model it is, the model answers "GLM-4.6" (an observation only; no cause is recorded). In the terms of [Helper backends](../../docs/backends.md) this is a model / gateway layer on the existing Pi driver, not a new helper backend.
 
 ## Terminal and permissions
 

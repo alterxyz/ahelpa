@@ -211,7 +211,7 @@ Cards live in `docs/backends/<name>.md`, English only (an exception to the bilin
 
 ## Candidate registry
 
-Updated 2026-11-07. Public helper types need not match harness names: Vibe serves `mistral` and `deepseek` (Mistral subscription); Pi serves `deepseek-pi` (configure DeepSeek in CC-Switch and sync to Pi first). Nicknames and harness IDs are disclosed in the [name directory](../skill/references/names.md); only harness IDs are stored in the database. "Stopped at" is the last funnel step the candidate was examined at; a step marked docs-only was read in upstream documentation and not run.
+Updated 2026-11-18. Public helper types need not match harness names: Vibe serves `mistral` and `deepseek` (Mistral subscription); Pi serves `deepseek-pi` (configure DeepSeek in CC-Switch and sync to Pi first) and `glm` (the OpenCode Go plan through the local magpie gateway). Nicknames and harness IDs are disclosed in the [name directory](../skill/references/names.md); only harness IDs are stored in the database. "Stopped at" is the last funnel step the candidate was examined at; a step marked docs-only was read in upstream documentation and not run.
 
 | Candidate | Layer | Status | Stopped at | Card |
 | --- | --- | --- | --- | --- |
@@ -219,6 +219,7 @@ Updated 2026-11-07. Public helper types need not match harness names: Vibe serve
 | `codex` | Helper backend; also host target | Integrated | n/a | `skill/references/codex.md`, [profiles](../skill/references/profiles.md) |
 | `kimi` | Helper backend; also host target | Integrated | n/a | `skill/references/kimi.md`, [profiles](../skill/references/profiles.md) |
 | `deepseek-pi` (Pi) | Helper backend | Integrated; official DeepSeek API backup for `deepseek`; CC-Switch sync required. Driven through its TUI since 2026-11-07 (RPC bridge 2026-10-30 to 2026-11-07) | n/a | [pi](backends/pi.md), `skill/references/pi.md` |
+| `glm` (Pi) | Model / gateway layer on the existing Pi driver, not a separate backend | Integrated (2026-11-18); the OpenCode Go plan through the local magpie gateway, default `magpie/opencode-go/glm-5.3` / `high`; same driver and limits as `deepseek-pi` | n/a | [pi](backends/pi.md), `skill/references/pi.md` |
 | `dsh` | Helper backend | **Removed (2026-11-06)** by the author: too many flourishes; mediocre CLI friendliness | Removed | Legacy records remain inspectable and reclaimable; no new work or resume |
 | Gemini CLI | Helper backend | **Declined (2026-11-06)**: personal accounts are no longer served | Step 2 | [gemini-cli](backends/gemini-cli.md) |
 | `gemini` (Antigravity CLI) | Helper backend | Integrated (2026-11-06); driven through its TUI since 2026-11-07 (stream-json bridge for one day before that); default `gemini-4-argon` / `medium` | n/a | [agy](backends/agy.md), `skill/references/agy.md` |

@@ -105,6 +105,25 @@ export const HELPER_NAMES: readonly HelperName[] = [
     prerequisites: "Install Pi >= 1.4.0 and Node.js; configure DeepSeek in CC-Switch and sync it to Pi so provider cc-switch-deep-seek exists.",
     fallback: [],
   },
+  // After deepseek-pi: getHarnessDriver("pi") returns the first Pi entry.
+  {
+    name: "glm", aliases: [], harnessId: "pi",
+    driver: {
+      ...piDriver, name: "glm", sessionPrefix: "glm",
+      modelCatalog: {
+        models: [{ name: "magpie/opencode-go/glm-5.3", efforts: ["low", "high", "max"], defaultEffort: "high" }],
+        effortNote: "--model <provider>/<model> overrides the plan model; --effort support is model-dependent and verified at startup. Runtime model switching and --safe are not supported.",
+      },
+      launchProfiles: { defaultRole: "worker", profiles: {
+        worker: { model: "magpie/opencode-go/glm-5.3", effort: "high" },
+        reviewer: { model: "magpie/opencode-go/glm-5.3", effort: "high" },
+      } },
+    },
+    purpose: "GLM tasks through the OpenCode Go plan.",
+    harnessName: "Pi Coding Agent", route: "OpenCode Go plan through the local magpie gateway",
+    prerequisites: "Install Pi >= 1.4.0 and Node.js; add OpenCode Go as a provider in magpie and connect Pi so provider magpie lists opencode-go/glm-5.3; keep magpie running.",
+    fallback: [],
+  },
 ];
 
 export function getHelperName(name: string): HelperName {

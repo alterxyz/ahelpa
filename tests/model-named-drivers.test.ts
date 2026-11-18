@@ -12,14 +12,14 @@ import { defaultRuntimeLayout } from "../src/runtime-layout";
 import { defaultWakeup } from "../src/wakeup";
 import * as daemon from "../src/daemon";
 
-const names = ["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi"];
+const names = ["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi", "glm"];
 const spellings = [
   ["claude", "claude", "claude-code"], ["claude-code", "claude", "claude-code"],
   ["codex", "codex", "codex"], ["gpt", "codex", "codex"],
   ["gemini", "gemini", "agy"], ["agy", "gemini", "agy"], ["antigravity", "gemini", "agy"],
   ["kimi", "kimi", "kimi"], ["mistral", "mistral", "vibe"], ["vibe", "mistral", "vibe"],
   ["deepseek", "deepseek", "vibe"], ["deepseek-vibe", "deepseek", "vibe"],
-  ["deepseek-pi", "deepseek-pi", "pi"], ["pi", "deepseek-pi", "pi"],
+  ["deepseek-pi", "deepseek-pi", "pi"], ["pi", "deepseek-pi", "pi"], ["glm", "glm", "pi"],
 ] as const;
 
 test("public names, nicknames and internal IDs resolve while first-layer listings expose only public names", () => {
@@ -54,6 +54,7 @@ test("unknown names and models share full second-layer disclosure with host-cont
   expect(directory).toContain("No automatic fallback");
   expect(directory).toContain("CC-Switch");
   expect(directory).toContain("cc-switch-deep-seek/deepseek-flash; effort: high");
+  expect(directory).toContain("magpie/opencode-go/glm-5.3; effort: high");
   expect(directory).toEndWith("Use ahelpa models <name> for model options.");
   expect(renderModelsText("gpt")).toBe(renderModelsText("codex"));
   expect(renderModelsText("agy")).toBe(renderModelsText("gemini"));
@@ -64,6 +65,7 @@ test.each([
   ["deepseek", "deepseek-v4-1-flash-1017", "high"],
   ["deepseek-pi", "cc-switch-deep-seek/deepseek-flash", "high"],
   ["pi", "cc-switch-deep-seek/deepseek-flash", "high"],
+  ["glm", "magpie/opencode-go/glm-5.3", "high"],
 ] as const)("%s uses the agreed profiles", (name, model, effort) => {
   const driver = getDriver(name);
   for (const role of ["worker", "reviewer"] as const) {
@@ -72,7 +74,7 @@ test.each([
   expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model, effort });
   // Both are read from their TUI screens: Pi's signal ends the transcript above its
   // editor; Vibe's latest turn shows DONE above the composer.
-  const output = ["deepseek-pi", "pi"].includes(name)
+  const output = ["deepseek-pi", "pi", "glm"].includes(name)
     ? ` [AHELPA:DONE]\n\n${"─".repeat(80)}\n\n${"─".repeat(80)}\n~/project\n0.0%/1.0M`
     : "> task\n───\n  [AHELPA:DONE]\n─── Mistral Large 4[high] · ahelpa helper ─\n>\n";
   expect(driver.detectStatus(output)).toBe("idle");
@@ -84,6 +86,9 @@ test("public catalogs separate models while accepting other Vibe aliases", () =>
     .toEqual(["mistral-large-4-0-3", "mistral-medium-3.5"]);
   expect(getDriver("deepseek").modelCatalog.models).toEqual([
     { name: "deepseek-v4-1-flash-1017", efforts: ["low", "high", "max"], defaultEffort: "high" },
+  ]);
+  expect(getDriver("glm").modelCatalog.models).toEqual([
+    { name: "magpie/opencode-go/glm-5.3", efforts: ["low", "high", "max"], defaultEffort: "high" },
   ]);
   for (const model of ["glm-5-3", "zai-glm-5-3-flash", "deepseek-v4-1-flash-1017"]) {
     expect(getDriver("mistral").buildLaunchCommand({ cwd: "/tmp", model })).toContain(`active_model = "${model}"`);
@@ -123,6 +128,7 @@ describe("name and harness persistence", () => {
       expect(row.model).toBe("cc-switch-deep-seek/deepseek-flash");
       expect(row.effort).toBe("high");
     }
+    if (name === "glm") expect(row.model).toBe("magpie/opencode-go/glm-5.3");
     if (name === "deepseek") expect(row.model).toBe("deepseek-v4-1-flash-1017");
     if (name === "mistral") expect(row.model).toBe("mistral-large-4-0-3");
   });
@@ -130,7 +136,7 @@ describe("name and harness persistence", () => {
   test.each([
     ["claude", "claude-code"], ["codex", "codex"], ["gemini", "agy"], ["agy", "agy"],
     ["kimi", "kimi"], ["mistral", "vibe"], ["deepseek", "vibe"], ["vibe", "vibe"],
-    ["deepseek-pi", "pi"], ["pi", "pi"],
+    ["deepseek-pi", "pi"], ["pi", "pi"], ["glm", "pi"],
   ])("resume keeps the %s prefix and recorded settings via harness %s", async (prefix, harness) => {
     const oldId = `${prefix}-0123456789ab`;
     const model = harness === "pi" ? "previous-provider/previous-model" : "previous-model";

@@ -14,7 +14,7 @@ ahelpa 默认启动的 helper agent 拥有和 host process 相同的本地用户
 
 Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未被信任时，会在输入提示符之前询问一次（"Folder access"）。ahelpa 通过按一次 Enter 应答，但只在高亮的第一项是 **Trust and continue** 时才会这样做；任何其他选项，或根目录被标为 `untrusted` 时出现的受限目录界面，都不会被应答，launch 随之失败。随后 Codex 把 `[projects."<root>"]` 及 `trust_level = "trusted"` 持久写入 `CODEX_HOME/config.toml`。这个根目录是仓库根目录（linked worktree 对应主 checkout），可能比 `--project` 范围更大；该信任在 helper 结束后仍然有效，也适用于你自己在那里运行的 `codex`。受信任的目录允许 Codex 加载项目配置、hooks 和 exec 策略，项目配置还可以声明 MCP server 和模型 provider。该步骤在默认模式和 `--safe` 模式下都会执行，所以 `--safe` 不会让不可信仓库变得安全。launch 结果以 `codexTrust` 报告被信任的根目录；之后若 launch 失败，错误信息会写出 "Folder access was accepted for <root>"，因为该信任已经保存；`ahelpa doctor codex` 会提前提示，而在项目中先运行一次 `codex`（或自己把该表加入配置）也能不经过 ahelpa 完成应答。
 
-`deepseek-pi` 使用的 Pi harness 以 `--approve --no-extensions --no-mcp --offline` 运行 Pi 自己的 TUI，launch／resume 都拒绝 `--safe`。`--approve` 只在本次运行信任项目文件，不保存任何决定。skill 和上下文文件照常加载，Pi 的内置工具没有审批步骤，工具保留本地用户权限；`--offline` 不阻止模型请求，也不是沙箱。
+`deepseek-pi` 和 `glm` 使用的 Pi harness 以 `--approve --no-extensions --no-mcp --offline` 运行 Pi 自己的 TUI，launch／resume 都拒绝 `--safe`。`--approve` 只在本次运行信任项目文件，不保存任何决定。skill 和上下文文件照常加载，Pi 的内置工具没有审批步骤，工具保留本地用户权限；`--offline` 不阻止模型请求，也不是沙箱。
 
 Pi 仍会保存原生会话内容。Pi 放弃一个回合时，ahelpa 的状态原因只带 HTTP 状态码；供应方自己的错误原文留在屏幕上，`capture` 和 `logs` 都能看到，所以要把这些输出当作可能含有账号信息。只有在 helper 退出之后，才用 `pi --session <uuid>` 接管会话；同一个会话上的两个 Pi 进程互不协调。见 [Pi 说明](../../skill/references/pi.md)。
 

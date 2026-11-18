@@ -265,14 +265,17 @@ test("unknown exclusion IDs fail before scanning", async () => {
   expect(errors[0]).toContain("Unknown disk usage category");
 });
 
-test.each(["claude", "codex", "gemini", "kimi", "dsh", "agy", "vibe", "pi", "mistral", "deepseek", "deepseek-pi"])("%s runtime sessions attribute bridge and per-turn input files", prefix => {
+test.each(["claude", "codex", "gemini", "kimi", "dsh", "agy", "vibe", "pi", "mistral", "deepseek", "deepseek-pi", "glm"])("%s runtime sessions attribute bridge and per-turn input files", prefix => {
   const f = fixture();
   const delivery = join(f.layout.ahelpaDir, `${prefix}-0123456789ab`);
   for (const name of ["vibe-terminal.mjs", "vibe-process.json", "ahelpa-helper.toml"]) file(join(delivery, name), 7);
   file(join(delivery, "vibe-prompt-11111111-2222-3333-4444-555555555555.txt"), 11);
   file(join(delivery, "summary.md"), 13);
-  const report = f.collect({ exclude: "runtime.other" });
-  expect(report.categories.find(category => category.id === "delivery.bridge")?.logicalBytes).toBe(21);
-  expect(report.categories.find(category => category.id === "delivery.inputs")?.logicalBytes).toBe(11);
-  expect(report.categories.find(category => category.id === "delivery.summary")?.logicalBytes).toBe(13);
+  // Each exclusion exercises one of the two prefix patterns: classification, and descending into an excluded container.
+  for (const exclude of ["runtime.other", "delivery.other"]) {
+    const report = f.collect({ exclude });
+    expect(report.categories.find(category => category.id === "delivery.bridge")?.logicalBytes).toBe(21);
+    expect(report.categories.find(category => category.id === "delivery.inputs")?.logicalBytes).toBe(11);
+    expect(report.categories.find(category => category.id === "delivery.summary")?.logicalBytes).toBe(13);
+  }
 });

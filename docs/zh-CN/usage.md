@@ -17,7 +17,7 @@ ahelpa doctor
 ahelpa doctor codex --project /path/to/project
 ```
 
-`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral` 或 `deepseek`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
+`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral`、`deepseek` 或 `glm`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
 
 JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver 名称组织的 `agents`。每个 agent 返回 `executable`、`version`（无法获取时为 `null`）、`locally_ready: true|false|"unknown"` 和 `reasons: [...]`。缺少 tmux 或 agent 二进制时，该 agent 未就绪；明确阻塞优先于未知状态。检查完成时退出码为 0，即使 agent 未就绪；参数无效或项目目录不存在时退出码为 1。调用方应读取 `locally_ready`；已就绪的 agent 仍可能带有仅供参考的 `reasons`。
 
@@ -106,7 +106,7 @@ agy 默认为 `worker`，使用 `--model gemini-4-argon --effort medium`，agy �
 
 先完成 Vibe 登录，运行 `ahelpa doctor mistral`，再用 `ahelpa launch mistral --file ./task.md --project /path/to/project` 启动。测试基线为 3.1.0。`worker`（默认）和 `reviewer` 都使用 `mistral-large-4-0-3`／`high`。`--model` 接收模型别名，`--effort off|low|medium|high|max` 通过会话专属 agent TOML 写入模型的 thinking；各模型支持的级别不同，见 `ahelpa models mistral`。
 
-Vibe 自己的 TUI 在 tmux 里运行，`tmux attach` 能看到它，按 Esc 只停当前回合、会话保留。`--trust` 仅对本次调用生效；不写 Vibe 全局配置，关闭自动更新和更新检查。屏幕上的暗号决定回合状态。Vibe 退出时打印会话 ID，`resume` 用 `--resume` 传回；未知 resume ID 明确失败。拒绝 `advisor`、`--safe` 和运行时模型切换。使用 `ahelpa launch deepseek --file ./task.md` 可通过 Mistral 订阅启动 `deepseek-v4-1-flash-1017`／`high`。Vibe 启动前，pane 按会话写好完整模型定义，不依赖全局配置；订阅必须包含该模型，否则会报告模型不可用及订阅提示。`deepseek-pi` 是 API 备份，默认 `cc-switch-deep-seek/deepseek-flash`／`high`；需先在 CC-Switch 中配置 DeepSeek 并同步到 Pi。订阅模型不可用或认证失败后，由 host 决定是否回退，运行时不会自动切换路线。小名、内部 harness ID 和完整回退策略见[名字目录](../../skill/references/names.md)。详见 [Vibe 接入说明](../../skill/references/vibe.md)。
+Vibe 自己的 TUI 在 tmux 里运行，`tmux attach` 能看到它，按 Esc 只停当前回合、会话保留。`--trust` 仅对本次调用生效；不写 Vibe 全局配置，关闭自动更新和更新检查。屏幕上的暗号决定回合状态。Vibe 退出时打印会话 ID，`resume` 用 `--resume` 传回；未知 resume ID 明确失败。拒绝 `advisor`、`--safe` 和运行时模型切换。使用 `ahelpa launch deepseek --file ./task.md` 可通过 Mistral 订阅启动 `deepseek-v4-1-flash-1017`／`high`。Vibe 启动前，pane 按会话写好完整模型定义，不依赖全局配置；订阅必须包含该模型，否则会报告模型不可用及订阅提示。`deepseek-pi` 是 API 备份，默认 `cc-switch-deep-seek/deepseek-flash`／`high`；需先在 CC-Switch 中配置 DeepSeek 并同步到 Pi。订阅模型不可用或认证失败后，由 host 决定是否回退，运行时不会自动切换路线。`glm` 与 `deepseek-pi` 使用同一个 Pi driver，走 OpenCode Go 套餐和本地 magpie 网关，默认 `magpie/opencode-go/glm-5.3`／`high`；见 [Pi 接入说明](../../skill/references/pi.md)。小名、内部 harness ID 和完整回退策略见[名字目录](../../skill/references/names.md)。详见 [Vibe 接入说明](../../skill/references/vibe.md)。
 
 用 `--label` 给 session 打标签，方便识别：
 
@@ -221,7 +221,7 @@ Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未�
 
 `ahelpa models` 和未知名字错误使用同一份完整目录：列出对外名字、小名、harness 全名、默认模型和 effort、路线、前提及回退策略。`ahelpa models <name>` 查看模型选项；回退仅供 host 决策，运行时不会自动执行。数据库只存内部 harness ID，resume 沿用旧前缀和已记录设置。
 
-先按任务选择角色。Claude 默认 `advisor`，用于分析、规划和审阅；目标明确的实现或执行任务使用 `--role worker`；只读的对抗式审阅使用 `--role reviewer`（`claude`、`codex`、`gemini`、`mistral`、`deepseek` 和 `deepseek-pi` 均支持）。除 `claude` 和 `kimi` 外的名字支持 `worker` 与 `reviewer`，拒绝 `advisor`，显式选择其他模型也不会改变这一点。
+先按任务选择角色。Claude 默认 `advisor`，用于分析、规划和审阅；目标明确的实现或执行任务使用 `--role worker`；只读的对抗式审阅使用 `--role reviewer`（`claude`、`codex`、`gemini`、`mistral`、`deepseek`、`deepseek-pi` 和 `glm` 均支持）。除 `claude` 和 `kimi` 外的名字支持 `worker` 与 `reviewer`，拒绝 `advisor`，显式选择其他模型也不会改变这一点。
 
 | 启动方式 | 实际默认值 |
 | --- | --- |
@@ -260,7 +260,7 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 
 Helper 必须停在可输入的 idle prompt。Claude Code 只切当前 session。Codex 会走自己的 `/model` TUI，而该 TUI 会写入 Codex config；ahelpa 默认在当前 session 切换后恢复原 config。检测到无关配置变化时，会保留当前文件并报告未能恢复默认值。需要保留 Codex 新默认模型时，加 `--persist`。成功切换会更新 `resume` 沿用的模型和显式 effort；省略 effort 时，恢复的 CLI 自行选择默认值。
 
-`kimi`、`gemini`、`mistral`、`deepseek` 和 `deepseek-pi` 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择设置。
+`kimi`、`gemini`、`mistral`、`deepseek`、`deepseek-pi` 和 `glm` 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择设置。
 
 Claude Code 会拒绝运行时的 `--effort` 和 `--persist`；effort 请在 launch 时指定。切换成功必须有匹配所选模型的新确认信息；失败时会先退出模型菜单，再返回错误。
 

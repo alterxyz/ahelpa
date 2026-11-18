@@ -152,15 +152,15 @@ Driver 封装不同 agent CLI 的终端交互差异，使 launch orchestration �
 
 | 职责 | 示例 |
 | --- | --- |
-| Session prefix | `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral`、`deepseek` |
+| Session prefix | `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral`、`deepseek`、`glm` |
 | Launch command | `claude --dangerously-skip-permissions --verbose`、`codex --dangerously-bypass-approvals-and-sandbox`、`KIMI_CODE_NO_AUTO_UPDATE=1 kimi --auto` |
 | 任务前准备 | 等待 CLI ready，处理 trust prompt |
 | 提交后处理 | 必要时补 Enter；捕获新创建的原生 session ID |
 | 状态检测 | 使用 `src/drivers/sentinels.ts` 的公共暗号匹配，由各 driver 限定在屏幕上的当前回合 |
 
-注册表的名字目录是唯一数据来源：对外名字和小名指向内部 harness ID 加启动 profile，数据库只存 harness ID。`claude` 对应 `claude-code`，`gemini` 对应 `agy`，`mistral` 和 `deepseek` 对应 `vibe`，`deepseek-pi` 对应 `pi`。新会话前缀使用对外名字；resume 按存储的 harness ID、model 和 effort 恢复，并沿用旧会话前缀。旧记录不迁移。DeepSeek 的完整模型定义按会话写入 agent TOML，有无 effort 都会写。
+注册表的名字目录是唯一数据来源：对外名字和小名指向内部 harness ID 加启动 profile，数据库只存 harness ID。`claude` 对应 `claude-code`，`gemini` 对应 `agy`，`mistral` 和 `deepseek` 对应 `vibe`，`deepseek-pi` 和 `glm` 对应 `pi`。新会话前缀使用对外名字；resume 按存储的 harness ID、model 和 effort 恢复，并沿用旧会话前缀。旧记录不迁移。DeepSeek 的完整模型定义按会话写入 agent TOML，有无 effort 都会写。
 
-当前支持 `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral` 和 `deepseek`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
+当前支持 `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral`、`deepseek` 和 `glm`。它们共享任务／结果文件合同及 helper 完成信号，各 driver 负责各自的启动与状态检测。Kimi 首次在某个目录启动时，其 driver 会自动选择 **Trust and continue**。Kimi 会持久保存该信任，随后可能启动目录中的项目 MCP server。Kimi 初始界面没有原生 session ID；第一条任务消息创建 `session_*` ID 后，ahelpa 才会记录它，并通过 `kimi --session <id>` 恢复。
 
 `launch --safe` 会把 safe-mode hint 传给选定 driver，并把它写入 session 状态。原生 resume 会继承该姿态；`resume --safe` 可以升级默认姿态记录，但省略参数不会把 safe 记录降级。Claude Code 会省略 `--dangerously-skip-permissions`；Codex 会使用 `-s workspace-write -a never`，而不是 `--dangerously-bypass-approvals-and-sandbox`；Kimi 会用 `--yolo`（Ask When Needed）代替 `--auto`（Never Ask）。Kimi 在 safe mode 下仍会自动信任项目目录，因此它的 safe mode 不是 sandbox；Codex 的 "Folder access" 提示在 safe mode 下同样会被应答（见[安全说明](security.md)）。
 
@@ -172,7 +172,7 @@ Kimi 打印 `[AHELPA:DONE]` 后，旧 helper 仍在 draining 时 `resume` 会被
 
 这三个和上面的 driver 一样在 tmux 里跑厂商的 TUI，结果只从屏幕读。三者都另有回合结束 hook（见上文「回合结束时机信号」；Vibe 和 agy 的只叫醒 daemon）。原生恢复 id 都取自 CLI 退出时打印的画面，由 daemon 在 draining 期间读取（`resumeTokenAvailableAfterSubmit: false`）。`kill` 立即关掉 tmux，绝不为缺的 id 去取；早先记下的、或 resume 出来的 helper 继承的 id 会保留（原生恢复是可选的，2026-11-08）。进程树归 tmux 管，closure gate 会检查 `kill` 之后 pane 里的进程一个不剩。2026-10-30 至 2026-11-07 期间这三个后端曾走结构化桥接，见 [Helper 后端](backends.md#偏离是怎么发生的)。
 
-- **Pi（`deepseek-pi`）。** `pi --tui-mode fullscreen --offline --approve --no-extensions --no-mcp -e .ahelpa/<id>/pi-turn-hook.mjs`，外加 `--model` 和 `--thinking`（由 `--effort` 传入）。`--approve` 只在本次运行信任项目文件。Pi 的用户消息在纯文本抓屏里没有任何文字标记，所以只有暗号是对话记录最后一行、编辑框边框上没有转圈时，回合才结算。Pi 放弃的回合（` Error: <状态码>: …`）或按 Esc 中止的回合结算为 `needs_attention`，原因只由状态码生成（过载、限流、认证失败）。启动时页脚必须显示请求的模型和 thinking 级别，因为 Pi 会静默降级不支持的级别。`/quit` 退出；恢复用 `pi --session <uuid>`。在 CC-Switch 中配置并同步到 Pi 后，默认 `cc-switch-deep-seek/deepseek-flash`／`high`。见 [Pi 说明](../../skill/references/pi.md)。
+- **Pi（`deepseek-pi`）。** `pi --tui-mode fullscreen --offline --approve --no-extensions --no-mcp -e .ahelpa/<id>/pi-turn-hook.mjs`，外加 `--model` 和 `--thinking`（由 `--effort` 传入）。`--approve` 只在本次运行信任项目文件。Pi 的用户消息在纯文本抓屏里没有任何文字标记，所以只有暗号是对话记录最后一行、编辑框边框上没有转圈时，回合才结算。Pi 放弃的回合（` Error: <状态码>: …`）或按 Esc 中止的回合结算为 `needs_attention`，原因只由状态码生成（过载、限流、认证失败）。启动时页脚必须显示请求的模型和 thinking 级别，因为 Pi 会静默降级不支持的级别。`/quit` 退出；恢复用 `pi --session <uuid>`。在 CC-Switch 中配置并同步到 Pi 后，默认 `cc-switch-deep-seek/deepseek-flash`／`high`。同一个 driver 也服务 `glm`：走 OpenCode Go 套餐和本地 magpie 网关，默认 `magpie/opencode-go/glm-5.3`／`high`。见 [Pi 说明](../../skill/references/pi.md)。
 - **agy（`gemini`）。** `AGY_CLI_DISABLE_AUTO_UPDATE=true agy --dangerously-skip-permissions --settings '{"trustedWorkspaces":[…]}' --add-dir .ahelpa/<id>/agy-hook`，外加 `--conversation`、`--model`、`--effort`。这份设置只在本次会话信任工作目录（字面路径和真实路径）。当前回合（分隔线下的 `> …` 回显）出现暗号，并且既看不到带 `esc to cancel` 的盲文转圈、也看不到后台任务计数（`N task(s)`）时，回合结算；agy 会把耗时命令转成后台任务，结束后自己接着跑。出现信任对话框或未知的 conversation id，启动或恢复直接失败。`/exit` 退出并打印 `agy --conversation=<id>`。默认 `gemini-4-argon`／`medium`。见 [agy 说明](../../skill/references/agy.md)。
 - **Vibe（`mistral` / `deepseek`）。** pane 先写会话 agent 文件 `ahelpa-helper.toml`（权限 0600，DeepSeek 带完整模型定义），再以指向交接目录的 `VIBE_AGENT_PATHS` 启动 `vibe --trust --agent ahelpa-helper --add-dir .ahelpa/<id>/vibe-hook`，并关闭自动更新和更新检查；从不写 `~/.vibe`。就绪要等输入框显示 `· ahelpa helper`。最新回合里的暗号出现在最后一个转圈行之后，回合才结算；`invalid_model` 错误结算为 `needs_attention` 并附订阅提示。`/exit` 退出并打印 `vibe --resume <8 位十六进制>`。见 [Vibe 说明](../../skill/references/vibe.md)。
 

@@ -89,6 +89,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `mistral` | 使用 Mistral 处理有明确验收标准的任务。 |
 | `deepseek` | 优先使用订阅完成 DeepSeek 任务。 |
 | `deepseek-pi` | 需要 API 路线时作为 DeepSeek 的备份。 |
+| `glm` | 通过 OpenCode Go 套餐运行 GLM 任务。 |
 
 小名、实际后端、默认模型、登录前提和回退策略见[名字目录](skill/references/names.md)，或运行 `ahelpa models`。回退由 host 决定，运行时不会自动切换。
 
@@ -98,7 +99,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 
 | 命令 | 用途 |
 | --- | --- |
-| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral` 或 `deepseek`）；`--after` 串联前后手，显式 `--role reviewer` 增加盲审和目标证据；`--scope` 把给定 glob 之外的改动记入 `wait` 证据 |
+| `launch <type> (--task "..." \| --file <path>) [--role <role>] [--check "<cmd>"] [--scope "<globs>"] [--after <id>] [--unblind] [--job <id>] [--worktree] [--parent <id>] [--safe] [--model <model>] [--effort <level>]` | 启动 helper（`claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral`、`deepseek` 或 `glm`）；`--after` 串联前后手，显式 `--role reviewer` 增加盲审和目标证据；`--scope` 把给定 glob 之外的改动记入 `wait` 证据 |
 | `wait (<id...> \| --job <id>) [--all] [--timeout <s>]` | 阻塞等待 helper settle 或超时 |
 | `check [--parent <id>] [--job <id>]` | 非阻塞状态查询，做 inline refresh 并显示与调用方的关系 |
 | `models [agent]` | 列出启动时可选的模型 |
@@ -146,7 +147,7 @@ Helper 终端回收后，已完成会话仍保留状态、日志和恢复信息�
 
 ## 安全姿态
 
-Helper 默认以 host process 相同的本地用户权限运行。请用 `--project` 收窄工作目录，在支持时用 `--safe` 省略或收窄默认 danger flags；风险任务优先放到 git worktree；不要把 secret 放进任务 prompt 或结果 artifact。`gemini`、`mistral`、`deepseek` 和 `deepseek-pi` 拒绝 `--safe`，以完整本地权限运行。Kimi 首次在某个目录启动时，ahelpa 会自动选择 **Trust and continue**；该信任会持久保存在 Kimi 中，并允许项目 MCP server。无论是否使用 `--safe` 都会执行这一步。对于 Kimi，`--safe` 只会省略 `--yolo` 并恢复原生审批，它不是 sandbox。在 Codex 0.163+ 上，ahelpa 同样会应答一次性的 "Folder access" 提示（信任 git 仓库根目录），无论是否使用 `--safe`，Codex 会保留该信任。更多细节见 [安全说明](docs/zh-CN/security.md)。
+Helper 默认以 host process 相同的本地用户权限运行。请用 `--project` 收窄工作目录，在支持时用 `--safe` 省略或收窄默认 danger flags；风险任务优先放到 git worktree；不要把 secret 放进任务 prompt 或结果 artifact。`gemini`、`mistral`、`deepseek`、`deepseek-pi` 和 `glm` 拒绝 `--safe`，以完整本地权限运行。Kimi 首次在某个目录启动时，ahelpa 会自动选择 **Trust and continue**；该信任会持久保存在 Kimi 中，并允许项目 MCP server。无论是否使用 `--safe` 都会执行这一步。对于 Kimi，`--safe` 只会省略 `--yolo` 并恢复原生审批，它不是 sandbox。在 Codex 0.163+ 上，ahelpa 同样会应答一次性的 "Folder access" 提示（信任 git 仓库根目录），无论是否使用 `--safe`，Codex 会保留该信任。更多细节见 [安全说明](docs/zh-CN/security.md)。
 
 ## 开发
 

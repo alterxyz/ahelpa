@@ -17,7 +17,7 @@ ahelpa doctor
 ahelpa doctor codex --project /path/to/project
 ```
 
-`doctor [agent] [--project <path>]` checks all registered drivers, or one of `claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, and `deepseek`. The project defaults to the current directory; relative paths resolve from the caller's directory and must name an existing directory.
+`doctor [agent] [--project <path>]` checks all registered drivers, or one of `claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, `deepseek`, and `glm`. The project defaults to the current directory; relative paths resolve from the caller's directory and must name an existing directory.
 
 The JSON result has `project`, `tmux: {present, executable}`, and `agents` keyed by driver name. Each agent has `executable`, `version` (or `null` when unavailable), `locally_ready: true|false|"unknown"`, and `reasons: [...]`. Missing tmux or a missing agent binary makes that agent not ready. A definite blocker takes precedence over an unknown probe. A completed check exits 0 even if an agent is not ready; invalid arguments or a missing project directory exit 1. Consumers should inspect `locally_ready`; a ready agent can still list informational `reasons`.
 
@@ -106,7 +106,7 @@ agy defaults to `worker` with `--model gemini-4-argon --effort medium`, which ag
 
 Complete Vibe sign-in, run `ahelpa doctor mistral`, then launch with `ahelpa launch mistral --file ./task.md --project /path/to/project`. The tested baseline is 3.1.0. `worker` (default) and `reviewer` both select `mistral-large-4-0-3` / `high`. `--model` accepts an alias; `--effort off|low|medium|high|max` sets that model’s thinking through a session-local agent TOML. Levels vary by model; see `ahelpa models mistral`.
 
-Vibe's own TUI runs in tmux, so `tmux attach` shows it and Esc stops the current turn while keeping the session. `--trust` applies to the invocation only; global Vibe configuration is untouched and update checks and automatic updates are disabled. The sentinel on screen settles the turn. On exit Vibe prints its session ID, which `resume` passes back with `--resume`; unknown resume IDs fail explicitly. `advisor`, `--safe`, and runtime model switching are refused. Use `ahelpa launch deepseek --file ./task.md` for `deepseek-v4-1-flash-1017` / `high` through the Mistral subscription. Before Vibe starts, the pane writes a full per-session model definition without relying on global config; the subscription must include it or the turn reports model unavailability with a subscription hint. `deepseek-pi` is the API backup, defaulting to `cc-switch-deep-seek/deepseek-flash` / `high`; configure DeepSeek in CC-Switch and sync to Pi first. The host chooses this fallback after a subscription model-unavailable or authentication failure; the runtime never switches routes automatically. See the [name directory](../skill/references/names.md) for nicknames, stored harness IDs, and all fallback policies. See [Vibe setup](../skill/references/vibe.md).
+Vibe's own TUI runs in tmux, so `tmux attach` shows it and Esc stops the current turn while keeping the session. `--trust` applies to the invocation only; global Vibe configuration is untouched and update checks and automatic updates are disabled. The sentinel on screen settles the turn. On exit Vibe prints its session ID, which `resume` passes back with `--resume`; unknown resume IDs fail explicitly. `advisor`, `--safe`, and runtime model switching are refused. Use `ahelpa launch deepseek --file ./task.md` for `deepseek-v4-1-flash-1017` / `high` through the Mistral subscription. Before Vibe starts, the pane writes a full per-session model definition without relying on global config; the subscription must include it or the turn reports model unavailability with a subscription hint. `deepseek-pi` is the API backup, defaulting to `cc-switch-deep-seek/deepseek-flash` / `high`; configure DeepSeek in CC-Switch and sync to Pi first. The host chooses this fallback after a subscription model-unavailable or authentication failure; the runtime never switches routes automatically. The `glm` name runs GLM through the OpenCode Go plan and the local magpie gateway on the same Pi driver, defaulting to `magpie/opencode-go/glm-5.3` / `high`; see [Pi setup](../skill/references/pi.md). See the [name directory](../skill/references/names.md) for nicknames, stored harness IDs, and all fallback policies. See [Vibe setup](../skill/references/vibe.md).
 
 Use `--label` to tag sessions for easier identification:
 
@@ -220,7 +220,7 @@ Codex 0.163 and later ask once, before the prompt, when the git repository root 
 
 `ahelpa models` and unknown-name errors use the same complete directory: public names, nicknames, harness names, model/effort defaults, routes, prerequisites, and fallback policies. Use `ahelpa models <name>` for model options. Fallback is for the host to decide, never automatic. Database records store only the internal harness ID; resume preserves the old prefix and recorded settings.
 
-Choose the role first. Claude defaults to `advisor` for analysis, planning, and review. Use `--role worker` for implementation or other execution with a clear objective. Use `--role reviewer` for read-only adversarial review (`claude`, `codex`, `gemini`, `mistral`, `deepseek`, and `deepseek-pi`). All names except `claude` and `kimi` support `worker` and `reviewer`, and reject `advisor`, regardless of which model you explicitly choose.
+Choose the role first. Claude defaults to `advisor` for analysis, planning, and review. Use `--role worker` for implementation or other execution with a clear objective. Use `--role reviewer` for read-only adversarial review (`claude`, `codex`, `gemini`, `mistral`, `deepseek`, `deepseek-pi`, and `glm`). All names except `claude` and `kimi` support `worker` and `reviewer`, and reject `advisor`, regardless of which model you explicitly choose.
 
 | Launch | Effective defaults |
 | --- | --- |
@@ -259,7 +259,7 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 
 The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. If unrelated config changes are detected, it preserves the current file and reports that defaults could not be restored. Add `--persist` when you want Codex's new model to remain the default. Successful switches update the model and explicit effort that `resume` reuses; omitting effort lets the resumed CLI choose its default.
 
-Runtime `ahelpa model` switching is unsupported for `kimi`, `gemini`, `mistral`, `deepseek`, and `deepseek-pi`. Choose settings at launch.
+Runtime `ahelpa model` switching is unsupported for `kimi`, `gemini`, `mistral`, `deepseek`, `deepseek-pi`, and `glm`. Choose settings at launch.
 
 Claude Code rejects runtime `--effort` and `--persist`; set its effort at launch. Model switches require a new confirmation matching the selected model, and failures close the model menu before returning an error.
 

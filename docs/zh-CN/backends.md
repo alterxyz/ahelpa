@@ -210,7 +210,7 @@ Spike 决定这个 TUI 到底能不能驱动（不能就拒绝，不做桥接）
 
 ## 候选登记表
 
-2026-11-07 更新。公开 helper 类型不必等于 harness 名：Vibe 对应 `mistral` 和 `deepseek`（Mistral 订阅）；Pi 对应 `deepseek-pi`（先在 CC-Switch 中配置 DeepSeek 并同步到 Pi）。小名和内部 harness ID 见[名字目录](../../skill/references/names.md)；数据库只存 harness ID。「停在」指候选被检验到的最后一步；标「仅文档」的步骤只读了上游文档，没有运行。
+2026-11-18 更新。公开 helper 类型不必等于 harness 名：Vibe 对应 `mistral` 和 `deepseek`（Mistral 订阅）；Pi 对应 `deepseek-pi`（先在 CC-Switch 中配置 DeepSeek 并同步到 Pi）和 `glm`（OpenCode Go 套餐，经本地 magpie 网关）。小名和内部 harness ID 见[名字目录](../../skill/references/names.md)；数据库只存 harness ID。「停在」指候选被检验到的最后一步；标「仅文档」的步骤只读了上游文档，没有运行。
 
 | 候选 | 层 | 状态 | 停在 | 卡片 |
 | --- | --- | --- | --- | --- |
@@ -218,6 +218,7 @@ Spike 决定这个 TUI 到底能不能驱动（不能就拒绝，不做桥接）
 | `codex` | helper 后端；也是 host 目标 | 已接入 | 不适用 | `skill/references/codex.md`、[档案](../../skill/references/profiles.md) |
 | `kimi` | helper 后端；也是 host 目标 | 已接入 | 不适用 | `skill/references/kimi.md`、[档案](../../skill/references/profiles.md) |
 | `deepseek-pi` (Pi) | helper 后端 | 已接入；`deepseek` 的官方 DeepSeek API 备份，需经 CC-Switch 同步。自 2026-11-07 起经 TUI 驱动（2026-10-30 至 2026-11-07 为 RPC 桥接） | 不适用 | [pi](../backends/pi.md)、`skill/references/pi.md` |
+| `glm` (Pi) | 既有 Pi driver 上的模型／网关层，不是独立后端 | 已接入（2026-11-18）；OpenCode Go 套餐经本地 magpie 网关，默认 `magpie/opencode-go/glm-5.3`／`high`；driver 和限制与 `deepseek-pi` 相同 | 不适用 | [pi](../backends/pi.md)、`skill/references/pi.md` |
 | `dsh` | helper 后端 | **已移除（2026-11-06）**：作者决定；花活太多，CLI 友好度一般 | 已移除 | 旧记录仍可检查与回收，不再接受任务或恢复 |
 | Gemini CLI | helper 后端 | **不接（2026-11-06）**：不再服务个人账号 | 第 2 步 | [gemini-cli](../backends/gemini-cli.md) |
 | `gemini`（Antigravity CLI） | helper 后端 | 已接入（2026-11-06）；自 2026-11-07 起经 TUI 驱动（此前一天为 stream-json 桥接）；默认 `gemini-4-argon` / `medium` | 不适用 | [agy](../backends/agy.md)、`skill/references/agy.md` |
