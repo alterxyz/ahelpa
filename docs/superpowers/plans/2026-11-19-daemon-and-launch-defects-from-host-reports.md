@@ -43,6 +43,8 @@ Observed: 2026-10-22 three Claude launches failed this way in one night (a retry
 
 v0.16.0 source: the error is still raised in `src/commands/launch.ts` after `afterTaskSubmitted`. The nine Claude failure screens kept in `launch-failures/` from 2026-11-02 to 2026-11-14 all show the folder-trust prompt, a different cause; the four from 2026-10-28 to 2026-11-01 were not classified. Launches were not counted, so the absence of newer instances is not evidence of a fix.
 
+Lead from 2026-11-19, under machine load (load average about 25–45, several sessions running suites at once): the same error appeared in tests that launch a real `claude` (`integration.test.ts` three times, the first `launch.test.ts` test once; each passed when run alone), and one `ahelpa launch codex --role reviewer` did not confirm its new turn, so its `wait` returned at once. This points at the new-turn confirmation window in `afterTaskSubmitted` being too short when the machine is busy, not at the model or the account. Not yet measured: a bounded launch loop with and without load would settle it.
+
 ## 5. Small: the session ID is easy to miss in `launch` output
 
 - [x] Consider printing `sessionId` last (or repeating it) when a long `writerConflict` list precedes it. Done 2026-11-19: `tmuxSession`, which always equals `sessionId`, is now the last field of the `launch` JSON, so the ID is printed first and last. The key set and values are unchanged, so `jq .sessionId` and object comparisons are unaffected; only the key order changed. Stderr warnings (items 1 and 3) come after the JSON, and the `--after` warning repeats the new ID too.
