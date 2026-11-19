@@ -88,6 +88,16 @@ describe("turn hook payloads and append", () => {
     expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
   });
 
+  test("a failed turn earlier in the same batch wins over a later ordinary stop", () => {
+    const payload = JSON.parse(fixture("pi-settled"));
+    writeTurnHook(dir, "pi", JSON.stringify({ ...payload, turnId: "turn-1", aborted: true }));
+    writeTurnHook(dir, "pi", JSON.stringify({ ...payload, turnId: "turn-2" }));
+    const log = join(dir, "turns.log");
+    expect(readTurnEvents(log).event).toMatchObject({ event: "stop_failure", turnId: "turn-1", error: "aborted" });
+    // Read on its own, the later stop is still reported.
+    expect(readTurnEvents(log, readFileSync(log, "utf8").indexOf("\n") + 1).event).toMatchObject({ event: "stop", turnId: "turn-2" });
+  });
+
   test("agy Stop keeps the conversation id and the input digest, and waits for background tasks", () => {
     const stop = parseTurnPayload("agy", fixture("agy-stop"))!;
     expect(stop).toMatchObject({ agent: "agy", event: "stop", sessionId: "f76b791e-7046-483d-b6c3-9eaab2a2ae0d", inputDigest: inputDigest("private task input") });
