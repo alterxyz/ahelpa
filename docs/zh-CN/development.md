@@ -166,7 +166,7 @@ Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 
 bun test tests/e2e.test.ts
 ```
 
-测试与用户自己的会话隔离：一个 `tmux` 包装脚本把所有 tmux 调用都放到私有 socket 上，`HOME`、`AHELPA_HOME` 和 `AHELPA_TMP_DIR` 都是临时目录；宿主环境变量只放行 `PATH`、`TMPDIR` 以及语言和终端相关的几个，其余的（如 `BASH_ENV`、`GIT_*`、`TMUX`、`CLAUDE*`、`AHELPA_*`）都可能被 helper 的 shell 运行或读取，所以一律不传；结束后全部删除。它测不到的是厂商 TUI 真实的画面和行为，这部分仍由 `bun run closure:gate` 负责。
+测试与用户自己的会话隔离：一个 `tmux` 包装脚本把所有 tmux 调用都放到私有 socket 上，`HOME`、`AHELPA_HOME` 和 `AHELPA_TMP_DIR` 都是临时目录；宿主环境变量只放行 `PATH`、`TMPDIR` 以及语言、终端和时区相关的几个，其余的（如 `BASH_ENV`、`GIT_*`、`TMUX`、`CLAUDE*`、`AHELPA_*`）都可能被 helper 的 shell 运行或读取，所以一律不传；结束后全部删除。它测不到的是厂商 TUI 真实的画面和行为，这部分仍由 `bun run closure:gate` 负责。
 
 ## Closure gate
 
