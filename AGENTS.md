@@ -67,7 +67,7 @@ ahelpa install-skill           # refresh global skill from the public repo
 bun run closure:gate           # end-to-end gate
 ```
 
-`bun run test` runs `scripts/test.sh`: every test file in parallel workers, then five timing-bound files in a small parallel pass of their own. It takes about 30 s (20–30 s on 2026-11-19, with other work loading the machine); plain `bun test` runs the files one at a time in about 85 s. Both print one dot per test (`bunfig.toml`). Bun hides passing tests from AI agents, so the dots are the only progress an agent sees; `bun run test` prints two `Ran N tests` summaries, so wait for the second before calling it hung.
+`bun run test` runs `scripts/test.sh`: every test file except five in parallel workers, then those five timing-bound files in a small parallel pass of their own. It takes about 30 s (20–30 s on 2026-11-19, with other work loading the machine); plain `bun test` runs the files one at a time in about 85 s. Both print one dot per test (`bunfig.toml`). Bun hides passing tests from AI agents, so the dots are the only progress an agent sees; `bun run test` prints two `Ran N tests` summaries, so wait for the second before calling it hung.
 
 ## Closure Gate
 
