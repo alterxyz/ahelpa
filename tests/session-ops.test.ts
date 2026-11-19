@@ -58,6 +58,23 @@ describe("session operations", () => {
     expect(db.getSession("codex-follow-up")?.status).toBe("running");
   });
 
+  test.each([
+    ["codex", "Continue the review\nwith the second file"],
+    ["kimi", "  Continue the review\r\nwith the second file \n"],
+  ])("send types the normalized message for a hook-capable helper only (%s)", async (agentType, typed) => {
+    db = new StateDB(TEST_DB);
+    const id = `${agentType}-typed-input`;
+    db.createSession({ id, parentId: "p", agentType, task: "t", ownerToken: "tok", projectPath: "/tmp" });
+    spyOn(Tmux, "capture").mockResolvedValue("working");
+    const sendSpy = spyOn(Tmux, "sendKeys").mockResolvedValue();
+
+    // The turn hook reports the prompt the CLI received; only the normalized
+    // text matches the digest recorded for the turn.
+    await send(db, id, "tok", "  Continue the review\r\nwith the second file \n");
+
+    expect(sendSpy.mock.calls).toEqual([[id, typed]]);
+  });
+
   test.each(["codex", "kimi"])("%s keeps attention when follow-up reveals only historical DONE", async (agentType) => {
     db = new StateDB(TEST_DB);
     const id = `${agentType}-unchanged-history`;
