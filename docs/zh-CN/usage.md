@@ -463,7 +463,7 @@ ahelpa daemon start    # 手动启动
 ahelpa daemon stop     # 手动停止
 ```
 
-正在运行的 daemon 一直用它启动时的构建。`status` 或 `launch` 发现这个构建和当前 CLI 的不同（例如 helper 还在跑时升级了，或者源码 checkout 和已安装的二进制共用一个 `~/.ahelpa`），会往 stderr 打警告，不做任何改动。用 `ahelpa daemon stop && ahelpa daemon start` 重启它；helper 会继续运行，只有监控重启。由早于这项检查的构建启动的 daemon 没有记录构建，显示为 `unknown`。这项检查比较的是路径和修改时间，不是文件内容。
+正在运行的 daemon 一直用它启动时的构建。`status` 或 `launch` 发现这个构建和当前 CLI 的不同（例如 helper 还在跑时升级了，或者源码 checkout 和已安装的二进制共用一个 `~/.ahelpa`），会往 stderr 打警告，不做任何改动。用 `ahelpa daemon stop && ahelpa daemon start` 重启它；helper 会继续运行，只有监控重启。只运行 `daemon start` 不会替换正在运行的 daemon，它会打印 `daemon already running (build …)`。由早于这项检查的构建启动的 daemon 没有记录构建，显示为 `unknown`。这项检查比较的是路径和修改时间，不是文件内容。
 
 ## 刷新 agent skill
 

@@ -462,7 +462,7 @@ ahelpa daemon start    # manual start
 ahelpa daemon stop     # manual stop
 ```
 
-A running daemon keeps the build it was started with. When `status` or `launch` finds that build differs from the CLI's own (an upgrade while helpers were running, or a source checkout and the installed binary sharing one `~/.ahelpa`), it prints a warning on stderr and changes nothing. Restart it with `ahelpa daemon stop && ahelpa daemon start`; helpers keep running, only monitoring restarts. A daemon started by a build older than this check has no recorded build and shows as `unknown`. The check compares paths and modification times, not file contents.
+A running daemon keeps the build it was started with. When `status` or `launch` finds that build differs from the CLI's own (an upgrade while helpers were running, or a source checkout and the installed binary sharing one `~/.ahelpa`), it prints a warning on stderr and changes nothing. Restart it with `ahelpa daemon stop && ahelpa daemon start`; helpers keep running, only monitoring restarts. `daemon start` alone leaves a running daemon in place and prints `daemon already running (build …)`. A daemon started by a build older than this check has no recorded build and shows as `unknown`. The check compares paths and modification times, not file contents.
 
 ## Refresh Agent Skill
 
