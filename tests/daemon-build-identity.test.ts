@@ -50,6 +50,21 @@ describe("buildIdentity", () => {
     expect(second).not.toBe(first);
   });
 
+  test("a source run changes build when any source file changes, not only cli.ts", () => {
+    const src = join(root, "src");
+    mkdirSync(join(src, "commands"), { recursive: true });
+    const cli = join(src, "cli.ts");
+    const deep = join(src, "commands", "launch.ts");
+    writeFileSync(cli, "");
+    writeFileSync(deep, "");
+    utimesSync(cli, new Date(1_000_000), new Date(1_000_000));
+    utimesSync(deep, new Date(1_000_000), new Date(1_000_000));
+    const first = buildIdentity("/usr/bin/true", src);
+    expect(first).toContain(cli);
+    utimesSync(deep, new Date(2_000_000), new Date(2_000_000));
+    expect(buildIdentity("/usr/bin/true", src)).not.toBe(first);
+  });
+
   test("a symlink to the program is the same build as the program", () => {
     const program = join(root, "program");
     writeFileSync(program, "#!/bin/sh\n");

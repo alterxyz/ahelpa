@@ -1,4 +1,5 @@
-import { existsSync, appendFileSync, readFileSync, realpathSync, writeFileSync, mkdirSync, unlinkSync, statSync, renameSync } from "fs";
+import { existsSync, appendFileSync, readFileSync, readdirSync, realpathSync, writeFileSync, mkdirSync, unlinkSync, statSync, renameSync } from "fs";
+import { dirname, join } from "path";
 import { getSelfCommand } from "./self-command";
 import { readTurnEvents } from "./turn-hooks";
 import { interventionLeaseActive } from "./intervention-lease";
@@ -529,17 +530,27 @@ export function isDaemonRunning(): boolean {
   }
 }
 
-// A build is its version plus the program file it runs from; a compiled binary
-// replaced in place gets a new mtime. The path is resolved, so a CLI reached
-// through a symlink (~/.local/bin/ahelpa) is the same build as its target.
-// ponytail: a source checkout is named by its cli.ts path and mtime, so edits
-// to other files in one checkout go unnoticed.
+// A build is its version plus the program it runs from and when that last
+// changed: a compiled binary replaced in place gets a new mtime, and a source
+// run (cli.ts) is as new as the newest .ts file beside it or below, so an edit
+// to daemon.ts counts too. The path is resolved, so a CLI reached through a
+// symlink (~/.local/bin/ahelpa) is the same build as its target.
+// ponytail: mtimes, not content; a copy with a fresh mtime warns, and a
+// replacement that keeps path and mtime (cp -p) does not.
 export function buildIdentity(execPath = process.execPath, moduleDir = import.meta.dir): string {
-  let program = getSelfCommand(execPath, moduleDir).at(-1)!;
+  const command = getSelfCommand(execPath, moduleDir);
+  let program = command.at(-1)!;
   let mtime = "unknown";
   try {
     program = realpathSync(program);
-    mtime = new Date(statSync(program).mtimeMs).toISOString();
+    let newest = statSync(program).mtimeMs;
+    if (command.length > 1) {
+      const dir = dirname(program);
+      for (const file of readdirSync(dir, { recursive: true })) {
+        if (String(file).endsWith(".ts")) newest = Math.max(newest, statSync(join(dir, String(file))).mtimeMs);
+      }
+    }
+    mtime = new Date(newest).toISOString();
   } catch {}
   return `${VERSION} ${program} ${mtime}`;
 }
