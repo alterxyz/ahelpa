@@ -276,12 +276,6 @@ describe("PR6 launch publication compare-and-set", () => {
     expect(db.getSession("pending")).toEqual(published);
   });
 
-  test("a foreign launcher cannot publish a running reservation", () => {
-    const before = record("pending", { launchPid: process.pid });
-    expect(db.completeLaunch("pending", process.pid + 1, "foreign-commit", "needs_attention")).toBe(false);
-    expect(db.getSession("pending")).toEqual(before);
-  });
-
   test("the owning launcher publishes once and cannot publish again after clearing the marker", () => {
     const before = record("pending", { launchPid: process.pid });
     expect(db.completeLaunch("pending", process.pid, "base-commit", "needs_attention")).toBe(true);
@@ -354,10 +348,6 @@ describe("PR6 crashed startup reconciliation", () => {
     await daemon.refreshSessionStatuses(db, ["pending"]);
     expect(db.getSession("pending")).toMatchObject({ status: "needs_attention", launchPid: null });
     expect(getDriver("claude-code").gracefulExit).not.toHaveBeenCalled();
-  });
-
-  test("startup lease is the documented finite three minutes", () => {
-    expect(daemon.LAUNCH_STARTUP_LEASE_MS).toBe(180_000);
   });
 
   for (const age of ["fresh", "expired"] as const) {

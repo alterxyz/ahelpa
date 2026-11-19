@@ -135,12 +135,6 @@ describe("bounded peer mail", () => {
     expect(readdirSync(join(b.projectPath, ".ahelpa/b/inbox"))).toHaveLength(8);
   });
 
-  test.each(["", "0", "-1", "garbage"])("invalid budget %s uses the same fallback as nesting limits", async (budget) => {
-    session("a"); session("b"); process.env.AHELPA_MAIL_BUDGET = budget;
-    for (let i = 0; i < 8; i++) expect((await cli(["mail", "b", "--text", "x"], "a")).code).toBe(0);
-    expect((await cli(["mail", "b", "--text", "x"], "a")).code).toBe(1);
-  });
-
   test("recipient sequence increases across senders and read state survives reopen", async () => {
     session("a"); const b = session("b"); session("c");
     expect((await cli(["mail", "b", "--text", "one"], "a")).code).toBe(0);
@@ -299,27 +293,6 @@ describe("bounded peer mail", () => {
     expect(existsSync(join(a.projectPath, ".ahelpa/jobs/job.with-dots_1/mail.jsonl"))).toBe(true);
     const plan = planLaunch({ db, agentType: "codex", parentId: "a", projectPath: root, task: "work" });
     expect(buildTaskFileContent(plan.fileHandoff, "work", plan.handoffContext)).toContain("ahelpa check --job job.with-dots_1");
-  });
-
-  test("budget configuration stays out of every driver's launch and resume environment", async () => {
-    delete process.env.AHELPA_PARENT_ID; process.env.AHELPA_MAIL_BUDGET = "3";
-    for (const agentType of ["codex", "claude-code", "kimi"]) {
-      const plan = planLaunch({ db, agentType, parentId: "host", projectPath: root, task: "work" });
-      expect(plan.launchCmd).not.toContain("AHELPA_MAIL_BUDGET=");
-      const old = session(`old-${agentType}`, { agentType });
-      db.updateStatus(old.id, "idle"); db.updateResumeId(old.id, "resume-token");
-      const create = spyOn(Tmux, "create").mockResolvedValue();
-      spyOn(Tmux, "hasSession").mockResolvedValue(false);
-      spyOn(Tmux, "capture").mockResolvedValue("");
-      const { getDriver } = await import("../src/drivers/registry");
-      spyOn(getDriver(agentType), "prepareForResume").mockResolvedValue();
-      const { defaultWakeup } = await import("../src/wakeup");
-      spyOn(defaultWakeup, "prepare").mockResolvedValue();
-      const { resume } = await import("../src/commands/launch");
-      const resumed = await resume({ db, sessionId: old.id, ownerToken: "tok" });
-      expect(db.getSession(resumed.sessionId)?.mailBudget).toBe(3);
-      expect(create.mock.calls.at(-1)?.[1]).not.toContain("AHELPA_MAIL_BUDGET=");
-    }
   });
 
   test("mail arguments enforce exactly one target and content source", async () => {

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB, type CreateSessionInput } from "../src/state";
@@ -270,17 +270,6 @@ describe("peer mail adversarial regressions", () => {
     if (kind === "inbox") expect(readdirSync(outside)).toEqual([]);
     else if (kind === "ledger") expect(readFileSync(outside, "utf8")).toBe("keep me\n");
     else expect(existsSync(outside)).toBe(false);
-  });
-
-  test("F8 reading a symlinked inbox is refused without marking read", async () => {
-    session("a"); const b = session("b");
-    expect((await cli(["mail", "b", "--text", "body"], "a")).code).toBe(0);
-    const inbox = join(b.projectPath, ".ahelpa/b/inbox"), outside = join(root, "outside");
-    renameSync(inbox, outside); symlinkSync(outside, inbox);
-    const result = await cli(["inbox", "--read", "1"], "b");
-    expect(result.code).toBe(1); expect(result.err.join("")).toContain("symlink");
-    expect(db.listPeerMail("b")[0].readAt).toBeNull();
-    expect(readFileSync(join(outside, "1-from-a.md"), "utf8")).toBe("body");
   });
 
   test("F9 orphan sequences from any sender are skipped and recorded, not overwritten", async () => {

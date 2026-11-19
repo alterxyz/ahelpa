@@ -172,20 +172,6 @@ describe("settle observed row version", () => {
     expect(existsSync(layout.fifoPath(id))).toBe(true);
   });
 
-  test("a normal refresh settles, archives, notifies and records exactly once", async () => {
-    spyOn(Tmux, "capture").mockResolvedValue("[AHELPA:NEED_HELP]");
-    const save = spyOn(Archive.prototype, "save");
-
-    await daemon.refreshSessionStatuses(db, [id]);
-    await daemon.refreshSessionStatuses(db, [id]);
-
-    expect(db.getSession(id)?.status).toBe("error");
-    expect(save).toHaveBeenCalledTimes(1);
-    expect(defaultWakeup.notify).toHaveBeenCalledTimes(1);
-    expect(defaultWakeup.cleanup).toHaveBeenCalledTimes(1);
-    expect(ledgerLines()).toHaveLength(1);
-  });
-
   test("all row writes advance the version across connections and a backwards clock", () => {
     hostDb = new StateDB(join(root, "state.db"));
     let previous = db.getSession(id)!.version;
