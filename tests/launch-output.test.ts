@@ -66,8 +66,18 @@ describe("launch output", () => {
     expect(code).toBe(0);
     const sessionId = JSON.parse(captured.out[0]).sessionId;
     const stderr = captured.err.join("\n");
-    expect(stderr).toContain(`--after prev is still running`);
+    expect(stderr).toContain(`--after prev was still running`);
     expect(stderr).toContain(sessionId);
+  });
+
+  test("warns even when the --after session settles while launch confirms the turn", async () => {
+    db.createSession({ id: "prev", parentId: "host", agentType: "codex", task: "first", ownerToken: "tok", projectPath: project });
+    // The task is already submitted when the previous hand settles.
+    spyOn(driver, "afterTaskSubmitted").mockImplementation(async () => { db.updateStatus("prev", "idle"); return true; });
+
+    const captured: Captured = { out: [], err: [] };
+    expect(await launchCli(captured, "--after", "prev")).toBe(0);
+    expect(captured.err.join("\n")).toContain("--after prev was still running");
   });
 
   test("no still-running warning once the --after session has settled", async () => {

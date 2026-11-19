@@ -27,7 +27,7 @@ v0.16.0 source: `daemonLoop` calls `db.listActiveSessions()` and `refreshSession
 
 - [x] Decide: refuse, warn, or wait when `launch --after <id>` names a session that is still `running`. **Decided 2026-11-19: warn.**
 
-Done: when the `--after` session is `running`, `launch` still starts the helper and prints one line on stderr after the JSON that names both IDs and says to `wait` for the previous hand first, or kill the new one and relaunch once the previous has settled. `docs/usage.md` and `docs/zh-CN/usage.md` describe it.
+Done: when the `--after` session is `running` as `launch` starts (read before launching, so a previous hand that settles while launch confirms the turn still warns; the first version read it afterwards and missed that, found by the 2026-11-19 review), `launch` still starts the helper and prints one line on stderr after the JSON that names both IDs and says to `wait` for the previous hand first, or kill the new one and relaunch once the previous has settled. `docs/usage.md` and `docs/zh-CN/usage.md` describe it.
 
 Why not refuse: `--after` is documented as lineage plus handoff, and hosts may use it to join a running job or keep a parallel hand's lineage; refusing would break those calls, a contract change for a usability gap. Why not wait: `launch` returns in seconds and hosts call it inside tool calls with their own timeouts; a launch that blocks for a whole review would hide that time, against the rule that waits stay bounded and explicit (`wait` exists for this). Only `running` warns: `needs_attention` and settled hands have stopped, so the host has already decided what to do with them.
 

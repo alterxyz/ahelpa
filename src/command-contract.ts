@@ -171,6 +171,11 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       job: { kind: "string" },
     },
     async run(ctx) {
+      // Read before launching: the new hand reads the previous one's result as
+      // soon as its task is submitted, and the previous hand can settle while
+      // launch is still confirming the turn.
+      const after = ctx.flags.strings.after;
+      const afterWasRunning = after !== undefined && ctx.db.getSession(after)?.status === "running";
       const result = await launch({
         db: ctx.db,
         agentType: ctx.positionals[0],
@@ -195,9 +200,8 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       const warn = ctx.printError ?? ((text: string) => console.error(text));
       const buildWarning = daemonBuildWarning();
       if (buildWarning !== undefined) warn(buildWarning);
-      const after = ctx.flags.strings.after;
-      if (after && ctx.db.getSession(after)?.status === "running") {
-        warn(`warning: --after ${after} is still running, so ${result.sessionId} started before ${after} wrote its result. Wait for ${after} before relying on ${result.sessionId}, or kill ${result.sessionId} and relaunch once ${after} has settled.`);
+      if (afterWasRunning) {
+        warn(`warning: --after ${after} was still running when ${result.sessionId} was launched, so ${result.sessionId} may have started before ${after} wrote its result. Wait for ${after} before relying on ${result.sessionId}, or kill ${result.sessionId} and relaunch once ${after} has settled.`);
       }
     },
   },
