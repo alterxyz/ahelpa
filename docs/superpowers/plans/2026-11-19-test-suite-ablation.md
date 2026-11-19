@@ -1,6 +1,129 @@
 # Test suite ablation — which tests to delete, merge, rewrite or add
 
 > Recorded 2026-11-19 against v0.17.0 (`f7dadb0`). An audit only: no test or source file was changed. Each action below waits for the owner's decision. Ablation here means: take one test file (or one source behavior) away, keep everything else, and measure what protection is lost.
+>
+> **Round 2 (2026-11-19, same day):** the owner approved acting on it, then narrowed the round to the deletions, the `status` rewrite and the most valuable missing tests ("do what is reasonable, no gold-plating"). Merges and rewrites already committed and passing were kept; a half-done one was reverted. Results are in the next section; the boxes in the action lists below track what is done.
+
+## Round 2 results
+
+| | Before (`bdb3699`) | After |
+| --- | ---: | ---: |
+| Tests (`bun test`) | 2041 | 1972 |
+| Test files | 97 | 77 |
+| Lines in `tests/*.test.ts` | 21,680 | 21,230 |
+
+`bun run test` exit 0 (1871 + 101 tests); `bun run typecheck` exit 0. The 69 fewer tests: 38 duplicates deleted, 36 removed by the daemon-pane reduction, 5 added. Lines: deletions −454, merges −59, rewrites −25, new tests +72, review fixes +16.
+
+**No test lost track.** Full names (file, describe path, name) were exported from `bun test --reporter=junit` before and after and compared by script. Of the 434 names that disappeared, 360 are the same test under a new file or describe (merges, and one test restored after review), 38 are planned deletions and 36 the planned reduction, each with its twin below; the 5 new names are the added tests. The full before/after map is `2026-11-19-test-suite-ablation/before-after-names.tsv`.
+
+Deleted tests and their twins (twin locations are `file:line` at the audit baseline `f7dadb0`; "now in" names the file the twin moved to):
+
+| Deleted test (file › describe › name) | Twin that still asserts it |
+| --- | --- |
+| `codex-driver` › Codex Driver › codex driver exists | `model-named-drivers:28,125` |
+| `daemon-start` › daemon launch command › does not duplicate the binary path for a real compiled-binary argv | `daemon-start:51` |
+| `driver-outcome` › driver-specific outcome winners › Codex unsupported-model error does not inherit older help tags | `codex-driver:31` (now in `codex-readiness`) — twin strengthened in `f3909cb` to assert the full outcome |
+| `driver-protocol` › driver launch protocol › claude-code prepareForResume fails fast without typing into the workspace safety dialog | `driver-protocol:371,277` |
+| `driver-protocol` › driver launch protocol › claude-code prepareForTask fails fast without typing into the workspace safety dialog | `driver-protocol:371,277` |
+| `driver-protocol` › driver launch protocol › codex keeps waiting past an unknown numbered menu instead of typing into it | `codex-readiness:89,104` |
+| `driver-protocol` › driver launch protocol › codex skips the 0.160 update menu and never mistakes it for the input prompt | `codex-readiness:46,66,133` |
+| `driver-protocol` › driver launch protocol › codex switches model through model and reasoning menus | `codex-model-switch:29` (now in `codex-config`) + `codex-readiness:211` |
+| `driver-protocol` › resumed turn status › codex ignores NEED_HELP from an earlier turn | `driver-outcome:20` |
+| `drivers` › Drivers › codex danger mode includes bypass flag by default | `codex-driver:11` (now in `codex-readiness`) |
+| `drivers` › Drivers › codex hooks trust screens trigger an escape | `codex-readiness:177,198,345` |
+| `kimi-driver` › Kimi driver › accepts resumed generation above the persistent composer within the same turn | `kimi-driver:298` |
+| `kimi-driver` › Kimi driver › detects Kimi Code bullet sentinels | `driver-outcome:36-51` |
+| `kimi-driver` › Kimi driver › does not accept an unchanged attention panel without newer generation | `kimi-driver:336` |
+| `kimi-driver` › Kimi driver › does not accept an unchanged retained approval and DONE as a new turn | `kimi-driver:336` |
+| `kimi-driver` › Kimi driver › ignores a historical NEED_HELP after intervention resumes the same turn | `driver-outcome:113` |
+| `kimi-driver` › Kimi driver › resume readiness ignores settled historical tool use before a newer prompt | `kimi-driver:210` |
+| `kimi-refresh` › Kimi daemon activity › flags a sustained Kimi approval prompt as needs_attention | `daemon-wake:70` |
+| `launch-profiles` › launch profiles › native claude-code resume still leaves unspecified model and effort unchanged | `resume:202` |
+| `launch-profiles` › launch profiles › native codex resume still leaves unspecified model and effort unchanged | `resume:202` |
+| `peer-mail-regressions` › peer mail adversarial regressions › F8 reading a symlinked inbox is refused without marking read | `peer-mail-hardening:138` (now in `peer-mail`) — twin strengthened in `f3909cb` to assert the message behind the link is unchanged |
+| `peer-mail` › bounded peer mail › budget configuration stays out of every driver's launch and resume environment | `peer-mail-regressions:176` (now in `peer-mail`) |
+| `peer-mail` › bounded peer mail › invalid budget  uses the same fallback as nesting limits | `peer-mail-regressions:160,326` (now in `peer-mail`) (AHELPA_MAIL_BUDGET params are inert in mail( |
+| `peer-mail` › bounded peer mail › invalid budget -1 uses the same fallback as nesting limits | `peer-mail-regressions:160,326` (now in `peer-mail`) (AHELPA_MAIL_BUDGET params are inert in mail( |
+| `peer-mail` › bounded peer mail › invalid budget 0 uses the same fallback as nesting limits | `peer-mail-regressions:160,326` (now in `peer-mail`) (AHELPA_MAIL_BUDGET params are inert in mail( |
+| `peer-mail` › bounded peer mail › invalid budget garbage uses the same fallback as nesting limits | `peer-mail-regressions:160,326` (now in `peer-mail`) (AHELPA_MAIL_BUDGET params are inert in mail( |
+| `pi-driver` › – › Pi is registered | `model-named-drivers:28` |
+| `pr6-reservation-edges` › PR6 crashed startup reconciliation › startup lease is the documented finite three minutes | `pr6-reservation-edges:363` (now in `launch-reservation`) |
+| `pr6-reservation-edges` › PR6 launch publication compare-and-set › a foreign launcher cannot publish a running reservation | `pr6-reservation-edges:267` (now in `launch-reservation`) |
+| `refresh` › refreshSessionStatuses › captures agent resume token after graceful exit enters draining | `daemon-recovery:512` (claude case |
+| `refresh` › refreshSessionStatuses › does not reclaim a recent draining session after daemon restart | `daemon-recovery:572` |
+| `refresh` › refreshSessionStatuses › preserves settled sessions whose tmux session has gone away | `refresh-snapshot:36` (now in `refresh`) |
+| `refresh` › refreshSessionStatuses › retains a token captured in the same draining refresh that reclaims tmux | `daemon-recovery:512` (kimi case |
+| `resume` › extractResumeToken › kimi extracts resume ID after the first message | `kimi-driver:154` |
+| `settle-aba` › settle observed row version › a normal refresh settles, archives, notifies and records exactly once | `need-help-ledger:54` |
+| `state` › StateDB › drops the legacy tmux_session column from existing databases | `state-migration:48` (now in `state`) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge ASCII spinner with timer | `accepts-input` › accepted Stop still refuses ASCII spinner with timer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge column-zero permission cursor | `accepts-input` › accepted Stop still refuses column-zero permission cursor (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge cursorless allow prompt | `accepts-input` › accepted Stop still refuses cursorless allow prompt (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge cursorless cancellation footer | `accepts-input` › accepted Stop still refuses cursorless cancellation footer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge cursorless numbered menu | `accepts-input` › accepted Stop still refuses cursorless numbered menu (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge cursorless permission overlay | `accepts-input` › accepted Stop still refuses cursorless permission overlay (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge cursorless permission prompt | `accepts-input` › accepted Stop still refuses cursorless permission prompt (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge cursorless selection footer | `accepts-input` › accepted Stop still refuses cursorless selection footer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge dot spinner frame | `accepts-input` › accepted Stop still refuses dot spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge draft composer | `accepts-input` › accepted Stop still refuses draft composer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge iconless ASCII spinner | `accepts-input` › accepted Stop still refuses iconless ASCII spinner (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge iconless ASCII spinner with timer | `accepts-input` › accepted Stop still refuses iconless ASCII spinner with timer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge iconless Unicode spinner | `accepts-input` › accepted Stop still refuses iconless Unicode spinner (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge iconless Unicode spinner with timer | `accepts-input` › accepted Stop still refuses iconless Unicode spinner with timer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge indented empty cursor | `accepts-input` › accepted Stop still refuses indented empty cursor (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge interrupt hint anywhere | `accepts-input` › accepted Stop still refuses interrupt hint anywhere (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge no composer | `accepts-input` › accepted Stop still refuses no composer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge question menu | `accepts-input` › accepted Stop still refuses question menu (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge spinner above newer tool bullet | `accepts-input` › accepted Stop still refuses spinner above newer tool bullet (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge spinner without ellipsis or timer | `accepts-input` › accepted Stop still refuses spinner without ellipsis or timer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge spinner without ellipsis with timer | `accepts-input` › accepted Stop still refuses spinner without ellipsis with timer (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless spinner | `accepts-input` › accepted Stop still refuses timerless ✻ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless · spinner frame | `accepts-input` › accepted Stop still refuses timerless · spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✢ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✢ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✳ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✳ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✵ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✵ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✶ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✶ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✷ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✷ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✸ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✸ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✹ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✹ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✺ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✺ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✻ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✻ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge timerless ✽ spinner frame | `accepts-input` › accepted Stop still refuses timerless ✽ spinner frame (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge workspace trust | `accepts-input` › accepted Stop still refuses workspace trust (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › hook cannot nudge wrapped interrupt hint | `accepts-input` › accepted Stop still refuses wrapped interrupt hint (driver level; the daemon wiring stays proven on 2 panes in turn-hook-daemon) |
+| `turn-hook-readiness` › daemon uses hook readiness only for current accepted events › row-version change during capture still prevents the hook-aware nudge | `turn-hook-daemon:173` |
+| `turn-hook-readiness` › hook-aware driver readiness › accepted Stop still refuses timerless spinner | `accepts-input` › accepted Stop still refuses timerless ✻ spinner frame (byte-identical pane) |
+| `turn-hooks` › driver hook launch and resume › Claude helper settings disable prompt suggestions | `turn-hooks:213` |
+
+**New and rewritten tests, each shown to fail under its mutant.** Method: in a scratch copy of the tree, replace the text in the source file, run `bun test ./tests/<file> -t '<test name>'` (must fail), restore, run it again (must pass).
+
+| Test | Mutant | With mutant | Restored | Commit |
+| --- | --- | --- | --- | --- |
+| `status` › shows nesting depth and parent session in the status view | `session-ops.ts`: `String(nesting.depth)` → `String(0)` | 0 pass, 1 fail (exit 1) | 1 pass (exit 0) | `9c9b675` |
+| same | `session-ops.ts`: `(nesting.parentSessionId \|\| "-")` → `"-"` | 0 pass, 1 fail (exit 1) | 1 pass (exit 0) | `9c9b675` |
+| `turn-hooks` › a failed turn earlier in the same batch wins over a later ordinary stop | `turn-hooks.ts`: `if (event?.event !== "stop_failure") event = next;` → `event = next;` | 0 pass, 1 fail (exit 1) | 1 pass (exit 0) | `4c99fa1` |
+| `session-ops` › send types the normalized message for a hook-capable helper only (codex, kimi) | `session-ops.ts`: `if (getHarnessDriver(session.agentType).turnHooks)` → `if (!…)` | 0 pass, 2 fail (exit 1) | 2 pass (exit 0) | `c856d73` |
+| `refresh` › a finished helper is reclaimed once the drain timeout has passed since its graceful exit | `daemon.ts`: `if (db.compareAndSetStatus(…Idle, …Draining))` → `if (!…)` | 0 pass, 1 fail (exit 1) | 1 pass (exit 0) | `5066a6a` |
+| `refresh` › a launch that takes over the row drops its half-confirmed Codex capacity stop | `daemon.ts`: `status !== Running \|\| session.launchPid` → `&&` | 0 pass, 1 fail (exit 1) | 1 pass (exit 0) | `29ca295` |
+| `codex-readiness` › codex detects an unsupported ChatGPT-account model request (2 cases), now asserting the full outcome | `codex.ts`: unsupported-model outcome `needHelpTags: null` → `[]` | 0 pass, 2 fail (exit 1) | 2 pass (exit 0) | `f3909cb` |
+| `peer-mail` › reading refuses swapped symlink component (4 cases), now asserting the message is unchanged | `peer-mail.ts` `inbox()`: write `""` to the message path before the directory check | 0 pass, 4 fail (exit 1; received `""`, expected `"private note"`) | 4 pass (exit 0) | `f3909cb` |
+| `refresh` › a capture failure settles a row the snapshot still lists once tmux is gone (restored) | `daemon.ts`: settle only if the stale snapshot also lacks the row | 0 pass, 1 fail (exit 1) | 1 pass (exit 0) | `f3909cb` |
+
+Each proof was run twice, by the author of the test and again independently.
+
+**Commits** (all on `claude/test-ablation-4cf49b`, not pushed): deletions `de8c4ee`, `a552d8a`, `8f3d53c`; merges `19e55f2`, `bc9d3b1`, `2c483cf`, `ac84407`, `59a1915`, `291025e`, `060a67c`, `6ad9489`, `8e8af3f`; rewrites `214e795`, `5bfbace`, `8d271ac`, `9c9b675`; new tests `4c99fa1`, `c856d73`, `5066a6a`, `29ca295`; data and runner `cb8e6ca`; fixes from the blind review `f3909cb`.
+
+**Skipped, and why.**
+- Next round (files another session owns this round): delete `daemon-recovery:658` and `review-fingerprint-lifecycle:72`; move `review-fingerprint-lifecycle` test 1 into `review-fingerprint-bounds`; `codex-folder-trust` into `launch`.
+- Not done (optional), after the owner narrowed the round: the model-catalog and polling-budget rewrites; five missing tests (legacy Codex trust prompt, `inbox --read 0`, a root session's null parent, no `writerConflict` key without a conflict, `Archive.reasonFor`); the five daemon `continue` statements.
+- Corrected: two audit "gaps" (`evidence.ts:151`, `evidence.ts:120/133`) are covered by existing tests; see Missing tests.
+
+**Kept in the repository:** `scripts/mutation-ablation.ts` (builds the per-line coverage map and runs mutants in a throwaway copy) and, beside this file, `base-table.tsv`, `conclusions.tsv`, `kill-matrix.tsv` (all 835 mutants: which files failed), `deletions.tsv` and `before-after-names.tsv`. The 39 MB of scratch (coverage reports, copies) were not kept.
+
+**Blind review.** A `codex` reviewer (`codex-b745d6aecec8`) received only the deletion table, the proof list and the commits, on a frozen clone. Verdict: of the 75 removals, 72 keep their guard and 3 had lost part of it (all P2), and all 6 mutant proofs reproduce (exit 1 with the mutant on the target assertion, exit 0 restored). The three were fixed in `f3909cb` and each fix was proven against the reviewer's own mutant:
+- `driver-outcome:97` (unsupported-model error without inherited help tags): its twin checked only the status; it now asserts the full outcome. Without that, an outcome with `needHelpTags: []` would make the daemon log an ordinary model error as a NEED_HELP event.
+- `peer-mail-regressions:275` (symlinked inbox read): its twin did not check that the message behind the link stays unchanged; it now does.
+- `refresh-snapshot:107` (capture failure with a stale but successful snapshot): its twin covers only the snapshot-failure path; the test is restored in `refresh.test.ts`.
 
 ## Answer
 
@@ -134,48 +257,44 @@ Columns: tests and seconds from the baseline run; covered and exclusive `src/` l
 
 ## Delete: duplicate tests
 
-- [ ] Delete the 36 tests in the table below; keep the three listed after it.
+Status: 34 of the 36 deleted on 2026-11-19 (commits `de8c4ee`, `a552d8a`, `8f3d53c`); 1 of those restored after the blind review (`f3909cb`); the two in files another session owns this round wait for the next round. Each line: the test, the test that already asserts it, the blind reviewer's verdict.
 
-Each row repeats the covering test on the same source branch. "Lines" counts the test's own lines. The last column is the blind reviewer's verdict; "(mutation)" marks rows it settled by mutating the source.
-
-| Test | Name | Lines | Covered by | Reviewer |
-| --- | --- | ---: | --- | --- |
-| `drivers:56` | codex danger mode includes bypass flag by default | 5 | codex-driver:11 | delete-ok |
-| `codex-driver:5` | codex driver exists | 5 | model-named-drivers:28,125 | delete-ok |
-| `pi-driver:27` | Pi is registered | 1 | model-named-drivers:28 | delete-ok |
-| `launch-profiles:98` | native %s resume still leaves unspecified model and effort unchanged | 6 | resume:202 | delete-ok |
-| `drivers:101` | codex hooks trust screens trigger an escape | 9 | codex-readiness:177,198,345 | delete-ok |
-| `driver-protocol:555` | codex skips the 0.160 update menu and never mistakes it for the input prompt | 16 | codex-readiness:46,66,133 | delete-ok |
-| `driver-protocol:572` | codex keeps waiting past an unknown numbered menu instead of typing into it | 9 | codex-readiness:89,104 | delete-ok (mutation) |
-| `driver-protocol:793` | codex switches model through model and reasoning menus | 28 | codex-model-switch:29 + codex-readiness:211 | delete-ok |
-| `driver-protocol:620` | claude-code %s fails fast without typing into the workspace safety dialog | 23 | driver-protocol:371,277 | delete-ok |
-| `driver-protocol:970` | codex ignores NEED_HELP from an earlier turn | 6 | driver-outcome:20 | delete-ok |
-| `resume:40` | kimi extracts resume ID after the first message | 6 | kimi-driver:154 | delete-ok |
-| `driver-outcome:97` | Codex unsupported-model error does not inherit older help tags | 15 | codex-driver:31 | delete-ok (mutation) |
-| `kimi-driver:553` | detects Kimi Code bullet sentinels | 6 | driver-outcome:36-51 | delete-ok (mutation) |
-| `kimi-driver:574` | ignores a historical NEED_HELP after intervention resumes the same turn | 11 | driver-outcome:113 | delete-ok |
-| `kimi-driver:323` | accepts resumed generation above the persistent composer within the same turn | 8 | kimi-driver:298 | delete-ok |
-| `kimi-driver:387` | does not accept an unchanged retained approval and DONE as a new turn | 21 | kimi-driver:336 | delete-ok (mutation) |
-| `kimi-driver:435` | does not accept an unchanged attention panel without newer generation | 20 | kimi-driver:336 | delete-ok |
-| `kimi-driver:226` | resume readiness ignores settled historical tool use before a newer prompt | 16 | kimi-driver:210 | delete-ok (mutation) |
-| `peer-mail-regressions:275` | F8 reading a symlinked inbox is refused without marking read | 10 | peer-mail-hardening:138 | delete-ok |
-| `peer-mail:304` | budget configuration stays out of every driver's launch and resume environment | 20 | peer-mail-regressions:176 | delete-ok |
-| `peer-mail:138` | invalid budget %s uses the same fallback as nesting limits | 5 | peer-mail-regressions:160,326 (AHELPA_MAIL_BUDGET params are inert in mail()) | delete-ok |
-| `pr6-reservation-edges:359` | startup lease is the documented finite three minutes | 3 | pr6-reservation-edges:363 | delete-ok |
-| `pr6-reservation-edges:279` | a foreign launcher cannot publish a running reservation | 5 | pr6-reservation-edges:267 | delete-ok |
-| `settle-aba:175` | a normal refresh settles, archives, notifies and records exactly once | 13 | need-help-ledger:54 | delete-ok (mutation) |
-| `daemon-recovery:658` | kill propagates failures when the terminal remains alive | 9 | kill-archive-races:136 | delete-ok |
-| `daemon-start:65` | does not duplicate the binary path for a real compiled-binary argv | 16 | daemon-start:51 | delete-ok (mutation) |
-| `turn-hooks:199` | Claude helper settings disable prompt suggestions | 7 | turn-hooks:213 | delete-ok |
-| `state:113` | drops the legacy tmux_session column from existing databases | 33 | state-migration:48 | delete-ok |
-| `refresh:26` | preserves settled sessions whose tmux session has gone away | 10 | refresh-snapshot:36 | delete-ok |
-| `refresh:50` | retains a token captured in the same draining refresh that reclaims tmux | 17 | daemon-recovery:512 (kimi case) | delete-ok |
-| `refresh:68` | does not reclaim a recent draining session after daemon restart | 14 | daemon-recovery:572 | delete-ok |
-| `refresh:96` | captures agent resume token after graceful exit enters draining | 18 | daemon-recovery:512 (claude case) | delete-ok (mutation) |
-| `kimi-refresh:50` | flags a sustained Kimi approval prompt as needs_attention | 23 | daemon-wake:70 | delete-ok |
-| `refresh-snapshot:107` | a capture failure settles a row the snapshot still lists once tmux is gone | 12 | daemon-recovery:585 | delete-ok (mutation) |
-| `turn-hook-readiness:132` | row-version change during capture still prevents the hook-aware nudge | 7 | turn-hook-daemon:173 | delete-ok |
-| `review-fingerprint-lifecycle:72` | escaped descendant holding stdout cannot prolong fingerprint deadline | 19 | review-fingerprint-bounds (mutant fp-no-cancel confirmed killed twice by bounds) | delete-ok (mutation) |
+- [x] `drivers:56` codex danger mode includes bypass flag by default — covered by `codex-driver:11`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `codex-driver:5` codex driver exists — covered by `model-named-drivers:28,125`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `pi-driver:27` Pi is registered — covered by `model-named-drivers:28`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `launch-profiles:98` native %s resume still leaves unspecified model and effort unchanged — covered by `resume:202`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `drivers:101` codex hooks trust screens trigger an escape — covered by `codex-readiness:177,198,345`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `driver-protocol:555` codex skips the 0.160 update menu and never mistakes it for the input prompt — covered by `codex-readiness:46,66,133`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `driver-protocol:572` codex keeps waiting past an unknown numbered menu instead of typing into it — covered by `codex-readiness:89,104`; reviewer delete-ok (mutation). Deleted in `de8c4ee`.
+- [x] `driver-protocol:793` codex switches model through model and reasoning menus — covered by `codex-model-switch:29 + codex-readiness:211`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `driver-protocol:620` claude-code %s fails fast without typing into the workspace safety dialog — covered by `driver-protocol:371,277`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `driver-protocol:970` codex ignores NEED_HELP from an earlier turn — covered by `driver-outcome:20`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `resume:40` kimi extracts resume ID after the first message — covered by `kimi-driver:154`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `driver-outcome:97` Codex unsupported-model error does not inherit older help tags — covered by `codex-driver:31`; reviewer delete-ok (mutation). Deleted in `de8c4ee`. Twin strengthened in `f3909cb` after the blind review.
+- [x] `kimi-driver:553` detects Kimi Code bullet sentinels — covered by `driver-outcome:36-51`; reviewer delete-ok (mutation). Deleted in `de8c4ee`.
+- [x] `kimi-driver:574` ignores a historical NEED_HELP after intervention resumes the same turn — covered by `driver-outcome:113`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `kimi-driver:323` accepts resumed generation above the persistent composer within the same turn — covered by `kimi-driver:298`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `kimi-driver:387` does not accept an unchanged retained approval and DONE as a new turn — covered by `kimi-driver:336`; reviewer delete-ok (mutation). Deleted in `de8c4ee`.
+- [x] `kimi-driver:435` does not accept an unchanged attention panel without newer generation — covered by `kimi-driver:336`; reviewer delete-ok. Deleted in `de8c4ee`.
+- [x] `kimi-driver:226` resume readiness ignores settled historical tool use before a newer prompt — covered by `kimi-driver:210`; reviewer delete-ok (mutation). Deleted in `de8c4ee`.
+- [x] `peer-mail-regressions:275` F8 reading a symlinked inbox is refused without marking read — covered by `peer-mail-hardening:138`; reviewer delete-ok. Deleted in `a552d8a`. Twin strengthened in `f3909cb` after the blind review.
+- [x] `peer-mail:304` budget configuration stays out of every driver's launch and resume environment — covered by `peer-mail-regressions:176`; reviewer delete-ok. Deleted in `a552d8a`.
+- [x] `peer-mail:138` invalid budget %s uses the same fallback as nesting limits — covered by `peer-mail-regressions:160,326 (AHELPA_MAIL_BUDGET params are inert in mail())`; reviewer delete-ok. Deleted in `a552d8a`.
+- [x] `pr6-reservation-edges:359` startup lease is the documented finite three minutes — covered by `pr6-reservation-edges:363`; reviewer delete-ok. Deleted in `a552d8a`.
+- [x] `pr6-reservation-edges:279` a foreign launcher cannot publish a running reservation — covered by `pr6-reservation-edges:267`; reviewer delete-ok. Deleted in `a552d8a`.
+- [x] `settle-aba:175` a normal refresh settles, archives, notifies and records exactly once — covered by `need-help-ledger:54`; reviewer delete-ok (mutation). Deleted in `a552d8a`.
+- [ ] `daemon-recovery:658` kill propagates failures when the terminal remains alive — covered by `kill-archive-races:136`; reviewer delete-ok. Next round: another session owns `daemon-recovery.test.ts` this round.
+- [x] `daemon-start:65` does not duplicate the binary path for a real compiled-binary argv — covered by `daemon-start:51`; reviewer delete-ok (mutation). Deleted in `8f3d53c`.
+- [x] `turn-hooks:199` Claude helper settings disable prompt suggestions — covered by `turn-hooks:213`; reviewer delete-ok. Deleted in `8f3d53c`.
+- [x] `state:113` drops the legacy tmux_session column from existing databases — covered by `state-migration:48`; reviewer delete-ok. Deleted in `8f3d53c`.
+- [x] `refresh:26` preserves settled sessions whose tmux session has gone away — covered by `refresh-snapshot:36`; reviewer delete-ok. Deleted in `8f3d53c`.
+- [x] `refresh:50` retains a token captured in the same draining refresh that reclaims tmux — covered by `daemon-recovery:512 (kimi case)`; reviewer delete-ok. Deleted in `8f3d53c`.
+- [x] `refresh:68` does not reclaim a recent draining session after daemon restart — covered by `daemon-recovery:572`; reviewer delete-ok. Deleted in `8f3d53c`.
+- [x] `refresh:96` captures agent resume token after graceful exit enters draining — covered by `daemon-recovery:512 (claude case)`; reviewer delete-ok (mutation). Deleted in `8f3d53c`.
+- [x] `kimi-refresh:50` flags a sustained Kimi approval prompt as needs_attention — covered by `daemon-wake:70`; reviewer delete-ok. Deleted in `8f3d53c`.
+- [x] `refresh-snapshot:107` a capture failure settles a row the snapshot still lists once tmux is gone — covered by `daemon-recovery:585`; reviewer delete-ok (mutation). Deleted in `8f3d53c`, restored in `f3909cb`: the blind review showed its twin covers only the snapshot-failure path, not a stale but successful snapshot.
+- [x] `turn-hook-readiness:132` row-version change during capture still prevents the hook-aware nudge — covered by `turn-hook-daemon:173`; reviewer delete-ok. Deleted in `8f3d53c`.
+- [ ] `review-fingerprint-lifecycle:72` escaped descendant holding stdout cannot prolong fingerprint deadline — covered by `review-fingerprint-bounds (mutant fp-no-cancel confirmed killed twice by bounds)`; reviewer delete-ok (mutation). Next round: another session owns `review-fingerprint-lifecycle.test.ts` this round.
 
 Proposed but kept after review (each is the only test that catches a mutant of its branch; the reviewer's mutations B, M and H, H reproduced independently):
 
@@ -189,42 +308,42 @@ Assertion-level overlaps also exist inside larger tests (for example `vibe-drive
 
 Merging keeps every test and removes the per-file imports, setup and copied fixtures (6 copies of a `gate()` helper, 8 hand-written `DriverRuntime` stubs). Keep distinct setups as nested `describe` blocks; Bun applies top-level hooks to every block in a file.
 
-- [ ] `peer-mail-hardening`, `peer-mail-regressions`, `peer-mail-stack` → `peer-mail.test.ts`. The stack tests need the daemon stopped (own `beforeEach`). `peer-mail:357/388` (relationship labels) fit better in `check`/`status`; `peer-mail:325/337` (help text, handoff text) in `command-contract`/`file-handoff`.
-- [ ] `kill-tree-rework`, `kill-archive-races`, `kill-nonsettle-races` → `kill-tree.test.ts` (rename `kill.test.ts`); keep the two setup families (spies on layout methods versus `Object.assign` on the layout).
-- [ ] New `launch-reservation.test.ts` from `kill-tree-rollback`, `kill-tree-rework:57`, `pr6-reservation-edges:94-264` and the reservation and quota tests of `pr6-guardrails`; then `pr6-reservation-edges:267-308` → `state`, its clean tests and `pr6-guardrails`' → `clean`, `pr6-reservation-edges:347-382` (startup lease) → `refresh`, `pr6-guardrails:88-116, 428-467` → `job`. Both `pr6-*` files disappear.
-- [ ] `refresh-snapshot`, `kimi-refresh:28` → `refresh.test.ts` (keep separate describes: in-memory DB with mocked layout versus file DB with the real layout).
-- [ ] `state-version`, `state-migration` → `state.test.ts` (three describes: CRUD, migrations, cross-process versions).
-- [ ] `turn-hook*` 8 → 3: `turn-hooks` takes `turn-hook-safety` and `turn-hook-subagents` (keep the subagents file's `CODEX_HOME`/`TZ` isolation in a scoped describe); `turn-hooks-launch` joins the driver-launch describe of `turn-hooks`; `turn-hook-attribution` and the daemon half of `turn-hook-readiness` → `turn-hook-daemon`; its driver half → `accepts-input`. `turn-delivery` stays.
-- [ ] `codex-*` 7 → 4: `codex-driver` → `codex-readiness` (plus the codex half of `driver-protocol`, :433-580); `codex-model-switch` → `codex-config`; `codex-folder-trust` → `launch`. `codex-capabilities`, `codex-capacity`, `codex-config`, `codex-readiness` stay.
-- [ ] `review-ask-lineage` → `review-target`; `review-fingerprint-lifecycle` test 1 → `review-fingerprint-bounds`.
+- [x] `peer-mail-hardening`, `peer-mail-regressions`, `peer-mail-stack` → `peer-mail.test.ts`. The stack tests need the daemon stopped (own `beforeEach`). `peer-mail:357/388` (relationship labels) fit better in `check`/`status`; `peer-mail:325/337` (help text, handoff text) in `command-contract`/`file-handoff`. Done in `19e55f2` (100 tests); the optional moves of single tests to `check`/`status`/`command-contract`/`file-handoff` were not done.
+- [x] `kill-tree-rework`, `kill-archive-races`, `kill-nonsettle-races` → `kill-tree.test.ts` (rename `kill.test.ts`); keep the two setup families (spies on layout methods versus `Object.assign` on the layout). Done in `2c483cf` as `kill.test.ts` (73 tests), including `kill-tree-rework:57`.
+- [x] New `launch-reservation.test.ts` from `kill-tree-rollback`, `kill-tree-rework:57`, `pr6-reservation-edges:94-264` and the reservation and quota tests of `pr6-guardrails`; then `pr6-reservation-edges:267-308` → `state`, its clean tests and `pr6-guardrails`' → `clean`, `pr6-reservation-edges:347-382` (startup lease) → `refresh`, `pr6-guardrails:88-116, 428-467` → `job`. Both `pr6-*` files disappear. Done differently in `59a1915`: all of `pr6-guardrails`, `pr6-reservation-edges` and `kill-tree-rollback` went into `launch-reservation.test.ts` (68 tests), one describe per source file, because the split by module would have copied their shared fixtures into four files.
+- [x] `refresh-snapshot`, `kimi-refresh:28` → `refresh.test.ts` (keep separate describes: in-memory DB with mocked layout versus file DB with the real layout). Done in `bc9d3b1` (14 tests).
+- [x] `state-version`, `state-migration` → `state.test.ts` (three describes: CRUD, migrations, cross-process versions). Done in `ac84407` (16 tests).
+- [x] `turn-hook*` 8 → 3: `turn-hooks` takes `turn-hook-safety` and `turn-hook-subagents` (keep the subagents file's `CODEX_HOME`/`TZ` isolation in a scoped describe); `turn-hooks-launch` joins the driver-launch describe of `turn-hooks`; `turn-hook-attribution` and the daemon half of `turn-hook-readiness` → `turn-hook-daemon`; its driver half → `accepts-input`. `turn-delivery` stays. Done in `060a67c`.
+- [ ] `codex-*` 7 → 4: `codex-driver` → `codex-readiness` (plus the codex half of `driver-protocol`, :433-580); `codex-model-switch` → `codex-config`; `codex-folder-trust` → `launch`. `codex-capabilities`, `codex-capacity`, `codex-config`, `codex-readiness` stay. Partly done: `6ad9489` (codex-driver → codex-readiness, codex-model-switch → codex-config) and `8e8af3f` (the codex half of driver-protocol → codex-readiness). `codex-folder-trust` → `launch` is left to the session that owns `launch.test.ts`.
+- [ ] `review-ask-lineage` → `review-target`; `review-fingerprint-lifecycle` test 1 → `review-fingerprint-bounds`. `review-ask-lineage` → `review-target` done in `291025e`. Next round: `review-fingerprint-lifecycle` test 1 (another session owns that file this round).
 
 Per-vendor driver files (`agy`, `pi`, `vibe`, `kimi`) are not merged: each is the only coverage of its driver. Share their copied runtime stub instead.
 
 ## Rewrite
 
-- [ ] `status.test.ts:25` claims "shows nesting depth and parent session" but only checks header words and IDs that appear in the first column anyway; mutants that print depth 0 or hide the parent survive it. Assert the child row's depth and parent columns.
-- [ ] Model catalogs and defaults are pinned as literals in `command-contract` (:56-95, :108-109), `launch-profiles`, `model-named-drivers` (:84-96), `codex-model-switch:166` (the same Codex effort list as `command-contract:61-67`) and `vibe-driver:92-96`. Since 2026-10-19 four default or catalog changes (`5acc0b1`, `4a155cb`, `298584e`, `c9bc81a`) forced about 8 test edits across 5 files. Assert each default once per driver, and elsewhere check structure (the default model is in its own catalog; the default effort is allowed for that model). Cost: a literal guard against an accidental default change remains only in one place.
-- [ ] `turn-hook-readiness` runs the same 37 blocked panes through the driver (:53-57) and again through the daemon (:116-124); the daemon half only needs to show the wiring, so one or two panes suffice (about 35 fewer tests at run time). Two table entries are byte-identical (:27 and :45).
-- [ ] `file-handoff:224-226` pins whole contract sentences that the keyword checks of the same test (:212-222) already cover.
-- [ ] `review-ask-lineage:14` copies the source message text instead of importing it.
-- [ ] Polling budgets (capture counts, sleep totals) are pinned in six driver files (for example `driver-protocol:447-502`, `kimi-driver:206/341`, `codex-readiness:277`), so a cadence change touches six files.
+- [x] `status.test.ts:25` claims "shows nesting depth and parent session" but only checks header words and IDs that appear in the first column anyway; mutants that print depth 0 or hide the parent survive it. Assert the child row's depth and parent columns. Done in `9c9b675`; both mutants now fail it (see the round-2 proofs).
+- [ ] Model catalogs and defaults are pinned as literals in `command-contract` (:56-95, :108-109), `launch-profiles`, `model-named-drivers` (:84-96), `codex-model-switch:166` (the same Codex effort list as `command-contract:61-67`) and `vibe-driver:92-96`. Since 2026-10-19 four default or catalog changes (`5acc0b1`, `4a155cb`, `298584e`, `c9bc81a`) forced about 8 test edits across 5 files. Assert each default once per driver, and elsewhere check structure (the default model is in its own catalog; the default effort is allowed for that model). Cost: a literal guard against an accidental default change remains only in one place. Not done (optional): the owner narrowed this round to deletions, `status` and the most valuable missing tests; a half-done attempt was reverted.
+- [x] `turn-hook-readiness` runs the same 37 blocked panes through the driver (:53-57) and again through the daemon (:116-124); the daemon half only needs to show the wiring, so one or two panes suffice (about 35 fewer tests at run time). Two table entries are byte-identical (:27 and :45). Done in `214e795`: 35 daemon-level tests and the duplicate entry removed (36 tests).
+- [x] `file-handoff:224-226` pins whole contract sentences that the keyword checks of the same test (:212-222) already cover. Done in `8d271ac` for :224-225; :226 stays because it is the only check that the refusal is written before the signal, the order the test name claims.
+- [x] `review-ask-lineage:14` copies the source message text instead of importing it. Done in `5bfbace` (imports `ORIGINAL_ASK_UNAVAILABLE`).
+- [ ] Polling budgets (capture counts, sleep totals) are pinned in six driver files (for example `driver-protocol:447-502`, `kimi-driver:206/341`, `codex-readiness:277`), so a cadence change touches six files. Not done (optional).
 
 ## Missing tests
 
 A mutant listed here survived every test file that covers its line. The `status` columns are listed under Rewrite. Mutants that only change a log line, a cache size, a padding width, or remove a second copy of a check that is made twice were judged equivalent and are not listed.
 
-- [ ] `turn-hooks.ts:165` — when one batch of hook events holds a `stop_failure` and a later `stop`, the failure must win ("an error in this batch takes precedence"). Making the last event win survives every test.
-- [ ] `commands/session-ops.ts:80` — `send` to a hook-capable helper must normalize the message, so the next turn hook is attributed to it and the fast path is used. Inverting the condition survives.
-- [ ] `daemon.ts:374` — after `[AHELPA:DONE]` and the graceful exit, a successful idle → draining compare-and-set must start the drain timer (`drainingAt`) that later reclaims the terminal. Inverting the condition (the timer starts only when the CAS fails) survives.
-- [ ] `daemon.ts:226` — a pending capacity or usage-limit confirmation must be dropped once the row leaves `running` or a launch owns it again. Requiring both conditions survives.
-- [ ] `drivers/codex.ts:21` — the older Codex trust prompt ("Do you trust the contents of this directory?") on its own; every test screen also carries "Press enter to continue".
-- [ ] `evidence.ts:151` — the fingerprint repository cap (`maxRepositories`) is never reached; removing the check survives `review-fingerprint-bounds`.
-- [ ] `evidence.ts:120`, `:133` — a git call that reaches the deadline while reading must mark the fingerprint incomplete; both mutants that drop the `timedOut` flag survive (the existing deadline test hits the earlier check at `:150`).
-- [ ] `commands/peer-mail.ts:214` — `inbox --read 0` and a non-integer sequence must be refused.
-- [ ] `nesting.ts:79` — a root session's `parentSessionId` is `null`, not `undefined`.
-- [ ] `commands/launch.ts:619` — `writerConflict` is absent from the launch result when there is no conflict.
-- [ ] `archive.ts:38` — `Archive.reasonFor` and `Archive.revision` have no direct test; `reasonFor` returning a reason for a running row survives.
-- Unclassified: removing any of five `continue` statements in the daemon poll loop (`daemon.ts:222`, `:245`, `:276`, `:394`, `:401`) survives. Each lets a row fall through to the next stage in the same poll; later stages may re-check status, so some may be harmless. Worth one reading before writing tests.
+- [x] `turn-hooks.ts:165` — when one batch of hook events holds a `stop_failure` and a later `stop`, the failure must win ("an error in this batch takes precedence"). Making the last event win survives every test. Added in `4c99fa1`.
+- [x] `commands/session-ops.ts:80` — `send` to a hook-capable helper must normalize the message, so the next turn hook is attributed to it and the fast path is used. Inverting the condition survives. Added in `c856d73` (two cases: codex and kimi).
+- [x] `daemon.ts:374` — after `[AHELPA:DONE]` and the graceful exit, a successful idle → draining compare-and-set must start the drain timer (`drainingAt`) that later reclaims the terminal. Inverting the condition (the timer starts only when the CAS fails) survives. Added in `5066a6a`.
+- [x] `daemon.ts:226` — a pending capacity or usage-limit confirmation must be dropped once the row leaves `running` or a launch owns it again. Requiring both conditions survives. Added in `29ca295`: the killable case is a launch taking over a running row; when the row leaves `running`, an earlier check in the same poll already drops the entry, so that half of the audit's description was an equivalent mutant.
+- [ ] `drivers/codex.ts:21` — the older Codex trust prompt ("Do you trust the contents of this directory?") on its own; every test screen also carries "Press enter to continue". Not done (optional).
+- [x] `evidence.ts:151` — the fingerprint repository cap (`maxRepositories`) is never reached; removing the check survives `review-fingerprint-bounds`. Not a gap (corrected 2026-11-19): the existing test "submodule node cap marks an incomplete target and evidence omits comparison" fails when the check is removed outright; the audit's negated-`if` mutant was equivalent under that test's cap of 1. No test added.
+- [x] `evidence.ts:120`, `:133` — a git call that reaches the deadline while reading must mark the fingerprint incomplete; both mutants that drop the `timedOut` flag survive (the existing deadline test hits the earlier check at `:150`). Not a gap (corrected 2026-11-19): each line backs up the other, and three existing tests in `review-fingerprint-bounds` fail when both are removed. No test added.
+- [ ] `commands/peer-mail.ts:214` — `inbox --read 0` and a non-integer sequence must be refused. Not done (optional).
+- [ ] `nesting.ts:79` — a root session's `parentSessionId` is `null`, not `undefined`. Not done (optional).
+- [ ] `commands/launch.ts:619` — `writerConflict` is absent from the launch result when there is no conflict. Not done (optional).
+- [ ] `archive.ts:38` — `Archive.reasonFor` and `Archive.revision` have no direct test; `reasonFor` returning a reason for a running row survives. Not done (optional).
+- [ ] Unclassified: removing any of five `continue` statements in the daemon poll loop (`daemon.ts:222`, `:245`, `:276`, `:394`, `:401`) survives. Each lets a row fall through to the next stage in the same poll; later stages may re-check status, so some may be harmless. Worth one reading before writing tests. Not done (optional).
 
 ## Estimated savings
 
@@ -246,6 +365,10 @@ A mutant listed here survived every test file that covers its line. The `status`
 | `glm-56f5e9c87742` | `glm` worker | 26 semantic mutants for the kill and settle path | 22 min | 25 killed; every kill file has a unique or kill-file-only kill; found the `send`-re-arm race no kill file covers (glmA-19) |
 | `glm-ff3630095349` | `glm` worker | 27 semantic mutants for peer mail and launch reservations | 26 min | 27 killed; `pr6-reservation-edges` 0 unique in that batch |
 | `deepseek-e5c1f4098a88` | `deepseek` reviewer | Blind check of the 39 proposed deletions | 7.6 min | 36 delete-ok, 3 keep, 13 mutations; it could not read fix commits because its copy had one squashed commit |
+| 6 Sonnet subagents | round 2, mergers | One merge cluster each: peer-mail, kill, launch reservation, refresh, state, turn-hook | 0.4–2.1 min each | committed; test totals checked per file, all names found again by the before/after comparison |
+| Fable subagent | round 2, merger | Codex merges, then the catalog and polling-budget rewrites | stopped | the two merges were committed (`6ad9489`, `8e8af3f`); stopped during the catalog rewrite when the round was narrowed, its uncommitted edits reverted |
+| Fable subagent | round 2, tests | Missing tests 2–9 of the audit list | 3.7 min | 3 tests committed with proofs; 2 audit gaps shown to be covered already; stopped before the rest when the round was narrowed |
+| `codex-b745d6aecec8` | `codex` reviewer | Blind check of the 75 removals and the 6 mutant proofs | 4.4 min | 72 ok, 3 lost (P2), fixed in `f3909cb`; all 6 proofs reproduced |
 
 ## Not done
 
