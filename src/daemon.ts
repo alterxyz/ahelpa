@@ -469,6 +469,8 @@ export async function refreshSessionStatuses(
 export const POLL_MS = 3000;
 // The hook can fire a moment before the TUI draws the frame that ends the turn.
 const WAKE_GRACE_MS = 250;
+// A daemon whose state is broken must not poll forever; the reason is in daemon.log.
+export const DAEMON_LOOP_MAX_FAILURES = 10;
 
 // Wait up to `ms`, returning early when a turn-end hook writes to the wake
 // pipe. Without the pipe it simply sleeps.
@@ -484,19 +486,32 @@ export async function daemonLoop(db: StateDB): Promise<void> {
   let wakePath: string | undefined = defaultRuntimeLayout.daemonWakePath();
   try { await FIFO.create(wakePath); } catch { wakePath = undefined; }
   let nextPoll = 0;
+  let consecutiveFailures = 0;
   while (true) {
-    const sessions = db.listActiveSessions();
-    if (sessions.length === 0) break; // Auto-exit when no sessions
+    try {
+      const sessions = db.listActiveSessions();
+      if (sessions.length === 0) break; // Auto-exit when no sessions
 
-    if (Date.now() >= nextPoll) {
-      await refreshSessionStatuses(db);
-      nextPoll = Date.now() + POLL_MS;
-    }
-    // A finished turn is read at once instead of up to 3 s later; the full
-    // poll keeps its pace however many hooks fire.
-    if (await waitForWake(wakePath, nextPoll - Date.now())) {
-      await Bun.sleep(WAKE_GRACE_MS);
-      await refreshSessionStatuses(db, undefined, Date.now(), true);
+      if (Date.now() >= nextPoll) {
+        await refreshSessionStatuses(db);
+        nextPoll = Date.now() + POLL_MS;
+      }
+      // A finished turn is read at once instead of up to 3 s later; the full
+      // poll keeps its pace however many hooks fire.
+      if (await waitForWake(wakePath, nextPoll - Date.now())) {
+        await Bun.sleep(WAKE_GRACE_MS);
+        await refreshSessionStatuses(db, undefined, Date.now(), true);
+      }
+      consecutiveFailures = 0;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      consecutiveFailures++;
+      if (consecutiveFailures >= DAEMON_LOOP_MAX_FAILURES) {
+        log(`daemon exiting after ${consecutiveFailures} consecutive loop failures: ${message}`);
+        throw error;
+      }
+      log(`daemon loop failed: ${message}`);
+      await Bun.sleep(POLL_MS);
     }
   }
 }
@@ -574,8 +589,9 @@ export function startDaemon(): void {
     // keeping its descriptor separate preserves traces across log() rotation.
     const pid = spawnDetached(getDaemonLaunchCommand(), defaultRuntimeLayout.daemonStderrLogPath(), daemonSpawnOptions());
     writeFileSync(PID_FILE, String(pid));
-  } catch {
-    // ignore startup errors; caller will observe daemon as stopped
+  } catch (error) {
+    // caller still observes the daemon as stopped; the failure is in daemon.log
+    log(`daemon start failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
