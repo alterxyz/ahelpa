@@ -10,7 +10,7 @@ import { installSkill } from "./commands/install-skill";
 import { doctor } from "./commands/doctor";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, switchModel, interrupt, kill, logs, check, status, clean } from "./commands/session-ops";
-import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon } from "./daemon";
+import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon, daemonBuildWarning } from "./daemon";
 import { HELPER_NAMES, renderNameDirectory } from "./drivers/registry";
 import { SessionAccessError } from "./session-access";
 import { VERSION } from "./version";
@@ -51,6 +51,8 @@ export interface CommandContext {
   positionals: string[];
   flags: ResolvedFlags;
   print(text: string): void;
+  // Optional because hand-built contexts in tests omit it; warnings fall back to console.error.
+  printError?(text: string): void;
 }
 
 export interface CommandContract {
@@ -169,6 +171,11 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       job: { kind: "string" },
     },
     async run(ctx) {
+      // Read before launching: the new hand reads the previous one's result as
+      // soon as its task is submitted, and the previous hand can settle while
+      // launch is still confirming the turn.
+      const after = ctx.flags.strings.after;
+      const afterWasRunning = after !== undefined && ctx.db.getSession(after)?.status === "running";
       const result = await launch({
         db: ctx.db,
         agentType: ctx.positionals[0],
@@ -189,6 +196,13 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
         taskFromFile: Boolean(ctx.flags.strings.file),
       });
       ctx.print(JSON.stringify(result, null, 2));
+      // Warnings go after the JSON so stdout stays a single JSON document.
+      const warn = ctx.printError ?? ((text: string) => console.error(text));
+      const buildWarning = daemonBuildWarning();
+      if (buildWarning !== undefined) warn(buildWarning);
+      if (afterWasRunning) {
+        warn(`warning: --after ${after} was still running when ${result.sessionId} was launched, so ${result.sessionId} may have started before ${after} wrote its result. Wait for ${after} before relying on ${result.sessionId}, or kill ${result.sessionId} and relaunch once ${after} has settled.`);
+      }
     },
   },
   {
@@ -320,11 +334,14 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
     usage: "status",
     description: "List all sessions",
     async run(ctx) {
+      const warn = ctx.printError ?? ((text: string) => console.error(text));
       const daemonRunning = isDaemonRunning();
       if (!daemonRunning) {
         await refreshSessionStatuses(ctx.db);
       }
       ctx.print(status(ctx.db, daemonRunning, resolveParentId()));
+      const buildWarning = daemonBuildWarning();
+      if (buildWarning !== undefined) warn(buildWarning);
     },
   },
   {
@@ -484,7 +501,7 @@ export async function runCli(db: StateDB | undefined, argv: string[], io: CliIO)
     if (!db && !contract.stateless) throw new Error("This command requires the state database");
     // Stateless handlers never access db; retaining the context type keeps
     // stateful handlers' existing DB contract unchanged.
-    return await contract.run({ db: db!, positionals, flags, print: io.print }) ?? 0;
+    return await contract.run({ db: db!, positionals, flags, print: io.print, printError: io.printError }) ?? 0;
   } catch (error) {
     if (error instanceof UsageError) {
       io.printError(error.message);

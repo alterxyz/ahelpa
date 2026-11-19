@@ -57,7 +57,7 @@ session_id=$(echo "$result" | jq -r .sessionId)
 token=$(echo "$result" | jq -r .ownerToken)
 ```
 
-`launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同；若它是 linked git worktree，结果在主 checkout 的 `.ahelpa/<id>/`，不在其下）。请保存 token；所有写操作都需要它。
+`launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同；若它是 linked git worktree，结果在主 checkout 的 `.ahelpa/<id>/`，不在其下）。请保存 token；所有写操作都需要它。`tmuxSession` 总是等于 `sessionId`，并且排在最后，所以 ID 既是第一个字段也是最后一个字段，长结果用 `tail` 看也能看到。
 - `jobId`（可选）：该 helper 所属的 job（见[把多个 hand 归入一个 job](#把多个-hand-归入一个-job)）。
 - `writerConflict`（可选）：同一棵目录树中（物理 project 路径相同，或一个包含另一个）仍在活跃的其他 session，且双方至少有一个不是 `reviewer`。比较前会解析符号链接和文件系统别名，包括 macOS 的 `/tmp` 与 `/private/tmp`；`/` 与所有项目重叠。路径保留文件系统自身的大小写规则，不会统一转成小写。已保存的目录不存在时，会解析最近的现存祖先，并保留缺失部分。每项包含 `sessionId`、`role`、`status` 和 `projectPath`。launch 仍会进行，但 evidence 将无法分辨改动属于谁。除非重叠是有意的，请 kill 其中一个，或改用 `--worktree` 重新 launch。同一棵树中的两个 reviewer 不会被报告，发起本次 launch 的 helper 本身也不会（它负责委派并等待）；`--worktree` 启动的 session 不会产生冲突。
 - `taskWarning`（可选）：`--task` 文本较短且含 `/tmp/`、`/private/tmp/` 或 `scratchpad/` 路径，通常意味着任务引用了可能消失的临时文件。请把内容放进持久文件，改用 `--file`。
@@ -130,7 +130,7 @@ ahelpa launch codex --file ./task.md --scope "src/parser/**,tests/parser/**"
 
 `--scope` 取以逗号分隔、相对项目目录的 glob（用 `--worktree` 时项目目录是 worktree，即整个仓库的检出，所以请写成相对仓库根目录的路径）；请给值加引号，避免被 shell 展开。`*` 不跨路径段，`**` 跨路径段，`?` 和 `[abc]` 可用，匹配区分大小写，点文件也会匹配。不含通配符的条目同时覆盖其下的全部文件，所以 `src/parser` 与 `src/parser/**` 等价；含通配符的条目只按字面匹配，因此 `src/*` 只含 `src` 的直接子项，`*.md` 只匹配顶层 `.md` 文件（`**/*.md` 匹配任意深度），单独的 `*` 只匹配顶层。字面的 `[` 写不出来（反斜杠会被拒绝）：对 `app/[locale]` 这类目录，用 `?` 代替方括号（`app/?locale?/**`）。`launch` 会拒绝空条目、绝对路径或 `~` 路径、`..`、`.` 和空的路径段、控制字符（含行分隔符）、反斜杠、花括号和开头的 `!`（逗号用来分隔 glob，所以不支持花括号展开和取反）、超过 500 个字符的值，以及 `--scope` 与 `--role reviewer` 同用。范围会写入任务文件合同（"Scope: ... Changes outside it are reported to the host as out of scope."），`resume` 沿用，`check` 会逐个 session 列出它。这是供你判断的证据，不是沙箱：不拦截任何改动，也不会让 session 失败。`wait` 把范围之外的改动列在 `evidence.outOfScopeChanges`（见[读取结果](#读取结果)）。
 
-用 `--after <id>` 串联前后手。新任务文件开头会加一段 `## ahelpa previous hand`。显式指定 `--role reviewer` 时默认盲审：只提供上一手的 `ask.md` 路径和 diff 目标（上一手的 base commit，缺失时使用当前 HEAD，以及本次 launch 的目标指纹），不提供其完整 `task.md`、`summary.md`、`artifacts/` 路径。`ask.md` 只包含 host 写入的任务正文和后续任务，不含自动生成的交接、合同、信号或结果路径段。旧 session 没有 `ask.md` 时，交接会明确说明原始任务不可用，不会退回 `task.md`。Reviewer 从任务要求和代码形成结论；host 在收到结论后，再与作者的声称对照。Reviewer 确实需要上一手的说明时，加 `--unblind` 恢复完整 task、summary 和 artifacts 路径。未指定 `--role reviewer` 时，`--unblind` 会被拒绝。其他角色保留全部上一手路径，并要求把结论当作“声称”而非事实，因此返工 worker 可以读取审阅结果。单独使用 `--after` 只记录 lineage 和上一手交接，不增加审阅目标或指纹。ID 不存在时 `launch` 报错。关联记录在会话的 `afterId`。
+用 `--after <id>` 串联前后手。新任务文件开头会加一段 `## ahelpa previous hand`。显式指定 `--role reviewer` 时默认盲审：只提供上一手的 `ask.md` 路径和 diff 目标（上一手的 base commit，缺失时使用当前 HEAD，以及本次 launch 的目标指纹），不提供其完整 `task.md`、`summary.md`、`artifacts/` 路径。`ask.md` 只包含 host 写入的任务正文和后续任务，不含自动生成的交接、合同、信号或结果路径段。旧 session 没有 `ask.md` 时，交接会明确说明原始任务不可用，不会退回 `task.md`。Reviewer 从任务要求和代码形成结论；host 在收到结论后，再与作者的声称对照。Reviewer 确实需要上一手的说明时，加 `--unblind` 恢复完整 task、summary 和 artifacts 路径。未指定 `--role reviewer` 时，`--unblind` 会被拒绝。其他角色保留全部上一手路径，并要求把结论当作“声称”而非事实，因此返工 worker 可以读取审阅结果。单独使用 `--after` 只记录 lineage 和上一手交接，不增加审阅目标或指纹。它不等上一手：`launch` 开始时上一手仍是 `running`，`launch` 照常启动，并在 JSON 之后往 stderr 打一行警告，因为新的一手可能在上一手写出结果之前就开工。请先对上一手 `wait`。ID 不存在时 `launch` 报错。关联记录在会话的 `afterId`。
 
 ```bash
 ahelpa launch claude --role reviewer --after "$impl_id" --file ./review.md
@@ -372,7 +372,7 @@ ahelpa check --parent "$id"     # 某个 parent 启动的 session
 ahelpa status
 ```
 
-daemon 未运行时，这两个命令也会先做 inline refresh。`status` 显示 RELATIONSHIP 列，`check` 包含 `relationship`。调用方直接启动的 session 为 `child`，其次是与实际 helper 调用方保存的 job 相同的其他 session（`job peer`），其余为 `other`。`child` 优先于同 job 关系。Host 依据已解析的调用方 ID 显示 `child` 或 `other`。这些标签不授予控制权，也不暴露 owner token。
+daemon 未运行时，这两个命令也会先做 inline refresh。`status` 会写出正在运行的 daemon 的构建：版本、程序路径和一个标记（二进制取它的修改时间；源码运行时取 `src/` 下每个 `.ts` 文件路径和修改时间的哈希），例如 `ahelpa daemon: running (build 0.17.0 <program path> <stamp>)`；构建不符时见 [Daemon 管理](#daemon-管理)。`status` 显示 RELATIONSHIP 列，`check` 包含 `relationship`。调用方直接启动的 session 为 `child`，其次是与实际 helper 调用方保存的 job 相同的其他 session（`job peer`），其余为 `other`。`child` 优先于同 job 关系。Host 依据已解析的调用方 ID 显示 `child` 或 `other`。这些标签不授予控制权，也不暴露 owner token。
 
 ## Capture 终端输出
 
@@ -462,6 +462,8 @@ daemon 会在 `launch` 时自动启动，并在所有 session 结束后退出。
 ahelpa daemon start    # 手动启动
 ahelpa daemon stop     # 手动停止
 ```
+
+正在运行的 daemon 一直用它启动时的构建。`status` 或 `launch` 发现这个构建和当前 CLI 的不同（例如 helper 还在跑时升级了，或者源码 checkout 和已安装的二进制共用一个 `~/.ahelpa`），会往 stderr 打警告，不做任何改动。用 `ahelpa daemon stop && ahelpa daemon start` 重启它；helper 会继续运行，只有监控重启。由早于这项检查的构建启动的 daemon 没有记录构建，显示为 `unknown`。这项检查比较的是路径和修改时间，不是文件内容。
 
 ## 刷新 agent skill
 
