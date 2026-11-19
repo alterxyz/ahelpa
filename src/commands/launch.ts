@@ -624,7 +624,9 @@ export async function executeLaunch(plan: LaunchPlan): Promise<LaunchResult> {
   }
   const taskWarning = tempPointerWarning(plan.input.task, plan.input.taskFromFile);
   if (taskWarning) result.taskWarning = taskWarning;
-  return result;
+  // tmuxSession equals sessionId; printing it last keeps the ID in view after a long writerConflict list.
+  const { tmuxSession, ...rest } = result;
+  return { ...rest, tmuxSession };
 }
 
 export async function launch(input: LaunchInput): Promise<LaunchResult> {

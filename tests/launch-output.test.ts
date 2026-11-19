@@ -80,4 +80,21 @@ describe("launch output", () => {
     expect(code).toBe(0);
     expect(captured.err.join("\n")).not.toContain("still running");
   });
+
+  test("the session ID is printed first and last of the launch JSON", async () => {
+    db.createSession({ id: "writer", parentId: "host", agentType: "codex", task: "w", ownerToken: "tok", projectPath: project });
+
+    const captured: Captured = { out: [], err: [] };
+    const code = await launchCli(captured);
+
+    expect(code).toBe(0);
+    const stdout = captured.out[0].trimEnd();
+    const lines = stdout.split("\n");
+    const parsed = JSON.parse(stdout);
+    expect(parsed.writerConflict).toBeDefined();
+    expect(lines.at(-1)).toBe("}");
+    expect(lines.at(-2)).toContain(`"tmuxSession": "${parsed.sessionId}"`);
+    expect(parsed.tmuxSession).toBe(parsed.sessionId);
+    expect(stdout.indexOf(`"sessionId"`)).toBeLessThan(stdout.indexOf(`"tmuxSession"`));
+  });
 });

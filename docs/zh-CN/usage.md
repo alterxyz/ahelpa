@@ -57,7 +57,7 @@ session_id=$(echo "$result" | jq -r .sessionId)
 token=$(echo "$result" | jq -r .ownerToken)
 ```
 
-`launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同；若它是 linked git worktree，结果在主 checkout 的 `.ahelpa/<id>/`，不在其下）。请保存 token；所有写操作都需要它。
+`launch` 返回 JSON，包含 `sessionId`、`ownerToken`、`tmuxSession` 和 `projectPath`（helper 实际工作的目录；使用 `--worktree` 时与 `--project` 不同；若它是 linked git worktree，结果在主 checkout 的 `.ahelpa/<id>/`，不在其下）。请保存 token；所有写操作都需要它。`tmuxSession` 总是等于 `sessionId`，并且排在最后，所以 ID 既是第一个字段也是最后一个字段，长结果用 `tail` 看也能看到。
 - `jobId`（可选）：该 helper 所属的 job（见[把多个 hand 归入一个 job](#把多个-hand-归入一个-job)）。
 - `writerConflict`（可选）：同一棵目录树中（物理 project 路径相同，或一个包含另一个）仍在活跃的其他 session，且双方至少有一个不是 `reviewer`。比较前会解析符号链接和文件系统别名，包括 macOS 的 `/tmp` 与 `/private/tmp`；`/` 与所有项目重叠。路径保留文件系统自身的大小写规则，不会统一转成小写。已保存的目录不存在时，会解析最近的现存祖先，并保留缺失部分。每项包含 `sessionId`、`role`、`status` 和 `projectPath`。launch 仍会进行，但 evidence 将无法分辨改动属于谁。除非重叠是有意的，请 kill 其中一个，或改用 `--worktree` 重新 launch。同一棵树中的两个 reviewer 不会被报告，发起本次 launch 的 helper 本身也不会（它负责委派并等待）；`--worktree` 启动的 session 不会产生冲突。
 - `taskWarning`（可选）：`--task` 文本较短且含 `/tmp/`、`/private/tmp/` 或 `scratchpad/` 路径，通常意味着任务引用了可能消失的临时文件。请把内容放进持久文件，改用 `--file`。
