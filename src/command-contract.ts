@@ -10,7 +10,7 @@ import { installSkill } from "./commands/install-skill";
 import { doctor } from "./commands/doctor";
 import { wait, DEFAULT_WAIT_TIMEOUT_MS } from "./commands/wait";
 import { send, capture, sendTask, switchModel, interrupt, kill, logs, check, status, clean } from "./commands/session-ops";
-import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon, daemonBuildWarning } from "./daemon";
+import { isDaemonRunning, refreshSessionStatuses, startDaemon, stopDaemon, daemonBuildWarning, runningDaemonBuild } from "./daemon";
 import { HELPER_NAMES, renderNameDirectory } from "./drivers/registry";
 import { SessionAccessError } from "./session-access";
 import { VERSION } from "./version";
@@ -400,8 +400,15 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
     async run(ctx) {
       const sub = ctx.positionals[0];
       if (sub === "start") {
-        startDaemon();
-        ctx.print("daemon started");
+        // A running daemon is left alone, so say so: "started" here once hid a stale build.
+        if (isDaemonRunning()) {
+          ctx.print(`daemon already running (build ${runningDaemonBuild() ?? "unknown"})`);
+          const buildWarning = daemonBuildWarning();
+          if (buildWarning !== undefined) (ctx.printError ?? ((text: string) => console.error(text)))(buildWarning);
+        } else {
+          startDaemon();
+          ctx.print("daemon started");
+        }
       } else if (sub === "stop") {
         stopDaemon();
         ctx.print("daemon stopped");

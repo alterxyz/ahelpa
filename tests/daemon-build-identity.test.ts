@@ -142,6 +142,20 @@ describe("the daemon build in command output", () => {
   });
 });
 
+describe("daemon start", () => {
+  test("says a daemon is already running, with its build, instead of \"daemon started\"", async () => {
+    writeFileSync(pidPath, ALIVE_PID);
+    writeFileSync(buildPath, "recorded-build");
+    const spawn = spyOn(Bun, "spawnSync");
+    const out: string[] = [];
+    const err: string[] = [];
+    expect(await runCli(db, ["daemon", "start"], { print: (text) => out.push(text), printError: (text) => err.push(text) })).toBe(0);
+    expect(out).toEqual(["daemon already running (build recorded-build)"]);
+    expect(err.join("\n")).toContain("warning: the running daemon is build recorded-build");
+    expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
 describe("the build file's lifecycle", () => {
   test("startDaemon records its build identity next to the pid", () => {
     const spawn = spyOn(Bun, "spawnSync").mockImplementation(() => ({
