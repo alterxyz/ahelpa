@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "crypto";
 import {
-  existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
+  existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync,
   rmSync, symlinkSync, writeFileSync,
 } from "fs";
 import { tmpdir } from "os";
@@ -35,7 +35,7 @@ function fakeBinFor(scenario: string) {
   const variant = ["missing-node", "missing-npx", "rename-failure"].includes(scenario) ? scenario : "shared";
   const existing = fakeBins.get(variant);
   if (existing) return existing;
-  const fakeBin = mkdtempSync(join(tmpdir(), "ahelpa-installer bin-"));
+  const fakeBin = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-installer bin-"));
   roots.push(fakeBin);
   fakeBins.set(variant, fakeBin);
   if (variant !== "missing-node") {
