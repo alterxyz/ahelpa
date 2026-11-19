@@ -151,11 +151,26 @@ macOS 矩阵使用 `macos-15` 与 `macos-15-intel`：[macOS 13 已退役](https:
 bun run test
 ```
 
-`bun run test` 执行 `scripts/test.sh`：先用 `bun test --parallel` 跑除五个文件以外的全部测试文件，再让这五个文件单独并行跑一轮。这五个文件拿真进程对着几秒的时限计时（真起一个 `claude`、git 截止时间、help 探测超时、一个吃 CPU 的循环），第一轮把 CPU 占满时会超时；名单和原因写在脚本里。整次约 30 秒，结尾有两行 `Ran N tests` 汇总。直接 `bun test` 仍逐个文件串行跑，约 85 秒。
+`bun run test` 执行 `scripts/test.sh`：先用 `bun test --parallel` 跑除几个计时敏感文件以外的全部测试文件，再让这几个文件单独并行跑一轮。它们拿真进程对着几秒的时限计时（真起一个 `claude`、git 截止时间、help 探测超时、一个吃 CPU 的循环），第一轮把 CPU 占满时会超时；名单和原因写在脚本里。整次约 30 秒，结尾有两行 `Ran N tests` 汇总。直接 `bun test` 仍逐个文件串行跑，约 85 秒。
 
 macOS 上每个新写出的可执行文件，第一次运行要多花约 0.1 秒（系统做一次安全评估，全机一次只做一个）。所以需要假命令的测试 fixture 每个测试文件只写一次，场景从环境变量读。
 
-Bun test preload 会分配临时 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`（覆盖继承来的值），用完删除：直接 `bun test` 时整次运行共用一对，`--parallel` 时每个测试文件各一对。因此 unit/integration test 不会把 session 状态、archive、FIFO 或任务文件写进用户正在使用的 ahelpa runtime。
+Bun test preload 会分配临时 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`（覆盖继承来的值），用完删除：直接 `bun test` 时整次运行共用一对，`--parallel` 时每个测试文件各一对。因此单元测试和端到端测试不会把 session 状态、archive、FIFO 或任务文件写进用户正在使用的 ahelpa runtime。
+
+### 不调用模型的端到端测试
+
+`tests/e2e.test.ts` 不调用模型，不需要登录和网络，把 helper 的整条生命周期真跑一遍。它先把 CLI 编译进临时目录（约 0.2 秒），再用这个二进制去驱动真的 daemon 和真的 tmux server。`tests/fixtures/fake-kimi.ts` 通过 `PATH` 最前面的 `kimi` 包装脚本冒充 Kimi Code TUI：它画出 Kimi driver 认得的屏幕，读入 `send-keys` 打进来的任务，写 `summary.md`，再打印 `[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP:input]`。任务文本里的指令决定它的行为，例如 `[fake:spawn]`（起一个子进程）和 `[fake:hold]`（一直不结束）。三个场景并发运行，总共约 10 秒：
+
+- `launch` 返回合法 JSON；`wait` 在 daemon 结算 helper 后返回，并带上 `--check` 的证据；`check` 与 `wait` 一致；`capture` 能看到屏幕。
+- `kill` 清掉 tmux session；`resume` 重新打开 helper 的原生会话，再发一个 `task`，第二轮的回答带着第一轮的上下文。
+- NEED_HELP 的 helper 停下来，登记进 need-help 账本，`send` 之后继续并完成。
+- 回合中途 `kill`，tmux session 和 pane 的整棵进程树（包括工具子进程）都不剩。
+
+```bash
+bun test tests/e2e.test.ts
+```
+
+测试与用户自己的会话隔离：一个 `tmux` 包装脚本把所有 tmux 调用都放到私有 socket 上，`HOME`、`AHELPA_HOME` 和 `AHELPA_TMP_DIR` 都是临时目录；宿主环境变量只放行 `PATH`、`TMPDIR` 以及语言、终端和时区相关的几个，其余的（如 `BASH_ENV`、`GIT_*`、`TMUX`、`CLAUDE*`、`AHELPA_*`）都可能被 helper 的 shell 运行或读取，所以一律不传；结束后全部删除。它测不到的是厂商 TUI 真实的画面和行为，这部分仍由 `bun run closure:gate` 负责。
 
 ## Closure gate
 
