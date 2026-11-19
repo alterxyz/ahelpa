@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { dirname, join, relative } from "path";
 import { getSelfCommand } from "../src/self-command";
 import { shellEscape } from "../src/shell";
 import { inputDigest, parseTurnPayload, readTurnEvents, turnHookCommand, writeTurnHook } from "../src/turn-hooks";
@@ -12,6 +12,13 @@ import { vibeDriver, vibeHooksToml } from "../src/drivers/vibe";
 import { agyDriver, agyHooksJson } from "../src/drivers/agy";
 import * as capabilities from "../src/drivers/codex-capabilities";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
+import { StateDB } from "../src/state";
+import { Tmux } from "../src/tmux";
+import { getDriver } from "../src/drivers/registry";
+import { executeLaunch, planLaunch, resume } from "../src/commands/launch";
+import { defaultWakeup } from "../src/wakeup";
+import * as daemon from "../src/daemon";
+import { COMPLETION_NUDGE, refreshSessionStatuses } from "../src/daemon";
 
 const fixture = (name: string) => readFileSync(join(import.meta.dir, "fixtures/turn-hooks", name + ".json"), "utf8");
 let root: string;
@@ -342,5 +349,340 @@ describe("driver hook launch and resume", () => {
       stdout: "pipe", stderr: "pipe", env: { ...process.env, AHELPA_HOME: join(root, "home") } });
     expect([await child.exited, await new Response(child.stdout).text()]).toEqual([0, "{}"]);
     expect(readFileSync(join(sessionDir, "turns.log"), "utf8")).toContain('"agent":"agy"');
+  });
+});
+
+describe("turn hook safety", () => {
+  let root: string, dir: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(realpathSync(tmpdir()), "safety-test-"));
+    dir = join(root, ".ahelpa", "session-test");
+    mkdirSync(dir, { recursive: true });
+  });
+  afterEach(() => rmSync(root, { recursive: true, force: true }));
+  const claude = JSON.stringify({ hook_event_name: "Stop", session_id: "native", prompt_id: "one" });
+  const codex = JSON.stringify({ type: "agent-turn-complete", "thread-id": "main", "turn-id": "one", "input-messages": ["Please read and complete the task described in fixture"] });
+  test("hardlinked turns.log never modifies the outside-session victim", () => {
+    const victim = join(root, "outside-session.txt");
+    writeFileSync(victim, "must remain unchanged\n");
+    linkSync(victim, join(dir, "turns.log"));
+    writeTurnHook(dir, "claude-code", claude);
+    expect(readFileSync(victim, "utf8")).toBe("must remain unchanged\n");
+  });
+  test("saved Claude and Codex hooks stay silent and successful after compiled runtime moves or becomes unusable", async () => {
+    const binary = join(root, "runtime 'quote' $literal 中文");
+    const build = Bun.spawn([process.execPath, "build", join(process.cwd(), "src/cli.ts"), "--compile", `--outfile=${binary}`], { cwd: root, stdout: "pipe", stderr: "pipe" });
+    const [exit, , stderr] = await Promise.all([build.exited, new Response(build.stdout).text(), new Response(build.stderr).text()]);
+    expect({ exit, stderr }).toEqual({ exit: 0, stderr: "" });
+    const cli = join(process.cwd(), "src/cli.ts");
+    const saved = (agent: "claude-code" | "codex") => turnHookCommand(dir, agent).flatMap(arg => {
+      if (arg === process.execPath) return [binary];
+      if (arg === cli) return [];
+      return [arg.replace(`${shellEscape(process.execPath)} ${shellEscape(cli)}`, shellEscape(binary))];
+    });
+    const commands = { "claude-code": saved("claude-code"), codex: saved("codex") };
+    const invoke = async (agent: "claude-code" | "codex") => {
+      const argv = [...commands[agent], ...(agent === "codex" ? [codex] : [])];
+      const child = Bun.spawn(["/bin/sh", "-c", argv.map(shellEscape).join(" ")], { stdin: agent === "claude-code" ? new Blob([claude]) : "ignore", stdout: "pipe", stderr: "pipe" });
+      const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      expect({ exit, stdout, stderr }).toEqual({ exit: 0, stdout: "", stderr: "" });
+    };
+    for (const agent of ["claude-code", "codex"] as const) await invoke(agent);
+    const events = readFileSync(join(dir, "turns.log"), "utf8");
+    expect(events).toContain('"event":"stop"');
+    expect(events).toContain('"event":"turn_complete"'); // final JSON arg survived sh forwarding
+    renameSync(binary, binary + ".moved");
+    for (const agent of ["claude-code", "codex"] as const) await invoke(agent);
+    writeFileSync(binary, "not an executable image\n");
+    chmodSync(binary, 0o700);
+    for (const agent of ["claude-code", "codex"] as const) await invoke(agent);
+    expect(readFileSync(join(dir, "turns.log"), "utf8")).toBe(events);
+  }, 20000);
+});
+
+describe("turn hooks with Codex rollouts and subagents", () => {
+  const input = "Please read and complete the task described in synthetic-task";
+  const main = "01a1440e-2994-7843-9a53-6f872804dac4";
+  const child = "01a1440e-a757-7f83-a65a-daa510ccf783";
+  let root: string, dir: string, db: StateDB;
+  let previousHome: string | undefined;
+  const timezoneState = () => ({
+    env: process.env.TZ,
+    offsets: [new Date("2026-01-15T12:00:00Z").getTimezoneOffset(), new Date("2026-07-15T12:00:00Z").getTimezoneOffset()],
+  });
+  let timezoneBefore: ReturnType<typeof timezoneState>;
+
+  beforeEach(() => {
+    timezoneBefore = timezoneState();
+    root = mkdtempSync(join(realpathSync(tmpdir()), "subagent-hooks-"));
+    previousHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = join(root, "codex-home");
+    mkdirSync(process.env.CODEX_HOME);
+    dir = join(root, ".ahelpa", "session-test");
+    mkdirSync(dir, { recursive: true });
+    db = new StateDB(join(root, "state.db"));
+    const row = db.createSession({ id: "session-test", parentId: "host", agentType: "codex", task: "fixture", ownerToken: "tok", projectPath: root });
+    db.beginTurn(row.id, row.version, input);
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
+    spyOn(Tmux, "capture").mockResolvedValue("Working (1s • esc to interrupt)");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+  });
+
+  afterEach(() => {
+    mock.restore();
+    db.close();
+    if (previousHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousHome;
+    rmSync(root, { recursive: true, force: true });
+    // Per-test sentinel: no dependency on another test file's execution order.
+    expect(timezoneState()).toEqual(timezoneBefore);
+  });
+
+  function rollout(thread: string, source: unknown, delay = 0): string {
+    const date = new Date(parseInt(thread.replaceAll("-", "").slice(0, 12), 16) + delay * 1000);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+    const time = `${pad(date.getHours())}-${pad(date.getMinutes())}-${pad(date.getSeconds())}`;
+    const path = join(process.env.CODEX_HOME!, "sessions", ...day.split("-"), `rollout-${day}T${time}-${thread}.jsonl`);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ type: "session_meta", payload: { id: thread, source } }) + "\nsynthetic non-metadata content\n");
+    return path;
+  }
+
+  function payload(thread: string, turn = "one", messages = [input]) {
+    return JSON.stringify({ type: "agent-turn-complete", "thread-id": thread, "turn-id": turn, "input-messages": messages });
+  }
+
+  const subagent = { subagent: { thread_spawn: { parent_thread_id: main, depth: 1 } } };
+  const log = () => existsSync(join(dir, "turns.log")) ? readFileSync(join(dir, "turns.log"), "utf8") : "";
+
+  test("subagent completes first with matching input: no binding or settlement; main completion still settles", async () => {
+    rollout(child, subagent);
+    rollout(main, "cli");
+    writeTurnHook(dir, "codex", payload(child));
+    expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+    writeTurnHook(dir, "codex", payload(main));
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("needs_attention");
+    expect(log().trim().split("\n")).toHaveLength(1);
+    expect(readTurnEvents(join(dir, "turns.log")).event?.threadId).toBe(main);
+    expect(log()).not.toContain(child);
+  });
+
+  test("main completes first: later subagent cannot change its binding or settlement", async () => {
+    rollout(main, "cli");
+    rollout(child, subagent);
+    writeTurnHook(dir, "codex", payload(main));
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("needs_attention");
+    const before = log();
+    writeTurnHook(dir, "codex", payload(child));
+    expect(log()).toBe(before);
+    expect(db.getSession("session-test")?.status).toBe("needs_attention");
+  });
+
+  test.each(["missing", "missing-source", "malformed", "wrong-id", "oversized", "symlink", "late"])("unavailable metadata (%s) preserves first-event binding and settlement", async kind => {
+    if (kind !== "missing") {
+      const path = rollout(child, kind === "missing-source" ? undefined : subagent, kind === "late" ? 5 : 0);
+      if (kind === "malformed") writeFileSync(path, "not json\n");
+      if (kind === "wrong-id") writeFileSync(path, JSON.stringify({ type: "session_meta", payload: { id: main, source: subagent } }) + "\n");
+      if (kind === "oversized") writeFileSync(path, " ".repeat(64 * 1024) + JSON.stringify({ type: "session_meta", payload: { id: child, source: subagent } }) + "\n");
+      if (kind === "symlink") {
+        const target = join(root, "metadata");
+        writeFileSync(target, readFileSync(path));
+        rmSync(path);
+        symlinkSync(target, path);
+      }
+    }
+    writeTurnHook(dir, "codex", payload(child));
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("needs_attention");
+    writeTurnHook(dir, "codex", payload(main));
+    expect(readTurnEvents(join(dir, "turns.log")).event?.threadId).toBe(child);
+    expect(log().trim().split("\n")).toHaveLength(1);
+  });
+
+  test("bounded lookup includes a rollout created four seconds after the UUID", () => {
+    rollout(child, subagent, 4);
+    writeTurnHook(dir, "codex", payload(child));
+    expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
+  });
+
+  // The daemon relaxes Codex readiness only for verified events; see turn-hook-daemon.test.ts.
+  const verifiedFlags = () => log().trim().split("\n").map(line => JSON.parse(line).threadVerified);
+
+  test("a thread whose rollout names it main is verified, and so are its later events", () => {
+    rollout(main, "cli");
+    writeTurnHook(dir, "codex", payload(main));
+    writeTurnHook(dir, "codex", payload(main, "two", ["follow-up"]));
+    expect(verifiedFlags()).toEqual([true, true]);
+  });
+
+  test.each(["missing", "missing-source"])("a fail-open binding (%s metadata) stays unverified, and so do its later events", kind => {
+    if (kind === "missing-source") rollout(main, undefined);
+    writeTurnHook(dir, "codex", payload(main));
+    rollout(main, "cli"); // appearing later cannot upgrade the binding
+    writeTurnHook(dir, "codex", payload(main, "two", ["follow-up"]));
+    expect(verifiedFlags()).toEqual([false, false]);
+  });
+
+  test("a thread bound explicitly on resume is verified without rollout metadata", () => {
+    writeTurnHook(dir, "codex", payload(main), main);
+    expect(verifiedFlags()).toEqual([true]);
+  });
+
+  test("native resume rejects an earlier child and binds the explicit thread without rollout metadata", async () => {
+    writeTurnHook(dir, "codex", payload(child), main);
+    expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
+    const command = Bun.spawn([...turnHookCommand(dir, "codex", main), payload(main, "resumed", ["ordinary follow-up"])], { stdout: "pipe", stderr: "pipe" });
+    expect(await command.exited).toBe(0);
+    expect(await new Response(command.stdout).text()).toBe("");
+    expect(await new Response(command.stderr).text()).toBe("");
+    expect(readTurnEvents(join(dir, "turns.log")).event).toMatchObject({ threadId: main, turnId: "resumed" });
+  });
+
+  test("symlinked CODEX_HOME root still identifies a child through its real rollout path", async () => {
+    const actualHome = process.env.CODEX_HOME!;
+    const alias = join(root, "codex-home-alias");
+    symlinkSync(actualHome, alias);
+    process.env.CODEX_HOME = alias;
+    rollout(child, subagent);
+    writeTurnHook(dir, "codex", payload(child));
+    expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+  });
+
+  test("relative CODEX_HOME resolves against the same cwd for rollout and notify", async () => {
+    const actualHome = process.env.CODEX_HOME!;
+    process.env.CODEX_HOME = relative(process.cwd(), actualHome);
+    expect(process.env.CODEX_HOME.startsWith("/")).toBe(false);
+    rollout(child, subagent);
+    writeTurnHook(dir, "codex", payload(child));
+    expect(readTurnEvents(join(dir, "turns.log")).event).toBeNull();
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+  });
+
+  const timeBoundaries = [
+    { name: "local midnight", instant: "2026-01-14T23:59:58-08:00", day: "2026-01-15", time: "00-00-02" },
+    { name: "month rollover", instant: "2026-04-30T23:59:58-07:00", day: "2026-05-01", time: "00-00-02" },
+    { name: "year rollover", instant: "2026-12-31T23:59:58-08:00", day: "2027-01-01", time: "00-00-02" },
+    { name: "spring DST gap", instant: "2026-03-08T01:59:58-08:00", day: "2026-03-08", time: "03-00-02" },
+    { name: "fall DST fold", instant: "2026-11-01T01:59:58-07:00", day: "2026-11-01", time: "01-00-02" },
+  ];
+
+  test.each(timeBoundaries)("four-second probe crosses $name", ({ instant, day, time }) => {
+    const timestamp = Date.parse(instant).toString(16).padStart(12, "0");
+    const thread = `${timestamp.slice(0, 8)}-${timestamp.slice(8)}-7000-8000-000000000001`;
+    // Independent LA wall-clock oracle; never change the parent process's TZ.
+    const path = join(process.env.CODEX_HOME!, "sessions", ...day.split("-"), `rollout-${day}T${time}-${thread}.jsonl`);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify({ type: "session_meta", payload: { id: thread, source: subagent } }) + "\n");
+    const script = `import { isKnownCodexSubagent } from ${JSON.stringify(join(import.meta.dir, "../src/drivers/codex-rollout.ts"))};
+      console.log(isKnownCodexSubagent(${JSON.stringify(thread)}));`;
+    const result = Bun.spawnSync([process.execPath, "-e", script], {
+      env: { ...process.env, TZ: "America/Los_Angeles", CODEX_HOME: process.env.CODEX_HOME! },
+      stdout: "pipe", stderr: "pipe", timeout: 5000,
+    });
+    expect({ exit: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() })
+      .toEqual({ exit: 0, stdout: "true\n", stderr: "" });
+  });
+
+  test.each(["cli", "exec"])("main source %s preserves immediate summary completion nudge", async source => {
+    rollout(main, source);
+    writeFileSync(join(dir, "summary.md"), "Synthetic completed result\n");
+    spyOn(Tmux, "capture").mockResolvedValue("Response complete\n\n› \n\n  GPT-6.1-Sol · ~/proj\n  ? for shortcuts");
+    writeTurnHook(dir, "codex", payload(main));
+    expect(readTurnEvents(join(dir, "turns.log")).event).toMatchObject({ threadId: main, event: "turn_complete" });
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+    expect(db.getSession("session-test")?.nudgedAt).toBeTruthy();
+    expect(db.getSession("session-test")?.turnHookOffset).toBeGreaterThan(0);
+    expect(Tmux.sendKeys).toHaveBeenCalledTimes(1);
+    expect(Tmux.sendKeys).toHaveBeenCalledWith("session-test", COMPLETION_NUDGE);
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(Tmux.sendKeys).toHaveBeenCalledTimes(1);
+  });
+
+  test("explicit resumeThread accepts its matching thread even when rollout source is subagent", async () => {
+    rollout(main, subagent);
+    writeTurnHook(dir, "codex", payload(main, "resumed"), main);
+    expect(readTurnEvents(join(dir, "turns.log")).event).toMatchObject({ threadId: main, turnId: "resumed" });
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("needs_attention");
+  });
+});
+
+describe("turn hook launch orchestration", () => {
+  let root: string;
+  let db: StateDB;
+  beforeEach(() => {
+    root = mkdtempSync(join(realpathSync(tmpdir()), "hook-launch-test-"));
+    db = new StateDB(join(root, "state.db"));
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    spyOn(defaultWakeup, "prepare").mockResolvedValue();
+    spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    spyOn(Tmux, "capture").mockResolvedValue("");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(Tmux, "kill").mockResolvedValue();
+    for (const agent of ["codex", "claude-code"]) {
+      spyOn(getDriver(agent), "prepareForTask").mockResolvedValue();
+      spyOn(getDriver(agent), "prepareForResume").mockResolvedValue();
+      spyOn(getDriver(agent), "afterTaskSubmitted").mockResolvedValue(true);
+    }
+  });
+  afterEach(() => {
+    for (const row of db.listSessions()) {
+      try { rmSync(defaultRuntimeLayout.taskFilePath(row.id), { force: true }); } catch {}
+    }
+    db.close(); mock.restore(); rmSync(root, { recursive: true, force: true });
+  });
+
+  describe("hook launch orchestration", () => {
+    for (const agent of ["claude-code", "codex"]) {
+      test.each(["launch", "resume"])(`${agent} %s creates only its new session resources before tmux starts`, async kind => {
+        const create = spyOn(Tmux, "create").mockImplementation(async (id, command) => {
+          expect(db.getSession(id)?.launchPid).toBe(process.pid);
+          expect(existsSync(defaultRuntimeLayout.sessionDeliveryDir(root, id))).toBe(true);
+          if (agent === "claude-code") {
+            const file = defaultRuntimeLayout.claudeSettingsPath(root, id);
+            expect(command).toContain(`--settings '${file}'`);
+            expect(JSON.parse(readFileSync(file, "utf8")).hooks.StopFailure).toBeTruthy();
+          } else {
+            expect(command).toContain("notify=");
+            expect(command).toContain(defaultRuntimeLayout.sessionDeliveryDir(root, id));
+          }
+        });
+        if (kind === "launch") {
+          await executeLaunch(planLaunch({ db, agentType: agent, task: "fixture", projectPath: root, parentId: "host" }));
+        } else {
+          db.createSession({ id: "old", parentId: "host", agentType: agent, task: "fixture", ownerToken: "tok", projectPath: root });
+          db.updateStatus("old", "dead");
+          db.updateResumeId("old", "native-thread");
+          const result = await resume({ db, sessionId: "old", ownerToken: "tok" });
+          expect(db.getSession(result.sessionId)?.status).toBe("needs_attention");
+          expect(existsSync(defaultRuntimeLayout.sessionDeliveryDir(root, "old"))).toBe(false);
+        }
+        expect(create).toHaveBeenCalledTimes(1);
+      });
+    }
+
+    test("failure after settings creation reclaims owned files and preserves a conflicting tmp task", async () => {
+      const plan = planLaunch({ db, agentType: "claude-code", task: "fixture", projectPath: root, parentId: "host" });
+      mkdirSync(defaultRuntimeLayout.tmpDir, { recursive: true });
+      spyOn(Tmux, "create").mockImplementation(async () => {
+        writeFileSync(plan.fileHandoff.taskFilePath, "foreign task");
+      });
+      try {
+        await expect(executeLaunch(plan)).rejects.toThrow("Refusing to overwrite");
+        expect(readFileSync(plan.fileHandoff.taskFilePath, "utf8")).toBe("foreign task");
+        expect(existsSync(plan.fileHandoff.sessionDeliveryDir)).toBe(false);
+        expect(db.getSession(plan.sessionId)).toBeNull();
+      } finally { rmSync(plan.fileHandoff.taskFilePath, { force: true }); }
+    });
   });
 });

@@ -8,7 +8,7 @@ import { Tmux } from "../src/tmux";
 import { COMPLETION_NUDGE, refreshSessionStatuses } from "../src/daemon";
 import { defaultRuntimeLayout } from "../src/runtime-layout";
 import { writeTurnHook } from "../src/turn-hooks";
-import { send } from "../src/commands/session-ops";
+import { send, sendTask } from "../src/commands/session-ops";
 import * as daemon from "../src/daemon";
 
 const READY = "Response complete\n\n› \n\n  GPT-6.1-Sol · ~/proj\n  ? for shortcuts";
@@ -248,5 +248,223 @@ describe("daemon official turn-end timing", () => {
     db.close();
     db = new StateDB(join(root, "state.db"));
     expect(db.getSession(id)?.turnHookOffset).toBe(456);
+  });
+});
+
+describe("turn attribution", () => {
+  let root: string, dir: string, db: StateDB;
+  const initial = "Please read and complete the task described in original-task";
+  beforeEach(() => {
+    root = mkdtempSync(join(realpathSync(tmpdir()), "attribution-test-"));
+    dir = join(root, ".ahelpa", "session-test");
+    mkdirSync(dir, { recursive: true });
+    db = new StateDB(join(root, "state.db"));
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
+    spyOn(Tmux, "capture").mockResolvedValue("Working (1s • esc to interrupt)");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+  });
+  afterEach(() => { mock.restore(); db.close(); rmSync(root, { recursive: true, force: true }); });
+  function seed(agent: string) {
+    const row = db.createSession({ id: "session-test", parentId: "host", agentType: agent, task: "fixture", ownerToken: "tok", projectPath: root });
+    db.beginTurn(row.id, row.version, initial);
+  }
+  function notify(input: string, turn: string, thread = "main") {
+    writeTurnHook(dir, "codex", JSON.stringify({ type: "agent-turn-complete", "thread-id": thread, "turn-id": turn, "input-messages": [initial, input] }));
+  }
+  function prompt(input: string, key: string, session = "native") {
+    writeTurnHook(dir, "claude-code", JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: session, prompt_id: key, prompt: input }));
+  }
+  function stop(key: string, session = "native", failure = false) {
+    writeTurnHook(dir, "claude-code", JSON.stringify({ hook_event_name: failure ? "StopFailure" : "Stop", session_id: session, prompt_id: key, error: "authentication_failed" }));
+  }
+  for (const operation of ["send", "task"]) {
+    test(`delayed old Codex notify after ${operation} is ignored; matching last input accepted`, async () => {
+      seed("codex");
+      notify(initial, "seed"); // bind the main thread
+      const input = "new task with normalized whitespace";
+      if (operation === "send") await send(db, "session-test", "tok", "  " + input + "\r\n");
+      else {
+        const path = join(root, "next.md");
+        writeFileSync(path, input);
+        await sendTask(db, "session-test", "tok", path);
+      }
+      const submitted = (Tmux.sendKeys as unknown as { mock: { calls: string[][] } }).mock.calls[0][1];
+      await Bun.sleep(2);
+      notify("previous follow-up task", "old");
+      await refreshSessionStatuses(db, ["session-test"]);
+      expect(db.getSession("session-test")?.status).toBe("running");
+      notify(submitted, "foreign", "foreign-thread");
+      await refreshSessionStatuses(db, ["session-test"]);
+      expect(db.getSession("session-test")?.status).toBe("running");
+      notify(submitted, "current");
+      await refreshSessionStatuses(db, ["session-test"]);
+      expect(db.getSession("session-test")?.status).toBe("needs_attention");
+      expect(readFileSync(join(dir, "turns.log"), "utf8")).not.toContain(input);
+    });
+  }
+  test("Claude requires matching input and native session/prompt pair, including StopFailure", async () => {
+    seed("claude-code");
+    prompt(initial, "old");
+    await send(db, "session-test", "tok", "new Claude work");
+    prompt("new Claude work", "current");
+    prompt("background work", "background");
+    stop("old", "native", true);
+    stop("background");
+    stop("current", "foreign-native");
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+    stop("current", "native", true);
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("needs_attention");
+    expect(readFileSync(join(dir, "turns.log"), "utf8")).not.toContain("new Claude work");
+  });
+  test("Claude Stop without a prompt event stays on the inactivity fallback", async () => {
+    seed("claude-code");
+    stop("unattributed");
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+  });
+  test("nullable digest migration leaves legacy hook events unattributed", async () => {
+    db.createSession({ id: "session-test", parentId: "host", agentType: "codex", task: "fixture", ownerToken: "tok", projectPath: root });
+    notify(initial, "legacy");
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+  });
+
+  test("repeated normalized input cannot attribute delayed old notifications, even after another intervening turn", async () => {
+    seed("codex");
+    await send(db, "session-test", "tok", "other input");
+    await send(db, "session-test", "tok", "  " + initial + "\r\n");
+    notify(initial, "delayed-identical");
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+    expect(db.getSession("session-test")?.turnInputAmbiguous).toBe(true);
+    db.close();
+    db = new StateDB(join(root, "state.db"));
+    expect(db.getSession("session-test")?.turnInputAmbiguous).toBe(true);
+  });
+
+  test("Claude whole-message paste wrapper normalizes to submitted input while mismatched tags stay unattributed", async () => {
+    seed("claude-code");
+    prompt('<pasted_content id="7e9e">\n' + initial + '\n</pasted_content id="ffff">', "mismatch");
+    stop("mismatch");
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+    prompt('\n\n<pasted_content id="7e9e">\r\n' + initial + '\r\n</pasted_content id="7e9e">\n', "pasted");
+    stop("pasted");
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("needs_attention");
+  });
+
+  test("Pi settles on the current input's digest only; an event without input never decides", async () => {
+    seed("pi");
+    const settled = (turn: string, input?: string, aborted = false) => writeTurnHook(dir, "pi",
+      JSON.stringify({ type: "agent_settled", sessionId: "native", turnId: turn, aborted, stopReason: "stop", ...(input === undefined ? {} : { input }) }));
+    await send(db, "session-test", "tok", "new Pi work");
+    settled("old", initial);
+    settled("no-input");
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")?.status).toBe("running");
+    settled("current", "  new Pi work\r\n", true);
+    await refreshSessionStatuses(db, ["session-test"]);
+    expect(db.getSession("session-test")).toMatchObject({ status: "needs_attention" });
+    expect(readFileSync(join(dir, "turns.log"), "utf8")).not.toContain("new Pi work");
+  });
+});
+
+describe("hook readiness through the daemon", () => {
+  const pane = readFileSync(join(import.meta.dir, "fixtures/turn-hooks/claude-completed.txt"), "utf8");
+  const trust = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/claude-trust.json"), "utf8"));
+  const blocked: Record<string, string> = {
+    "numbered permission cursor": "⏺ Bash(command)\n Do you want to proceed?\n ❯ 1. Yes\n   2. No",
+    "column-zero permission cursor": "Do you want to proceed?\n❯ 1. Yes\n  2. No",
+    "question menu": "⏺ Which approach?\n ❯ 1. First\n   2. Second\n Enter to select · Esc to cancel",
+    "workspace trust": trust["wide-with-source-padding"],
+    "draft composer": pane.replace(/^❯.*$/mu, "❯ continue editing"),
+    "indented empty cursor": pane.replace(/^❯.*$/mu, " ❯ "),
+    "live spinner after reply": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)"),
+    "dot spinner frame": pane.replace("✻ Crunched for 7s · done 12:26 AM", "· Imagining… (5s · ↓ 197 tokens)"),
+    "spinner without ellipsis or timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining"),
+    "spinner without ellipsis with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining (5s · ↓ 197 tokens)"),
+    "timerless spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining…"),
+    "spinner above newer tool bullet": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)\n⏺ Bash(still-running)"),
+    "ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining... (5s · ↓ 197 tokens)"),
+    "iconless Unicode spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining…"),
+    "iconless ASCII spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining..."),
+    "iconless Unicode spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining… (5s · ↓ 197 tokens)"),
+    "iconless ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining... (5s · ↓ 197 tokens)"),
+    "cursorless permission overlay": pane + "\nDo you want to proceed?\n  1. Yes\n  2. No\nEnter to confirm",
+    "cursorless selection footer": pane + "\nEnter to select",
+    "cursorless cancellation footer": pane + "\nEsc to cancel",
+    "cursorless permission prompt": pane + "\nPermission required for this command",
+    "cursorless allow prompt": pane + "\nAllow this command?",
+    "cursorless numbered menu": pane + "\n  1. Yes\n  2. No",
+    "wrapped interrupt hint": "ESC\n to interrupt\n" + pane,
+    "interrupt hint anywhere": "esc to interrupt\n" + pane,
+    "no composer": pane.replace(/^❯.*\n/mu, ""),
+  };
+  for (const icon of "✢✽✶✻✳✺✹✸✷✵·") {
+    blocked[`timerless ${icon} spinner frame`] = pane.replace("✻ Crunched for 7s · done 12:26 AM", `${icon} Imagining…`);
+  }
+
+  let root: string;
+  let db: StateDB;
+  let count = 0;
+  beforeEach(() => {
+    root = mkdtempSync(join(realpathSync(tmpdir()), "hook-ready-test-"));
+    db = new StateDB(join(root, "state.db"));
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
+    spyOn(Tmux, "capture").mockResolvedValue(pane);
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+  });
+  afterEach(() => { mock.restore(); db.close(); rmSync(root, { recursive: true, force: true }); });
+  function seed(hook = true) {
+    const id = `claude-ready-${++count}`;
+    db.createSession({ id, parentId: "host", agentType: "claude-code", task: "test", ownerToken: "tok", projectPath: root });
+    const dir = defaultRuntimeLayout.sessionDeliveryDir(root, id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "summary.md"), "Result written");
+    const input = "current fixture task";
+    db.beginTurn(id, db.getSession(id)!.version, input);
+    if (hook) {
+      writeTurnHook(dir, "claude-code", JSON.stringify({ hook_event_name: "UserPromptSubmit", session_id: "native", prompt_id: "prompt", prompt: input }));
+      writeTurnHook(dir, "claude-code", JSON.stringify({ hook_event_name: "Stop", session_id: "native", prompt_id: "prompt" }));
+    }
+    return id;
+  }
+
+  describe("daemon uses hook readiness only for current accepted events", () => {
+    test("real finished Claude pane nudges on the first hook refresh", async () => {
+      const id = seed();
+      await refreshSessionStatuses(db, [id]);
+      expect(Tmux.sendKeys).toHaveBeenCalledTimes(1);
+      expect(Tmux.sendKeys).toHaveBeenCalledWith(id, COMPLETION_NUDGE);
+      expect(db.getSession(id)?.nudgedAt).toBeTruthy();
+      expect(db.getSession(id)?.turnHookOffset).toBeGreaterThan(0);
+    });
+    test("the same pane without a hook never uses the new readiness path", async () => {
+      const id = seed(false);
+      for (let i = 0; i < 4; i++) await refreshSessionStatuses(db, [id]);
+      expect(Tmux.sendKeys).not.toHaveBeenCalled();
+    });
+    for (const [name, output] of Object.entries(blocked)) {
+      test(`hook cannot nudge ${name}`, async () => {
+        const id = seed();
+        spyOn(Tmux, "capture").mockResolvedValue(output);
+        await refreshSessionStatuses(db, [id]);
+        expect(Tmux.sendKeys).not.toHaveBeenCalled();
+        expect(db.getSession(id)?.nudgedAt).toBeNull();
+      });
+    }
+    test("a hook from before the new host turn cannot authorize relaxed readiness", async () => {
+      const id = seed();
+      await Bun.sleep(2);
+      db.beginTurn(id, db.getSession(id)!.version, "new host turn");
+      await refreshSessionStatuses(db, [id]);
+      expect(Tmux.sendKeys).not.toHaveBeenCalled();
+    });
   });
 });
