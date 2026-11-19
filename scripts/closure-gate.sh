@@ -4,6 +4,9 @@ set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLI="${AHELPA_GATE_CLI:-$PROJECT_ROOT/dist/ahelpa}"
+# Pause between the 20 polls for the exit-time native ID and for reclamation.
+# The fixture tests set 0 so a rejection does not sit out the full 10 s.
+POLL_SECONDS="${AHELPA_GATE_POLL_SECONDS:-0.5}"
 
 fail() {
   echo "✖ $1" >&2
@@ -276,7 +279,7 @@ run_gate() (
     local attempt
     for attempt in {1..20}; do
       native_resume_id "$check_output" >/dev/null && return 0
-      sleep 0.5
+      sleep "$POLL_SECONDS"
       check_output="$("$CLI" check)"
     done
   }
@@ -295,7 +298,7 @@ run_gate() (
       ' "$tree_pids"; then
         return 0
       fi
-      sleep 0.5
+      sleep "$POLL_SECONDS"
     done
     return 1
   }

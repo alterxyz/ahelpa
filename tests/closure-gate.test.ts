@@ -1,26 +1,33 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, realpathSync, readFileSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
 
 const gateScript = resolve(import.meta.dir, "../scripts/closure-gate.sh");
 const fixtureRoots: string[] = [];
+// Concurrent fixtures share the CPU; a slow one is contention, not a hang.
+setDefaultTimeout(30_000);
+const binDir = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-closure-bin-"));
+fixtureRoots.push(binDir);
 
-afterEach(() => {
+// The tests run concurrently, so a root is removed only once all of them finished.
+afterAll(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gatePi = "", piModel = "", piEffort = "", gateAgy = "", gateVibe = "", gateDeepseek = "") {
   const root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-closure-test-"));
   fixtureRoots.push(root);
-  const binDir = join(root, "bin");
   const evidenceDir = join(root, "evidence");
-  mkdirSync(binDir);
   mkdirSync(evidenceDir);
   const cliPath = join(binDir, "fake-ahelpa");
   const projectRoot = join(root, "project");
   mkdirSync(join(projectRoot, "tests", "fixtures", "closure"), { recursive: true });
-  writeFileSync(cliPath, `#!/usr/bin/env bun
+  // Written once per file: macOS assesses every new executable on its first run
+  // (about 0.1 s, one at a time across the machine), and these read all their
+  // state from the environment.
+  if (!existsSync(cliPath)) {
+    writeFileSync(cliPath, `#!/usr/bin/env bun
 import { appendFileSync, existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 const root = process.env.CLOSURE_TEST_ROOT;
@@ -139,7 +146,7 @@ switch (command) {
   default: process.exit(3);
 }
 `, { mode: 0o755 });
-  writeFileSync(join(binDir, "ps"), `#!/usr/bin/env bun
+    writeFileSync(join(binDir, "ps"), `#!/usr/bin/env bun
 import { readFileSync } from "fs";
 const scenario = process.env.CLOSURE_TEST_SCENARIO;
 const sessions = Object.values(JSON.parse(readFileSync(process.env.CLOSURE_TEST_ROOT + "/state.json", "utf8")));
@@ -171,11 +178,12 @@ if (process.argv.includes("command=")) {
   console.log("91003 1");
 }
 `, { mode: 0o755 });
-  writeFileSync(join(binDir, "tmux"), `#!/usr/bin/env bash
+    writeFileSync(join(binDir, "tmux"), `#!/usr/bin/env bash
 if [ "$1" = "list-panes" ]; then case "$3" in gemini-*|mistral-*|deepseek-worker-*|deepseek-resumed-*|deepseek-midturn-*) echo 93001 ;; *) echo 91001 ;; esac; exit 0; fi
 if [ "$CLOSURE_TEST_SCENARIO" = "tmux-alive" ]; then exit 0; fi
 exit 1
 `, { mode: 0o755 });
+  }
 
   const proc = Bun.spawn([
     "bash", "-c",
@@ -198,6 +206,7 @@ exit 1
       AHELPA_GATE_AGY: gateAgy,
       AHELPA_GATE_VIBE: gateVibe,
       AHELPA_GATE_DEEPSEEK: gateDeepseek,
+      AHELPA_GATE_POLL_SECONDS: "0",
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -212,7 +221,9 @@ exit 1
   return { exitCode, stdout, stderr, calls, root, evidenceDir: integration ? join(calls[0].home, "..") : evidenceDir };
 }
 
-describe("closure gate", () => {
+// Each fixture is its own private root, PATH and environment, and its time is
+// spent in child processes, so the tests overlap.
+describe.concurrent("closure gate", () => {
   test("Pi snapshot requires a live process below the pane shell", async () => {
     const result = await runFixture("pi-not-live", "deepseek-pi");
     expect(result.exitCode).not.toBe(0);
