@@ -120,7 +120,7 @@ run_gate() (
       ;;
     gemini: | gemini:worker)
       expected_role="worker"
-      expected_model="gemini-4-argon"
+      expected_model="gemini-4-neon"
       expected_effort="medium"
       ;;
     mistral: | mistral:worker)

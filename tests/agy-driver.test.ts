@@ -37,10 +37,10 @@ const answered = (task = "a", signal = "[AHELPA:DONE]") => `${turn(task)}\n● E
 const done = (task = "a") => banner + answered(task) + composer();
 const exitScreen = `${done()}\n\nResume with -c (or command below):\nagy --conversation=${id}\n\nbash-3.2$`;
 
-test("agy is registered with the Gemini 4 Argon medium default", () => {
+test("agy is registered with the Gemini 4 Neon medium default", () => {
   expect(getDriver("agy")).toBe(getDriver("gemini"));
-  expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model: "gemini-4-argon", effort: "medium" });
-  expect(resolveLaunchProfile(driver, { role: "reviewer", effort: "high" })).toEqual({ role: "reviewer", model: "gemini-4-argon", effort: "high" });
+  expect(resolveLaunchProfile(driver, {})).toEqual({ role: "worker", model: "gemini-4-neon", effort: "medium" });
+  expect(resolveLaunchProfile(driver, { role: "reviewer", effort: "high" })).toEqual({ role: "reviewer", model: "gemini-4-neon", effort: "high" });
   expect(() => resolveLaunchProfile(driver, { role: "advisor" })).toThrow('does not support role "advisor"');
 });
 

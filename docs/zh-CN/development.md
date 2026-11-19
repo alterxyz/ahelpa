@@ -184,7 +184,7 @@ AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 
 `deepseek-pi` 的真机 gate 通过 `AHELPA_GATE_PI=1` 启用，需要 Node.js、Pi ≥ 1.4.0（TUI 在 1.5.0 上测试）及已在 CC-Switch 中配置并同步到 Pi 的 DeepSeek API。默认使用 `cc-switch-deep-seek/deepseek-flash`／`high`；可通过 `AHELPA_GATE_PI_MODEL=provider/id` 和 `AHELPA_GATE_PI_EFFORT=<level>` 覆盖。gate 在 TUI 运行时记录 pane 的进程树，等 daemon 在 draining 期间从退出画面读到原生恢复 ID，接着 resume 并检查第二个回合记得上下文，再 resume 一次运行 `sleep 120`、在回合中途 kill，确认记录下的进程（包括工具）一个不剩。原生会话 ID 在多次 resume 之间必须不变。Pi 原生会话保存在其按 cwd 编码的目录中，不属于 gate 的 ahelpa 临时状态。
 
-`gemini` 的真机 gate 通过 `AHELPA_GATE_AGY=1` 启用，需要 agy ≥ 1.5.2（TUI 在 1.5.3 上测试），并已在 `agy` 里登录过一次。它使用默认的 `gemini-4-argon`／`medium`，检查 launch／check 记录的设置。gate 在 TUI 运行时记录 pane 的进程树，等 daemon 在 draining 期间从退出画面读到原生恢复 ID，接着 resume 并检查第二个回合记得上下文，再 resume 一次运行 `sleep 120`、在回合中途 kill，确认记录下的进程（包括工具）一个不剩。conversation ID 在多次 resume 之间必须不变。gate 产生的对话会留在 agy 自己的历史记录里。
+`gemini` 的真机 gate 通过 `AHELPA_GATE_AGY=1` 启用，需要 agy ≥ 1.5.2（TUI 在 1.5.3 上测试），并已在 `agy` 里登录过一次。它使用默认的 `gemini-4-neon`／`medium`，检查 launch／check 记录的设置。gate 在 TUI 运行时记录 pane 的进程树，等 daemon 在 draining 期间从退出画面读到原生恢复 ID，接着 resume 并检查第二个回合记得上下文，再 resume 一次运行 `sleep 120`、在回合中途 kill，确认记录下的进程（包括工具）一个不剩。conversation ID 在多次 resume 之间必须不变。gate 产生的对话会留在 agy 自己的历史记录里。
 
 `mistral` 的真机 gate 通过 `AHELPA_GATE_VIBE=1` 启用，需要 vibe ≥ 3.1.0 及已有登录，使用 `mistral-large-4-0-3`／`high`。gate 在 TUI 运行时记录 pane 的进程树，等 daemon 在 draining 期间从退出画面读到原生恢复 ID，接着 resume 并检查第二个回合记得上下文，再 resume 一次运行 `sleep 120`、在回合中途 kill，确认记录下的进程（包括工具）一个不剩。Vibe 的 8 位十六进制会话 ID 在多次 resume 之间必须不变。`AHELPA_GATE_DEEPSEEK=1` 以 `deepseek` 类型运行同一 Vibe 场景，默认 `deepseek-v4-1-flash-1017`／`high`，需要 Mistral 订阅包含该模型。Vibe 自己保存原生会话历史。
 

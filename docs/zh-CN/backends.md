@@ -148,7 +148,7 @@ ahelpa **不是**：
 | `--safe` 的含义 | 去掉 `--dangerously-skip-permissions`，原生审批仍在；结果目录在项目外时加 `--add-dir` | `-s workspace-write -a never`（加 `--add-dir`） | 用 `--yolo` 取代 `--auto`（高风险动作仍会询问）；不是沙箱 | 拒绝 | 拒绝 | 拒绝 |
 | 信任是否持久化 | driver 不管；用户须先在项目里跑一次 `claude`，否则启动快速失败 | 是：回答「Folder access」（0.163+）会把仓库根写成受信任，保存在 Codex 配置里；hooks 信任提示用 Escape 暂时拒绝 | 是：两种模式都会选「Trust and continue」，由 Kimi 持久化 | 否：`--approve` 只在本次运行信任项目文件 | 否：`--settings '{"trustedWorkspaces":[…]}'` 只信任本次会话 | 否：`--trust` 仅本次调用 |
 | 自更新 | driver 未压制（上游行为未在此核实） | 更新对话框用「Skip」跳过；未压制 | `KIMI_CODE_NO_AUTO_UPDATE=1` | `--offline` 跳过 Pi 启动时的更新和目录检查 | `AGY_CLI_DISABLE_AUTO_UPDATE=true`（1.5.2 只认小写 `true`；设成 `1` 仍会拉起更新进程） | `VIBE_ENABLE_AUTO_UPDATE=false`, `VIBE_ENABLE_UPDATE_CHECKS=false` |
-| 模型／effort | 启动时 `--model`、`--effort`；运行时经模型菜单切换 | `--model`、`-c model_reasoning_effort=`；运行时经模型菜单切换 | 只有 `--model <config.toml 别名>`；无 effort；不能运行时切换 | `--model provider/id`，`--effort` 以 `--thinking` 传入；页脚显示的模型和级别与请求不符就启动失败（Pi 会静默降级）；不能运行时切换 | 默认 `--model gemini-4-argon --effort medium`；带后缀的 id（如 `gemini-4-argon-high`）须配同名 `--effort`；不能运行时切换 | 会话 agent TOML 由 pane 在启动 `vibe` 前写入：分别默认 `mistral-large-4-0-3` / `high` 和 `deepseek-v4-1-flash-1017` / `high`；不能运行时切换 |
+| 模型／effort | 启动时 `--model`、`--effort`；运行时经模型菜单切换 | `--model`、`-c model_reasoning_effort=`；运行时经模型菜单切换 | 只有 `--model <config.toml 别名>`；无 effort；不能运行时切换 | `--model provider/id`，`--effort` 以 `--thinking` 传入；页脚显示的模型和级别与请求不符就启动失败（Pi 会静默降级）；不能运行时切换 | 默认 `--model gemini-4-neon --effort medium`；带后缀的 id（如 `gemini-4-neon-high`）须配同名 `--effort`；不能运行时切换 | 会话 agent TOML 由 pane 在启动 `vibe` 前写入：分别默认 `mistral-large-4-0-3` / `high` 和 `deepseek-v4-1-flash-1017` / `high`；不能运行时切换 |
 | 最后验证的上游版本 | 树内未记录固定版本；`doctor` 报告已安装版本 | 0.163+（Folder access）；容量短语见于 0.154；更新对话框格式 ≤0.15x 与 0.160 | Kimi Code 2.x（`--auto` 需要） | 接受 ≥ 1.4.0；TUI 在 1.5.0 上测试（2026-11-07） | 接受 ≥ 1.5.2；TUI 在 1.5.3 上测试（2026-11-07） | TUI 在 3.1.0 上测试（2026-11-07） |
 
 ponytail: 手写会和代码漂移；漂移真正造成麻烦时，再改成从 `AgentDriver` 生成。
@@ -221,7 +221,7 @@ Spike 决定这个 TUI 到底能不能驱动（不能就拒绝，不做桥接）
 | `glm` (Pi) | 既有 Pi driver 上的模型／网关层，不是独立后端 | 已接入（2026-11-18）；OpenCode Go 套餐经本地 magpie 网关，默认 `magpie/opencode-go/glm-5.3`／`high`；driver 和限制与 `deepseek-pi` 相同 | 不适用 | [pi](../backends/pi.md)、`skill/references/pi.md` |
 | `dsh` | helper 后端 | **已移除（2026-11-06）**：作者决定；花活太多，CLI 友好度一般 | 已移除 | 旧记录仍可检查与回收，不再接受任务或恢复 |
 | Gemini CLI | helper 后端 | **不接（2026-11-06）**：不再服务个人账号 | 第 2 步 | [gemini-cli](../backends/gemini-cli.md) |
-| `gemini`（Antigravity CLI） | helper 后端 | 已接入（2026-11-06）；自 2026-11-07 起经 TUI 驱动（此前一天为 stream-json 桥接）；默认 `gemini-4-argon` / `medium` | 不适用 | [agy](../backends/agy.md)、`skill/references/agy.md` |
+| `gemini`（Antigravity CLI） | helper 后端 | 已接入（2026-11-06）；自 2026-11-07 起经 TUI 驱动（此前一天为 stream-json 桥接）；默认 `gemini-4-neon` / `medium`（2026-11-19 前为 `gemini-4-argon`） | 不适用 | [agy](../backends/agy.md)、`skill/references/agy.md` |
 | `mistral` / `deepseek` (Mistral Vibe CLI) | helper 后端 | 已接入（2026-11-06）；自 2026-11-07 起经 TUI 驱动（此前为 headless 桥接）；分别默认 `mistral-large-4-0-3` / `high` 和 `deepseek-v4-1-flash-1017` / `high` | 不适用 | [vibe](../backends/vibe.md)、`skill/references/vibe.md` |
 | OpenCode | helper 后端 | **候选**：通过第 1、2 步；第 3、4 步仅读文档，未做 spike | 第 4 步，仅文档 | [opencode](../backends/opencode.md) |
 | dimAgent | helper 后端（CLI），属于更大的产品族 | **暂缓（2026-11-06）**：两个 CLI 都在变动，其中一个仍是 alpha | 第 2 步 | [dimagent](../backends/dimagent.md) |

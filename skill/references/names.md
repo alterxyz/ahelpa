@@ -8,7 +8,7 @@ Public names belong to ahelpa. A public name and its nicknames point to a harnes
 | --- | --- | --- | --- | --- | --- | --- |
 | `claude` | `claude-code` | Claude Code / `claude-code` | advisor: `claude-fable-5-2` / `medium`; reviewer: `claude-fable-5-2` / `high`; worker: `claude-sonnet-5-5` / `high` | Claude subscription | `claude` on PATH; sign in and trust the project interactively before launch | Repair subscription/login or project trust first; the host chooses another helper if needed. |
 | `codex` | `gpt` | OpenAI Codex CLI / `codex` | worker/reviewer: `gpt-6-astra` / `medium` | ChatGPT subscription | `codex` on PATH and signed in | Restore login or wait for capacity/quota; the host chooses another helper if needed. |
-| `gemini` | `agy`, `antigravity` | Google Antigravity CLI / `agy` | worker/reviewer: `gemini-4-argon` / `medium` | Google account | `agy` ≥ 1.5.2 on PATH; sign in once | Repair Google sign-in or availability; the host chooses another helper if needed. |
+| `gemini` | `agy`, `antigravity` | Google Antigravity CLI / `agy` | worker/reviewer: `gemini-4-neon` / `medium` | Google account | `agy` ≥ 1.5.2 on PATH; sign in once | Repair Google sign-in or availability; the host chooses another helper if needed. |
 | `kimi` | — | Kimi Code CLI / `kimi` | Native model; no effort or role preset | Kimi subscription | Kimi Code 2.x on PATH and signed in; configured model alias if explicitly selected | Repair subscription/login or configuration; the host chooses another helper if needed. |
 | `mistral` | `vibe` | Mistral Vibe CLI / `vibe` | worker/reviewer: `mistral-large-4-0-3` / `high` | Mistral subscription via Vibe login | `vibe` ≥ 3.1.0 on PATH; signed in with access to the model | Repair Mistral login or model access; the host chooses another helper if needed. |
 | `deepseek` | `deepseek-vibe` | Mistral Vibe CLI / `vibe` | worker/reviewer: `deepseek-v4-1-flash-1017` / `high` | Mistral subscription via Vibe login | `vibe` ≥ 3.1.0 on PATH; subscription includes this model | Subscription first. If the first turn reports `model unavailable (the Mistral subscription may not include it)` or authentication fails, the host may launch `deepseek-pi` through the API. |
@@ -42,7 +42,7 @@ Measured 2026-11-07 on one macOS machine, after the daemon poll fix, with each n
 | --- | --- | --- | --- | --- |
 | `claude` | `claude-opus-5-5` / `xhigh` (advisor; measured with the previous default, now `claude-fable-5-2` / `medium`) | 4.3 (4.3–4.4) | 8.4 (8.0–9.7) | 12.3 (12.1–12.6) |
 | `codex` | `gpt-6-astra` / `medium` | 5.0 (4.9–5.1) | 11.8 (11.8–15.4) | 15.3 (15.3–21.4) |
-| `gemini` | `gemini-4-argon` / `medium` | 2.4 (1.9–2.4) | 16.6 (16.5–18.3) | 40.8 (24.5–51.8) |
+| `gemini` | `gemini-4-neon` / `medium` (measured with the previous default, `gemini-4-argon` / `medium`) | 2.4 (1.9–2.4) | 16.6 (16.5–18.3) | 40.8 (24.5–51.8) |
 | `kimi` | native | 2.9 (2.9–2.9) | 10.3 (10.3–14.5) | 15.3 (12.3–18.4) |
 | `mistral` | `mistral-large-4-0-3` / `high` | 4.5 (4.4–4.9) | 7.2 (6.7–10.9) | 15.3 (12.3–15.4) |
 | `deepseek` | `deepseek-v4-1-flash-1017` / `high` | 4.4 (4.4–4.4) | 10.7 (10.6–12.9) | 15.4 (12.3–18.4) |

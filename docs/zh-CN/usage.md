@@ -100,7 +100,7 @@ ahelpa launch gemini --project /path/to/project --task "Review the CLI parser"
 
 agy 1.5.2 是测试基线，更旧的版本会被拒绝。ahelpa 在 tmux 里跑 agy 自己的 TUI，带 `--dangerously-skip-permissions`，并用 `--settings` 只在本次会话传入工作区信任，因此不会弹信任对话框，也不写 agy 的全局设置或项目目录。`tmux attach` 看到的就是 agy 本身，按 Esc 只停当前回合、会话保留。helper 干完会退出并打印 conversation ID；`resume` 用 `--conversation <id>` 重新打开这段对话，agy 不认识这个 ID 时 resume 失败。`task`、`wait`、`check`、`kill` 沿用通常工作流。
 
-agy 默认为 `worker`，使用 `--model gemini-4-argon --effort medium`，agy 将其解析为 `gemini-4-argon-medium`（Gemini 4 Argon · medium）；`reviewer` 使用相同模型，以及只审不改的任务合同。agy 的模型 ID 自带 effort：只传 `--effort high` 得到 `gemini-4-argon-high`；带后缀的 `--model`（如 `gemini-3.8-flash-low`）需要配上相同的 `--effort low`，或改用模型族名加 `--effort`。`agy models` 列出账号可用的模型。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。详见 [agy 接入说明](../../skill/references/agy.md)。
+agy 默认为 `worker`，使用 `--model gemini-4-neon --effort medium`，agy 将其解析为 `gemini-4-neon-medium`（Gemini 4 Neon · medium）；`reviewer` 使用相同模型，以及只审不改的任务合同。agy 的模型 ID 自带 effort：只传 `--effort high` 得到 `gemini-4-neon-high`；带后缀的 `--model`（如 `gemini-3.8-flash-low`）需要配上相同的 `--effort low`，或改用模型族名加 `--effort`。`agy models` 列出账号可用的模型。`--safe` 和运行中的 `ahelpa model` 切换会明确报错。详见 [agy 接入说明](../../skill/references/agy.md)。
 
 **Mistral / DeepSeek (Vibe)**
 

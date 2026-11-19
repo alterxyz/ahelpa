@@ -11,13 +11,13 @@ ahelpa launch gemini --role reviewer --effort high --file ./review.md
 
 ## Model and effort
 
-`worker` (default) and `reviewer` both launch `--model gemini-4-argon --effort medium`, which agy resolves to `gemini-4-argon-medium` (Gemini 4 Argon · medium). `advisor` is unsupported.
+`worker` (default) and `reviewer` both launch `--model gemini-4-neon --effort medium`, which agy resolves to `gemini-4-neon-medium` (Gemini 4 Neon · medium). The default was `gemini-4-argon` / `medium` until 2026-11-19. `advisor` is unsupported.
 
-agy model IDs carry their effort: `agy models` lists `gemini-4-argon-low|medium|high`, `gemini-3.8-flash-*`, `claude-opus-5-5-*`, `claude-sonnet-5-5-*`, and `gpt-oss-120b-medium` (the list depends on the account). agy composes a family with `--effort` (`--model gemini-4-argon --effort high` is `gemini-4-argon-high`) and refuses a suffixed ID with a different effort. ahelpa passes both flags through and refuses that contradiction before launch, so:
+agy model IDs carry their effort: `agy models` lists `gemini-4-argon-low|medium|high`, `gemini-4-neon-*` and `gemini-4-hydrogen-*` (`low|medium|high|xhigh`), `gemini-3.8-flash-*`, `claude-opus-5-5-*`, `claude-sonnet-5-5-*`, `gpt-oss-120b-medium`, and two planners without an effort suffix, `gemini-pro-orchestrator-neon` and `gemini-pro-orchestrator-g1-pro` (Orchestrator (Argon)) (the list depends on the account; Neon and Hydrogen seen on agy 1.5.12, 2026-11-19). agy composes a family with `--effort` (`--model gemini-4-neon --effort high` is `gemini-4-neon-high`) and refuses a suffixed ID with a different effort. ahelpa passes both flags through and refuses that contradiction before launch, so:
 
-- `--effort high` alone switches the default to `gemini-4-argon-high`.
+- `--effort high` alone switches the default to `gemini-4-neon-high`.
 - A suffixed `--model`, such as `gemini-3.8-flash-low`, needs `--effort low`, or use `--model gemini-3.8-flash --effort low`.
-- Gemini 4 Argon offers `low|medium|high`; agy rejects `xhigh`/`max` for it.
+- Gemini 4 Neon and Hydrogen offer `low|medium|high|xhigh`; Gemini 4 Argon offers `low|medium|high`. agy rejects an effort a model does not offer.
 
 Runtime `ahelpa model` switching, including `--persist`, is unsupported; relaunch with the options you want.
 
@@ -69,4 +69,4 @@ Measured in tmux at 80x24 and 120x40 on macOS with the existing sign-in, in scra
 
 ## Verification
 
-`AHELPA_GATE_AGY=1 bun run closure:gate` makes model calls on `gemini-4-argon` / `medium`. It checks completion through `wait` and `check`, waits for the conversation ID recorded while draining, resumes it and recalls a marker from the first turn, then resumes again, kills during a `sleep 120` tool, and checks that the pane's processes recorded while agy ran (the pane shell, agy and the tool) are gone. Every gate run leaves its agy conversations in agy's own history.
+`AHELPA_GATE_AGY=1 bun run closure:gate` makes model calls on `gemini-4-neon` / `medium`. It checks completion through `wait` and `check`, waits for the conversation ID recorded while draining, resumes it and recalls a marker from the first turn, then resumes again, kills during a `sleep 120` tool, and checks that the pane's processes recorded while agy ran (the pane shell, agy and the tool) are gone. Every gate run leaves its agy conversations in agy's own history.

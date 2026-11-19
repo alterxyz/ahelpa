@@ -97,7 +97,7 @@ See [Pi setup and limits](pi.md) for version requirements, interrupt controls, r
 
 ## gemini
 
-**New integration (2026-11-06). First choice for prose people will read, divergent ideation, and the generative half of strategy work; never the critical voice.** Google Antigravity CLI, default `gemini-4-argon` / `medium` (Gemini 4 Argon · medium). Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
+**New integration (2026-11-06). First choice for prose people will read, divergent ideation, and the generative half of strategy work; never the critical voice.** Google Antigravity CLI, default `gemini-4-neon` / `medium` (Gemini 4 Neon · medium) since 2026-11-19; the observations below were made on `gemini-4-argon` and `gemini-3.8-flash`, none yet on Neon. Roles: `worker` (default) and `reviewer`; `advisor`, `--safe`, and runtime model switching are unsupported.
 
 **Observation status**
 - Integration checks only: Antigravity 1.5.2 smoke runs, then its own TUI on 1.5.3 (2026-11-07), and the closure gate (completion, native resume with context recalled, kill mid-turn). No task-quality comparison inside ahelpa yet.

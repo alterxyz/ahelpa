@@ -4,7 +4,7 @@ English only: a dated evidence record for agents, not a user guide. Principles a
 
 - **Evaluated:** 2026-11-06 (local checks and the driver spike the same day)
 - **Class:** Helper backend (candidate). Whether it is also a host target (a skill install target): Unverified.
-- **Verdict:** **Integrated (2026-11-06)** as the sixth helper backend. Since 2026-11-07 ahelpa drives agy's own interactive TUI in tmux (typed input, screen capture, like Kimi); the stream-json bridge it started with is removed. Default model `gemini-4-argon` with effort `medium`. Driver notes: `skill/references/agy.md`.
+- **Verdict:** **Integrated (2026-11-06)** as the sixth helper backend. Since 2026-11-07 ahelpa drives agy's own interactive TUI in tmux (typed input, screen capture, like Kimi); the stream-json bridge it started with is removed. Default model `gemini-4-neon` with effort `medium` (`gemini-4-argon` until 2026-11-19). Driver notes: `skill/references/agy.md`.
 - **Stopped at:** n/a (passed all hard gates; soft tier: model/effort, no `--safe`, no runtime switch)
 - **Version tested:** 1.5.2 (bridge, 2026-11-06), 1.5.3 (TUI, 2026-11-07), 1.5.8 (ready composer only, 2026-11-12); `doctor` flags installs older than 1.5.2
 - **Re-evaluate when:** agy changes its TUI (composer, spinner, footer, exit line) or the update kill switch, or a later release breaks `AHELPA_GATE_AGY=1`.

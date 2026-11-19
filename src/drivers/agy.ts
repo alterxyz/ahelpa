@@ -66,7 +66,7 @@ function userTurns(output: string): string[] {
 
 function validate(opts: LaunchOptions): void {
   if (opts.safe) throw new Error("agy --safe is not supported; the helper runs agy with --dangerously-skip-permissions");
-  if (opts.model !== undefined && !/^[\w.:-]+$/.test(opts.model)) throw new Error("agy --model must be a model ID from `agy models`, such as gemini-4-argon-high");
+  if (opts.model !== undefined && !/^[\w.:-]+$/.test(opts.model)) throw new Error("agy --model must be a model ID from `agy models`, such as gemini-4-neon-high");
   if (opts.effort !== undefined && !EFFORTS.includes(opts.effort as typeof EFFORTS[number])) {
     throw new Error(`agy --effort must be one of: ${EFFORTS.join(", ")}`);
   }
@@ -174,18 +174,22 @@ export const agyDriver: AgentDriver = {
     writeFileSync(join(root, ".agents", "hooks.json"), agyHooksJson(turnHookCommand(dirname(root), "agy")), { flag: "wx", mode: 0o600 });
   },
   launchProfiles: { defaultRole: "worker", profiles: {
-    worker: { model: "gemini-4-argon", effort: "medium" },
-    reviewer: { model: "gemini-4-argon", effort: "medium" },
+    worker: { model: "gemini-4-neon", effort: "medium" },
+    reviewer: { model: "gemini-4-neon", effort: "medium" },
   } },
   modelCatalog: {
     models: [
+      { name: "gemini-4-neon", efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
       { name: "gemini-4-argon", efforts: ["low", "medium", "high"], defaultEffort: "medium" },
+      { name: "gemini-4-hydrogen", efforts: ["low", "medium", "high", "xhigh"], defaultEffort: "medium" },
       { name: "gemini-3.8-flash", efforts: ["low", "medium", "high"], defaultEffort: "medium" },
       { name: "claude-opus-5-5", efforts: ["low", "medium", "high"], defaultEffort: "medium" },
       { name: "claude-sonnet-5-5", efforts: ["low", "medium", "high"], defaultEffort: "medium" },
       { name: "gpt-oss-120b", efforts: ["medium"], defaultEffort: "medium" },
+      { name: "gemini-pro-orchestrator-neon" },
+      { name: "gemini-pro-orchestrator-g1-pro" },
     ],
-    effortNote: "agy model IDs carry their effort (gemini-4-argon-high = --model gemini-4-argon --effort high); a suffixed --model needs a matching --effort. `agy models` lists what your account offers. Runtime model switching and --safe are not supported.",
+    effortNote: "agy model IDs carry their effort (gemini-4-neon-high = --model gemini-4-neon --effort high); a suffixed --model needs a matching --effort. `agy models` lists what your account offers. Runtime model switching and --safe are not supported.",
   },
   buildLaunchCommand: command,
   buildResumeCommand(opts: ResumeOptions) { return command(opts, opts.resumeId); },

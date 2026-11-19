@@ -43,7 +43,7 @@ switch (command) {
     const role = roleIndex === -1 ? (args[0] === "claude" ? "advisor" : ["codex", "deepseek-pi", "gemini", "mistral", "deepseek"].includes(args[0]) ? "worker" : null)
       : args[roleIndex + 1];
     const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : args[0] === "claude" ? (role === "advisor" ? "claude-fable-5-2" : "claude-sonnet-5-5")
-      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "gemini" ? "gemini-4-argon" : args[0] === "mistral" ? "mistral-large-4-0-3" : args[0] === "deepseek" ? "deepseek-v4-1-flash-1017" : args[0] === "deepseek-pi" ? "cc-switch-deep-seek/deepseek-flash" : null;
+      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "gemini" ? "gemini-4-neon" : args[0] === "mistral" ? "mistral-large-4-0-3" : args[0] === "deepseek" ? "deepseek-v4-1-flash-1017" : args[0] === "deepseek-pi" ? "cc-switch-deep-seek/deepseek-flash" : null;
     const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude" && role === "advisor" ? "medium" : args[0] === "kimi" ? null : ["codex", "gemini"].includes(args[0]) ? "medium" : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
