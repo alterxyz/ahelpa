@@ -25,7 +25,7 @@ A helper is its ahelpa ID, the tmux session name ahelpa gives it at launch; `sen
 | Location | This git repo | `~/.ahelpa/bin/ahelpa` |
 | Edit | `src/`, `skill/`, `tests/`, `docs/` | Do not patch generated output |
 | Run | `bun run src/cli.ts <cmd>` | `ahelpa <cmd>` |
-| Test | `bun test` | `bun run closure:gate` |
+| Test | `bun run test` | `bun run closure:gate` |
 
 ## Repo Layout
 
@@ -58,7 +58,7 @@ Exception: `docs/backends/*.md` (candidate cards) are English-only dated evidenc
 ## Common Commands
 
 ```bash
-bun test                       # run tests
+bun run test                   # run tests (scripts/test.sh, parallel)
 bun run typecheck              # tsc --noEmit over src/ and tests/
 bun run build                  # compile binary
 bun run package:skill          # build skill package
@@ -67,7 +67,7 @@ ahelpa install-skill           # refresh global skill from the public repo
 bun run closure:gate           # end-to-end gate
 ```
 
-The full suite takes about 3 minutes and prints one dot per test (`bunfig.toml`). Bun hides passing tests from AI agents, so the dots are the only progress an agent sees; wait for the `Ran N tests` summary before calling it hung.
+`bun run test` runs `scripts/test.sh`: every test file except five in parallel workers, then those five timing-bound files in a small parallel pass of their own. It takes about 30 s (20–30 s on 2026-11-19, with other work loading the machine); plain `bun test` runs the files one at a time in about 85 s. Both print one dot per test (`bunfig.toml`). Bun hides passing tests from AI agents, so the dots are the only progress an agent sees; `bun run test` prints two `Ran N tests` summaries, so wait for the second before calling it hung.
 
 ## Closure Gate
 

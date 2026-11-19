@@ -307,7 +307,7 @@ describe("review target and blind handoff", () => {
     expect(named).not.toEqual(beforeName);
     writeFileSync(join(nested, "untracked.txt"), "two");
     expect(await computeTargetFingerprint(project)).toEqual(named);
-  });
+  }, 30_000); // Many real git runs; under a parallel run they wait their turn for the CPU.
 
   test("wait fingerprints after the acceptance command and ignores its own check log", async () => {
     await initRepo();
