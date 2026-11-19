@@ -58,14 +58,14 @@ dist/                      # 构建输出（git-ignored）
 | 位置 | 当前 git repo | `~/.ahelpa/bin/ahelpa` |
 | 修改 | `src/`、`skill/`、`tests/`、`docs/` | 不要直接 patch |
 | 运行 | `bun run src/cli.ts <cmd>` | `ahelpa <cmd>` |
-| 测试 | `bun test` | `bun run closure:gate` |
+| 测试 | `bun run test` | `bun run closure:gate` |
 
 `bun run src/cli.ts` 适合开发中快速验证，但不能替代部署后的真实 binary 测试。
 
 ## 常用命令
 
 ```bash
-bun test                       # 跑测试
+bun run test                   # 跑测试（并行）
 bun run typecheck              # tsc --noEmit 覆盖 src/ 和 tests/
 bun run build                  # 编译到 dist/ahelpa
 bun run package:skill          # 构建带 runtime bundle 的 skill package
@@ -148,10 +148,14 @@ macOS 矩阵使用 `macos-15` 与 `macos-15-intel`：[macOS 13 已退役](https:
 普通代码改动：
 
 ```bash
-bun test
+bun run test
 ```
 
-Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，并在测试结束后删除这些目录。因此 unit/integration test 不会把 session 状态、archive、FIFO 或任务文件写进用户正在使用的 ahelpa runtime。
+`bun run test` 执行 `scripts/test.sh`：先用 `bun test --parallel` 跑除五个文件以外的全部测试文件，再让这五个文件单独并行跑一轮。这五个文件拿真进程对着几秒的时限计时（真起一个 `claude`、git 截止时间、help 探测超时、一个吃 CPU 的循环），第一轮把 CPU 占满时会超时；名单和原因写在脚本里。整次约 30 秒，结尾有两行 `Ran N tests` 汇总。直接 `bun test` 仍逐个文件串行跑，约 85 秒。
+
+macOS 上每个新写出的可执行文件，第一次运行要多花约 0.1 秒（系统做一次安全评估，全机一次只做一个）。所以需要假命令的测试 fixture 每个测试文件只写一次，场景从环境变量读。
+
+Bun test preload 会分配临时 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`（覆盖继承来的值），用完删除：直接 `bun test` 时整次运行共用一对，`--parallel` 时每个测试文件各一对。因此 unit/integration test 不会把 session 状态、archive、FIFO 或任务文件写进用户正在使用的 ahelpa runtime。
 
 ## Closure gate
 

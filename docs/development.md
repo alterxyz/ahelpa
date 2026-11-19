@@ -58,14 +58,14 @@ This repository is the source tree. The installed runtime is a compiled binary g
 | Location | This git repo | `~/.ahelpa/bin/ahelpa` |
 | Edit | `src/`, `skill/`, `tests/`, `docs/` | Do not patch directly |
 | Run | `bun run src/cli.ts <cmd>` | `ahelpa <cmd>` |
-| Test | `bun test` | `bun run closure:gate` |
+| Test | `bun run test` | `bun run closure:gate` |
 
 `bun run src/cli.ts` is convenient during development but does not replace testing the installed binary after deployment.
 
 ## Common Commands
 
 ```bash
-bun test                       # Run the test suite
+bun run test                   # Run the test suite (parallel)
 bun run typecheck              # tsc --noEmit over src/ and tests/
 bun run build                  # Compile to dist/ahelpa
 bun run package:skill          # Build skill package with runtime bundle
@@ -147,10 +147,14 @@ The macOS matrix uses `macos-15` and `macos-15-intel`: [macOS 13 has retired](ht
 For ordinary code changes:
 
 ```bash
-bun test
+bun run test
 ```
 
-The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots when the caller has not supplied them, then removes those roots after the suite. Unit and integration tests therefore do not write session state, archives, FIFOs, or task files into the user's active ahelpa runtime.
+`bun run test` runs `scripts/test.sh`: `bun test --parallel` over every test file except five, then those five in a second parallel pass. The five time real processes against limits of a few seconds (a real `claude` launch, git deadlines, help-probe timeouts, a CPU-bound loop) and miss them when the first pass saturates the CPU; the script lists them with reasons. The run takes about 30 s and ends with two `Ran N tests` summaries. Plain `bun test` still runs the files one at a time, in about 85 s.
+
+On macOS every newly written executable costs about 0.1 s on its first run (a system assessment that runs one at a time across the machine). Fixtures that need fake commands therefore write them once per test file and read their scenario from the environment.
+
+The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots, replacing any inherited ones, and removes them afterwards: one pair for a plain `bun test` run, one per test file under `--parallel`. Unit and integration tests therefore do not write session state, archives, FIFOs, or task files into the user's active ahelpa runtime.
 
 ## Closure Gate
 
