@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { createHash } from "crypto";
 import {
   existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync,
@@ -10,10 +10,13 @@ import { join, resolve } from "path";
 const installer = resolve(import.meta.dir, "../scripts/install.sh");
 const bash = Bun.which("bash")!;
 const roots: string[] = [];
+// Concurrent fixtures share the CPU; a slow one is contention, not a hang.
+setDefaultTimeout(30_000);
 const releaseBase = "https://github.com/example/ahelpa/releases/download/v9.8.7";
 const oldRuntime = "previous working runtime\n";
 
-afterEach(() => {
+// The tests run concurrently, so a root is removed only once all of them finished.
+afterAll(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
@@ -24,33 +27,77 @@ type FixtureOptions = {
   fresh?: boolean;
 };
 
-function createFixture(options: FixtureOptions = {}) {
-  const root = mkdtempSync(join(tmpdir(), "ahelpa-installer test-"));
-  roots.push(root);
-  const fakeBin = join(root, "fake-bin");
-  const installDir = join(root, "install");
-  const packageDir = join(root, "package");
-  for (const path of [fakeBin, installDir, packageDir]) mkdirSync(path);
-  if (!options.fresh) {
-    writeFileSync(join(installDir, "ahelpa"), oldRuntime, { mode: 0o755 });
-    // Replacing the destination atomically must leave its old inode unchanged.
-    linkSync(join(installDir, "ahelpa"), join(root, "old-inode"));
-  }
-  const scenario = options.scenario ?? "success";
-  if (scenario !== "missing-node") {
+// One fake-bin directory per PATH variant, written once and reused: macOS
+// assesses every new executable on its first run (about 0.1 s, one at a time
+// across the machine). The fakes read their scenario from the environment.
+const fakeBins = new Map<string, string>();
+function fakeBinFor(scenario: string) {
+  const variant = ["missing-node", "missing-npx", "rename-failure"].includes(scenario) ? scenario : "shared";
+  const existing = fakeBins.get(variant);
+  if (existing) return existing;
+  const fakeBin = mkdtempSync(join(tmpdir(), "ahelpa-installer bin-"));
+  roots.push(fakeBin);
+  fakeBins.set(variant, fakeBin);
+  if (variant !== "missing-node") {
     writeFileSync(join(fakeBin, "node"), `#!/bin/sh
 [ "$1" = "--version" ] || exit 99
 [ "$INSTALLER_TEST_SCENARIO" != "node-failure" ] || exit 31
 printf '%s\\n' "$INSTALLER_TEST_NODE_VERSION"
 `, { mode: 0o755 });
   }
-  if (scenario !== "missing-npx") {
+  if (variant !== "missing-npx") {
     writeFileSync(join(fakeBin, "npx"), `#!/bin/sh
 [ "$1" = "--version" ] || exit 99
 [ "$INSTALLER_TEST_SCENARIO" != "npx-failure" ] || exit 32
 printf '10.9.0\\n'
 `, { mode: 0o755 });
   }
+  writeFileSync(join(fakeBin, "curl"), `#!/usr/bin/env bun
+import { appendFileSync, copyFileSync } from "fs";
+import { join } from "path";
+const root = process.env.INSTALLER_TEST_ROOT!;
+const args = process.argv.slice(2);
+const url = args.find((arg) => arg.startsWith("https://"));
+appendFileSync(join(root, "curl-calls.jsonl"), JSON.stringify(url) + "\\n");
+if (url === "https://github.com/example/ahelpa/releases/latest") {
+  process.stdout.write(process.env.INSTALLER_TEST_SCENARIO === "bad-latest"
+    ? "https://github.com/example/ahelpa/releases" : "https://github.com/example/ahelpa/releases/tag/v9.8.7");
+} else {
+  const output = args[args.indexOf("-o") + 1];
+  if (url === "${releaseBase}/" + process.env.INSTALLER_TEST_ASSET || url === "https://mirror.example/runtime.tar.gz") {
+    if (process.env.INSTALLER_TEST_SCENARIO === "download-failure") process.exit(22);
+    copyFileSync(join(root, "archive.tar.gz"), output);
+  } else if (url === "${releaseBase}/SHASUMS256.txt" || url === "https://mirror.example/checksums.txt") {
+    copyFileSync(join(root, "checksums.txt"), output);
+  } else { console.error("Unexpected fixture URL: " + url); process.exit(23); }
+}
+`, { mode: 0o755 });
+  writeFileSync(join(fakeBin, "uname"), `#!/usr/bin/env bash
+case "$1" in
+  -s) printf '%s\\n' "$INSTALLER_TEST_OS" ;;
+  -m) printf '%s\\n' "$INSTALLER_TEST_ARCH" ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+  if (variant === "rename-failure") {
+    writeFileSync(join(fakeBin, "mv"), "#!/usr/bin/env bash\nexit 27\n", { mode: 0o755 });
+  }
+  return fakeBin;
+}
+
+function createFixture(options: FixtureOptions = {}) {
+  const root = mkdtempSync(join(tmpdir(), "ahelpa-installer test-"));
+  roots.push(root);
+  const installDir = join(root, "install");
+  const packageDir = join(root, "package");
+  for (const path of [installDir, packageDir]) mkdirSync(path);
+  if (!options.fresh) {
+    writeFileSync(join(installDir, "ahelpa"), oldRuntime, { mode: 0o755 });
+    // Replacing the destination atomically must leave its old inode unchanged.
+    linkSync(join(installDir, "ahelpa"), join(root, "old-inode"));
+  }
+  const scenario = options.scenario ?? "success";
+  const fakeBin = fakeBinFor(scenario);
   const os = options.os ?? "Linux";
   const arch = options.arch ?? "x86_64";
   const platform = `${os === "Darwin" ? "darwin" : "linux"}-${["arm64", "aarch64"].includes(arch) ? "arm64" : "x64"}`;
@@ -82,36 +129,6 @@ if (args[0] === "version") {
   const checksumEntry = `${manifestDigest}  ${asset}\n`;
   writeFileSync(join(root, "checksums.txt"), scenario === "missing-checksum" ? `${digest}  other.tar.gz\n`
     : scenario === "duplicate-checksum" ? checksumEntry + checksumEntry : checksumEntry);
-  writeFileSync(join(fakeBin, "curl"), `#!/usr/bin/env bun
-import { appendFileSync, copyFileSync } from "fs";
-import { join } from "path";
-const root = process.env.INSTALLER_TEST_ROOT!;
-const args = process.argv.slice(2);
-const url = args.find((arg) => arg.startsWith("https://"));
-appendFileSync(join(root, "curl-calls.jsonl"), JSON.stringify(url) + "\\n");
-if (url === "https://github.com/example/ahelpa/releases/latest") {
-  process.stdout.write(process.env.INSTALLER_TEST_SCENARIO === "bad-latest"
-    ? "https://github.com/example/ahelpa/releases" : "https://github.com/example/ahelpa/releases/tag/v9.8.7");
-} else {
-  const output = args[args.indexOf("-o") + 1];
-  if (url === "${releaseBase}/${asset}" || url === "https://mirror.example/runtime.tar.gz") {
-    if (process.env.INSTALLER_TEST_SCENARIO === "download-failure") process.exit(22);
-    copyFileSync(join(root, "archive.tar.gz"), output);
-  } else if (url === "${releaseBase}/SHASUMS256.txt" || url === "https://mirror.example/checksums.txt") {
-    copyFileSync(join(root, "checksums.txt"), output);
-  } else { console.error("Unexpected fixture URL: " + url); process.exit(23); }
-}
-`, { mode: 0o755 });
-  writeFileSync(join(fakeBin, "uname"), `#!/usr/bin/env bash
-case "$1" in
-  -s) printf '%s\\n' "$INSTALLER_TEST_OS" ;;
-  -m) printf '%s\\n' "$INSTALLER_TEST_ARCH" ;;
-  *) exit 1 ;;
-esac
-`, { mode: 0o755 });
-  if (scenario === "rename-failure") {
-    writeFileSync(join(fakeBin, "mv"), "#!/usr/bin/env bash\nexit 27\n", { mode: 0o755 });
-  }
   const readLines = <T>(name: string): T[] => {
     const path = join(root, name);
     return existsSync(path) ? readFileSync(path, "utf8").trim().split("\n").map((line) => JSON.parse(line)) : [];
@@ -127,6 +144,7 @@ esac
         INSTALLER_TEST_SCENARIO: scenario,
         INSTALLER_TEST_OS: os,
         INSTALLER_TEST_ARCH: arch,
+        INSTALLER_TEST_ASSET: asset,
         INSTALLER_TEST_NODE_VERSION: "v22.20.0",
         AHELPA_REPO: "example/ahelpa",
         AHELPA_VERSION: "v9.8.7",
@@ -152,7 +170,9 @@ esac
   return { root, installDir, asset, digest, binarySource, run };
 }
 
-describe("release installer", () => {
+// Each fixture is its own root, fake PATH and environment, and its time is spent
+// in the installer's child processes, so the tests overlap.
+describe.concurrent("release installer", () => {
   test.each(["v20.20.0", "v22.19.9"])("rejects unsupported Node %s before any download or replacement", async (version) => {
     const fixture = createFixture();
     const result = await fixture.run({ AHELPA_VERSION: "latest", INSTALLER_TEST_NODE_VERSION: version });
