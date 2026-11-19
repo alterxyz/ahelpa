@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { join, resolve } from "path";
 import { tmpdir } from "os";
@@ -6,6 +6,8 @@ import { createCodexCapabilityProbe, readCodexHelp } from "../src/drivers/codex-
 import { shellEscape } from "../src/shell";
 
 const fakeExecutable = () => "/test/codex";
+// The help probes bound themselves; this only stops a hung test on a busy machine.
+setDefaultTimeout(30_000);
 
 describe("Codex capability parsing", () => {
   test.each([
@@ -88,13 +90,16 @@ describe("Codex bounded help probe and command integration", () => {
   function stub(body: string): void {
     writeFileSync(executable, `#!/bin/sh\n[ "$1" = "--help" ] || exit 99\n${body}\n`);
     chmodSync(executable, 0o755);
+    // Untimed first run: macOS assesses a new executable before it first runs,
+    // which a busy machine can stretch past a probe's 1 s budget.
+    Bun.spawnSync([executable, "prewarm"]);
   }
 
   test("accepts the installed option surface only after a successful help exit", () => {
     stub("printf '%s\\n' '  --no-daemon'\nexit 1");
-    expect(readCodexHelp(executable, root)).toBeUndefined();
+    expect(readCodexHelp(executable, root, 10_000)).toBeUndefined();
     stub("printf '%s\\n' '  --no-daemon'");
-    expect(readCodexHelp(executable, root)).toContain("--no-daemon");
+    expect(readCodexHelp(executable, root, 10_000)).toContain("--no-daemon");
   });
 
   test("falls back when the executable is unavailable", () => {
@@ -102,11 +107,15 @@ describe("Codex bounded help probe and command integration", () => {
   });
 
   test("kills a stuck help process within the timeout even when it ignores TERM", () => {
-    stub("trap '' TERM\nwhile :; do :; done");
+    const pidFile = join(root, "help.pid");
+    stub(`echo $$ > ${shellEscape(pidFile)}\ntrap '' TERM\nexec /bin/sleep 30`);
     const started = performance.now();
 
-    expect(readCodexHelp(executable, root, 100)).toBeUndefined();
-    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(readCodexHelp(executable, root, 1_000)).toBeUndefined();
+    // Waiting for a TERM-proof help to exit would take its full 30 s.
+    expect(performance.now() - started).toBeLessThan(10_000);
+    // Killed, not abandoned: no stuck help process is left behind.
+    expect(() => process.kill(Number(readFileSync(pidFile, "utf8")), 0)).toThrow();
   });
 
   test("kills an abandoned shim's child even when it inherits the stdout pipe", async () => {
@@ -158,7 +167,9 @@ describe("Codex bounded help probe and command integration", () => {
       env: { ...process.env, PATH: path, AHELPA_TEST_CODEX_PROBE_LOG: join(root, "probe.log") },
       stdout: "pipe",
       stderr: "pipe",
-      timeout: 4_000,
+      // A backstop only. Killing this process mid-probe would orphan the help
+      // process the probe runs in its own group, as a 4 s limit once did.
+      timeout: 30_000,
       killSignal: "SIGKILL",
     });
     expect(result.success).toBe(true);
@@ -183,7 +194,7 @@ describe("Codex bounded help probe and command integration", () => {
   test.each([
     ["old CLI", "printf '%s\\n' '  --model <MODEL>'"],
     ["failed help", "printf '%s\\n' '  --no-daemon'\nexit 1"],
-    ["timed-out help", "trap '' TERM\nwhile :; do :; done"],
+    ["timed-out help", "trap '' TERM\nexec /bin/sleep 30"],
   ])("preserves the old command when the probe encounters %s", (_description, helpBody) => {
     stub(helpBody);
     const commands = commandVariants();

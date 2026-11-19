@@ -16,7 +16,6 @@ let TEST_PROJECT: string;
 let scratch: string;
 
 describe("launch", () => {
-  let sessionId: string | undefined;
   let db: StateDB;
 
   beforeEach(() => {
@@ -25,12 +24,8 @@ describe("launch", () => {
     TEST_PROJECT = join(scratch, "project");
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     mock.restore();
-    if (sessionId) {
-      try { await Tmux.kill(sessionId); } catch {}
-      sessionId = undefined;
-    }
     try { db.close(); } catch {}
     rmSync(scratch, { recursive: true, force: true });
   });
@@ -38,6 +33,19 @@ describe("launch", () => {
   test("creates session with correct shape and records in SQLite", async () => {
     mkdirSync(TEST_PROJECT, { recursive: true });
     db = new StateDB(TEST_DB);
+    // A scripted Claude screen instead of the real CLI and the user's tmux
+    // server; tests/e2e.test.ts drives a real tmux end to end.
+    spyOn(daemon, "isDaemonRunning").mockReturnValue(true);
+    const created = spyOn(Tmux, "create").mockResolvedValue();
+    let taskSent = false;
+    spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => {
+      if (text.includes("Please read and complete")) taskSent = true;
+    });
+    spyOn(Tmux, "capture").mockImplementation(async () => taskSent
+      ? "❯ Please read and complete the task described in a file.\n⏺ Working"
+      : "❯\n0 tokens");
+    spyOn(FIFO, "create").mockResolvedValue();
+    spyOn(Bun, "sleep").mockResolvedValue();
 
     const result = await launch({
       db,
@@ -47,8 +55,6 @@ describe("launch", () => {
       parentId: "test-parent",
       label: "test-launch",
     });
-
-    sessionId = result.sessionId;
 
     // sessionId starts with driver prefix
     expect(result.sessionId).toMatch(/^claude-/);
@@ -70,10 +76,10 @@ describe("launch", () => {
     expect(record!.ownerToken).toBe(result.ownerToken);
     expect(record!.label).toBe("test-launch");
 
-    // tmux session exists
-    const exists = await Tmux.hasSession(result.sessionId);
-    expect(exists).toBe(true);
-  }, 30000);
+    // the tmux session is created under the session ID
+    expect(created).toHaveBeenCalledTimes(1);
+    expect(created.mock.calls[0]![0]).toBe(result.sessionId);
+  });
 
   test("auto-starts daemon when it is not already running", async () => {
     mkdirSync(TEST_PROJECT, { recursive: true });
@@ -106,8 +112,6 @@ describe("launch", () => {
       projectPath: TEST_PROJECT,
       parentId: "test-parent",
     });
-
-    sessionId = result.sessionId;
 
     expect(createSessionSpy).toHaveBeenCalledTimes(1);
     expect(startDaemonSpy).toHaveBeenCalledTimes(1);
@@ -143,8 +147,6 @@ describe("launch", () => {
       projectPath: TEST_PROJECT,
       parentId: "test-parent",
     });
-
-    sessionId = result.sessionId;
 
     expect(tmuxCreateSpy).toHaveBeenCalledTimes(1);
     const launchCommand = tmuxCreateSpy.mock.calls[0]?.[1];
@@ -190,7 +192,6 @@ describe("launch", () => {
       parentId: "test-parent",
       model: "gpt-5.6",
     });
-    sessionId = result.sessionId;
 
     expect(db.getSession(result.sessionId)?.status).toBe("running");
   });
@@ -552,7 +553,6 @@ describe("launch", () => {
       projectPath: TEST_PROJECT,
       parentId: "test-parent",
     });
-    sessionId = result.sessionId;
 
     expect(result.sessionId).toMatch(/^kimi-/);
     expect(db.getSession(result.sessionId)?.agentResumeId)
@@ -591,7 +591,6 @@ describe("launch", () => {
       projectPath: TEST_PROJECT,
       parentId: "test-parent",
     });
-    sessionId = result.sessionId;
 
     expect(db.getSession(result.sessionId)?.agentResumeId).toBeNull();
   });
@@ -763,7 +762,6 @@ describe("launch", () => {
       projectPath: TEST_PROJECT,
       parentId: "test-parent",
     });
-    sessionId = result.sessionId;
 
     expect(result.warning).toContain("needs_attention");
     expect(db.getSession(result.sessionId)?.status).toBe("needs_attention");

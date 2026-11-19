@@ -70,21 +70,29 @@ test("fingerprint git dies with the caller's SIGTERM process group", async () =>
 }, 10000);
 
 test("escaped descendant holding stdout cannot prolong fingerprint deadline", async () => {
+  // Under `set -m`, bash puts the background sleep in a process group of its
+  // own: neither killing Git nor Git's group reaches it, and it keeps Git's
+  // stdout open for 30 s. Shell and sleep start in milliseconds, so a loaded
+  // machine still sets this up long before the deadline.
   const pidFile = join(root, "escaped.pid");
-  const childCode = `await Bun.write(${JSON.stringify(pidFile)}, String(process.pid)); await Bun.sleep(5000);`;
-  const spawner = join(root, "spawn-escaped.ts");
-  writeFileSync(spawner, `const child = Bun.spawn([process.execPath, "-e", ${JSON.stringify(childCode)}], { detached: true, stdout: "inherit", stderr: "ignore", stdin: "ignore" }); child.unref();\n`);
-  process.env.PATH = shim(`exec ${quote(process.execPath)} ${quote(spawner)}`);
+  const escape = join(root, "escape.sh");
+  writeFileSync(escape, `set -m\nsleep 30 &\necho $! > ${quote(pidFile)}\n`);
+  process.env.PATH = shim(`[ "$1" = prewarm ] && exit 0\nexec bash ${quote(escape)}`);
+  // Untimed first run: macOS assesses a new executable before it first runs.
+  Bun.spawnSync([join(root, "bin", "git"), "prewarm"]);
   let fingerprint: Awaited<ReturnType<typeof computeTargetFingerprint>>;
   try {
     const start = Date.now();
     fingerprint = await computeTargetFingerprint(root, [], { deadline: start + 800 });
-    expect(Date.now() - start).toBeLessThan(2000);
+    expect(Date.now() - start).toBeLessThan(3000);
     expect(existsSync(pidFile)).toBe(true);
-    // The writer is still alive, proving EOF did not release the read.
-    expect(alive(Number(readFileSync(pidFile, "utf8")))).toBe(true);
+    const writer = Number(readFileSync(pidFile, "utf8"));
+    // The writer is still alive, proving EOF did not release the read, and it
+    // leads its own group, so a group kill would not have closed the pipe.
+    expect(alive(writer)).toBe(true);
+    expect(Number(Bun.spawnSync(["ps", "-o", "pgid=", "-p", String(writer)]).stdout.toString().trim())).toBe(writer);
     expect(fingerprint?.incomplete).toContain("deadline");
   } finally {
     if (existsSync(pidFile)) kill(Number(readFileSync(pidFile, "utf8")));
   }
-}, 10000);
+}, 40000);

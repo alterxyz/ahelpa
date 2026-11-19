@@ -419,7 +419,9 @@ describe("daemon recovery", () => {
       expect(counted).toBe(10_000);
     }
     expect(db.getSession(id)?.status).toBe("running");
-  }, 10_000);
+    // About a million refresh calls of pure CPU: 2 s alone, past 20 s when the
+    // machine is busy. The budget only stops a hang; the counts above are the checks.
+  }, 60_000);
 
   test("explicit kill wins while graceful exit is still awaiting completion", async () => {
     db.close();
