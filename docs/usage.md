@@ -371,7 +371,7 @@ Human-readable overview:
 ahelpa status
 ```
 
-Both commands perform an inline state refresh if the daemon isn't running. `status` shows a RELATIONSHIP column; `check` includes `relationship`. Values are `child` for a session directly launched by the caller, then `job peer` for another session in the actual helper caller's stored job, otherwise `other`. `child` takes precedence over a shared job. A host sees `child` or `other` relative to its resolved caller ID. These labels do not grant control or owner tokens.
+Both commands perform an inline state refresh if the daemon isn't running. `status` names the running daemon's build (version, program path and its modification time), for example `ahelpa daemon: running (build 0.17.0 <program path> <modification time>)`; see [Daemon Management](#daemon-management) for a mismatch. `status` shows a RELATIONSHIP column; `check` includes `relationship`. Values are `child` for a session directly launched by the caller, then `job peer` for another session in the actual helper caller's stored job, otherwise `other`. `child` takes precedence over a shared job. A host sees `child` or `other` relative to its resolved caller ID. These labels do not grant control or owner tokens.
 
 ## Capture Terminal Output
 
@@ -461,6 +461,8 @@ The daemon starts automatically on `launch` and exits when all sessions complete
 ahelpa daemon start    # manual start
 ahelpa daemon stop     # manual stop
 ```
+
+A running daemon keeps the build it was started with. When `status` or `launch` finds that build differs from the CLI's own (an upgrade while helpers were running, or a source checkout and the installed binary sharing one `~/.ahelpa`), it prints a warning on stderr and changes nothing. Restart it with `ahelpa daemon stop && ahelpa daemon start`; helpers keep running, only monitoring restarts. A daemon started by a build older than this check has no recorded build and shows as `unknown`.
 
 ## Refresh Agent Skill
 

@@ -372,7 +372,7 @@ ahelpa check --parent "$id"     # 某个 parent 启动的 session
 ahelpa status
 ```
 
-daemon 未运行时，这两个命令也会先做 inline refresh。`status` 显示 RELATIONSHIP 列，`check` 包含 `relationship`。调用方直接启动的 session 为 `child`，其次是与实际 helper 调用方保存的 job 相同的其他 session（`job peer`），其余为 `other`。`child` 优先于同 job 关系。Host 依据已解析的调用方 ID 显示 `child` 或 `other`。这些标签不授予控制权，也不暴露 owner token。
+daemon 未运行时，这两个命令也会先做 inline refresh。`status` 会写出正在运行的 daemon 的构建（版本、程序路径和该文件的修改时间），例如 `ahelpa daemon: running (build 0.17.0 <program path> <modification time>)`；构建不符时见 [Daemon 管理](#daemon-管理)。`status` 显示 RELATIONSHIP 列，`check` 包含 `relationship`。调用方直接启动的 session 为 `child`，其次是与实际 helper 调用方保存的 job 相同的其他 session（`job peer`），其余为 `other`。`child` 优先于同 job 关系。Host 依据已解析的调用方 ID 显示 `child` 或 `other`。这些标签不授予控制权，也不暴露 owner token。
 
 ## Capture 终端输出
 
@@ -462,6 +462,8 @@ daemon 会在 `launch` 时自动启动，并在所有 session 结束后退出。
 ahelpa daemon start    # 手动启动
 ahelpa daemon stop     # 手动停止
 ```
+
+正在运行的 daemon 一直用它启动时的构建。`status` 或 `launch` 发现这个构建和当前 CLI 的不同（例如 helper 还在跑时升级了，或者源码 checkout 和已安装的二进制共用一个 `~/.ahelpa`），会往 stderr 打警告，不做任何改动。用 `ahelpa daemon stop && ahelpa daemon start` 重启它；helper 会继续运行，只有监控重启。由早于这项检查的构建启动的 daemon 没有记录构建，显示为 `unknown`。
 
 ## 刷新 agent skill
 

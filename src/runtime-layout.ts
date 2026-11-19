@@ -72,6 +72,10 @@ export class RuntimeLayout {
     return join(this.ahelpaHomeDir(), "daemon.pid");
   }
 
+  daemonBuildPath(): string {
+    return join(this.ahelpaHomeDir(), "daemon.build");
+  }
+
   daemonLogPath(): string {
     return join(this.ahelpaHomeDir(), "daemon.log");
   }

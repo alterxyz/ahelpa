@@ -399,7 +399,7 @@ export function status(db: StateDB, daemonRunning: boolean, callerId = resolvePa
   const archive = new Archive(defaultRuntimeLayout.archiveDir());
   const caller = process.env.AHELPA_PARENT_ID === callerId ? db.getSession(callerId) : null;
   const sessions = db.listSessions();
-  let output = `ahelpa daemon: ${daemonRunning ? "running" : "stopped"}\n`;
+  let output = `ahelpa daemon: ${daemonRunning ? `running (build ${daemon.runningDaemonBuild() ?? "unknown"})` : "stopped"}\n`;
   output += `sessions: ${sessions.length}\n\n`;
   if (sessions.length === 0) { output += "(no sessions)\n"; return output; }
   output += "ID                    TYPE          ROLE      STATUS    DEPTH PARENT                 JOB          LABEL         RELATIONSHIP AGE\n";

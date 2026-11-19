@@ -1,4 +1,4 @@
-import { existsSync, appendFileSync, readFileSync, writeFileSync, mkdirSync, unlinkSync, statSync, renameSync } from "fs";
+import { existsSync, appendFileSync, readFileSync, realpathSync, writeFileSync, mkdirSync, unlinkSync, statSync, renameSync } from "fs";
 import { getSelfCommand } from "./self-command";
 import { readTurnEvents } from "./turn-hooks";
 import { interventionLeaseActive } from "./intervention-lease";
@@ -10,6 +10,7 @@ import { settle } from "./settle";
 import { getHarnessDriver, REMOVED_DSH_MESSAGE } from "./drivers/registry";
 import { SESSION_STATUS, outcomeFromCapture } from "./session-lifecycle";
 import { defaultRuntimeLayout } from "./runtime-layout";
+import { VERSION } from "./version";
 import { shellEscape } from "./shell";
 import type { AgentDriver, DriverRuntime } from "./drivers/types";
 import { deliverTurn } from "./turn-delivery";
@@ -17,7 +18,6 @@ import { planSessionHandoff } from "./file-handoff";
 import { FIFO } from "./fifo";
 
 const AHELPA_DIR = defaultRuntimeLayout.ahelpaHomeDir();
-const PID_FILE = defaultRuntimeLayout.daemonPidPath();
 export const DAEMON_SUBCOMMAND = "__daemon";
 
 // Runtime files are disposable; the session record retains the result,
@@ -517,15 +517,47 @@ export async function daemonLoop(db: StateDB): Promise<void> {
 }
 
 export function isDaemonRunning(): boolean {
-  if (!existsSync(PID_FILE)) return false;
+  const pidPath = defaultRuntimeLayout.daemonPidPath();
+  if (!existsSync(pidPath)) return false;
   try {
-    const pid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
+    const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
     if (isNaN(pid)) return false;
     process.kill(pid, 0);
     return true;
   } catch {
     return false;
   }
+}
+
+// A build is its version plus the program file it runs from; a compiled binary
+// replaced in place gets a new mtime. The path is resolved, so a CLI reached
+// through a symlink (~/.local/bin/ahelpa) is the same build as its target.
+// ponytail: a source checkout is named by its cli.ts path and mtime, so edits
+// to other files in one checkout go unnoticed.
+export function buildIdentity(execPath = process.execPath, moduleDir = import.meta.dir): string {
+  let program = getSelfCommand(execPath, moduleDir).at(-1)!;
+  let mtime = "unknown";
+  try {
+    program = realpathSync(program);
+    mtime = new Date(statSync(program).mtimeMs).toISOString();
+  } catch {}
+  return `${VERSION} ${program} ${mtime}`;
+}
+
+// The identity the running daemon was started with; null when none was recorded
+// (a daemon started by a build from before this file existed).
+export function runningDaemonBuild(): string | null {
+  try { return readFileSync(defaultRuntimeLayout.daemonBuildPath(), "utf8").trim() || null; } catch { return null; }
+}
+
+// Only a warning: the installed binary and a source checkout can share one
+// ~/.ahelpa, and restarting on every mismatch would make them restart each
+// other's daemon. Stopping a daemon leaves helpers running, so the fix is manual.
+export function daemonBuildWarning(current = buildIdentity()): string | undefined {
+  if (!isDaemonRunning()) return undefined;
+  const running = runningDaemonBuild();
+  if (running === current) return undefined;
+  return `warning: the running daemon is build ${running ?? "unknown (started before builds were recorded)"}; this CLI is ${current}. Restart it with: ahelpa daemon stop && ahelpa daemon start (helpers keep running).`;
 }
 
 export function getDaemonLaunchCommand(
@@ -588,7 +620,8 @@ export function startDaemon(): void {
     // ponytail: daemon.stderr.log is unbounded, but only receives crash output;
     // keeping its descriptor separate preserves traces across log() rotation.
     const pid = spawnDetached(getDaemonLaunchCommand(), defaultRuntimeLayout.daemonStderrLogPath(), daemonSpawnOptions());
-    writeFileSync(PID_FILE, String(pid));
+    writeFileSync(defaultRuntimeLayout.daemonPidPath(), String(pid));
+    writeFileSync(defaultRuntimeLayout.daemonBuildPath(), buildIdentity());
   } catch (error) {
     // caller still observes the daemon as stopped; the failure is in daemon.log
     log(`daemon start failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -596,9 +629,10 @@ export function startDaemon(): void {
 }
 
 export function stopDaemon(): void {
-  if (!existsSync(PID_FILE)) return;
+  const pidPath = defaultRuntimeLayout.daemonPidPath();
+  if (!existsSync(pidPath)) return;
   try {
-    const pid = parseInt(readFileSync(PID_FILE, "utf-8").trim(), 10);
+    const pid = parseInt(readFileSync(pidPath, "utf-8").trim(), 10);
     if (!isNaN(pid)) {
       try {
         process.kill(pid, "SIGTERM");
@@ -608,9 +642,12 @@ export function stopDaemon(): void {
     }
   } finally {
     try {
-      unlinkSync(PID_FILE);
+      unlinkSync(pidPath);
     } catch {
       // ignore
     }
+    try {
+      unlinkSync(defaultRuntimeLayout.daemonBuildPath());
+    } catch {}
   }
 }
