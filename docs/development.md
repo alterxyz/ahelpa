@@ -165,7 +165,7 @@ The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots 
 bun test tests/e2e.test.ts
 ```
 
-The run is isolated from the user's session: a `tmux` wrapper puts every call on a private socket, and `HOME`, `AHELPA_HOME` and `AHELPA_TMP_DIR` are scratch directories. Host variables such as `TMUX`, `CLAUDE*`, `CODEX*` and `AHELPA_*` are not passed on. Everything is removed afterwards. What it cannot cover is how a vendor TUI really draws and behaves; that stays with `bun run closure:gate`.
+The run is isolated from the user's session: a `tmux` wrapper puts every call on a private socket, and `HOME`, `AHELPA_HOME` and `AHELPA_TMP_DIR` are scratch directories. Only `PATH`, `TMPDIR` and the locale and terminal variables are passed on from the host; anything else, such as `BASH_ENV`, `GIT_*`, `TMUX`, `CLAUDE*` or `AHELPA_*`, could be run or read by the helper's shell and is dropped. Everything is removed afterwards. What it cannot cover is how a vendor TUI really draws and behaves; that stays with `bun run closure:gate`.
 
 ## Closure Gate
 

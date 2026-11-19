@@ -7,12 +7,12 @@
 // Behavior is chosen by directives in the task text, e.g. `[fake:spawn]`:
 //   remember=<x>  keep <x> in this native session's state file
 //   recall        the summary quotes what was remembered (proves `resume` reopened it)
-//   work=<ms>     how long the turn runs before it finishes (default 800)
+//   release=<path> keep working until that file exists (otherwise the turn takes 0.8 s)
 //   spawn         run `sleep 600` as a tool child for the turn
 //   hold          never finish the turn (spinner and tool row stay up)
 //   need-help     write a partial summary, print NEED_HELP, and wait for an answer
 // A line that is not a task instruction is read as the answer to NEED_HELP.
-import { mkdirSync, readFileSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const args = process.argv.slice(2);
@@ -67,7 +67,8 @@ async function turn(line: string): Promise<void> {
   out(" ⠇ thinking…");
   composer();
   if ("hold" in d) return new Promise(() => {});
-  await Bun.sleep(Number(d.work ?? 800));
+  if (d.release) while (!existsSync(d.release)) await Bun.sleep(50);
+  else await Bun.sleep(800);
   tool?.kill();
 
   if (d.remember) { state.marker = d.remember; save(); }

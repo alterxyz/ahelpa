@@ -5,26 +5,37 @@
 // AHELPA_HOME and AHELPA_TMP_DIR. The real Claude/Codex/Kimi TUIs are covered
 // only by `bun run closure:gate`.
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { basename, join } from "path";
 import { shellEscape } from "../src/shell";
 
 const REPO = join(import.meta.dir, "..");
 const REAL_TMUX = Bun.which("tmux") ?? (() => { throw new Error("tmux is required for the end-to-end tests"); })();
-// Host identity, a nested tmux and the caller's own ahelpa roots must not leak in.
-const HOST_ENV = /^(?:AHELPA_|TMUX|CLAUDE|CODEX|KIMI_|AI_AGENT$|BAGGAGE$)/;
+// Only these host variables reach the CLI, the daemon and the helper's `bash -lc`. Anything
+// else could be run or read there: BASH_ENV and exported bash functions start host code, GIT_*
+// redirects git, and host identity, a nested TMUX or the caller's AHELPA_* roots break isolation.
+const KEEP_ENV = ["PATH", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ"];
 
 let root: string;
+let bin: string;
 let socket: string;
 let cli: string;
 let home: string;
 let env: Record<string, string>;
 const ahelpaHome = () => join(root, "ahelpa");
 
+const helperEnv = (host: Record<string, string | undefined>): Record<string, string> => ({
+  ...Object.fromEntries(KEEP_ENV.filter(name => host[name] !== undefined).map(name => [name, host[name]!])),
+  PATH: `${bin}:${host.PATH}`,
+  HOME: home,
+  AHELPA_HOME: ahelpaHome(),
+  AHELPA_TMP_DIR: join(root, "run"),
+});
+
 beforeAll(() => {
   root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-e2e-"));
-  const bin = join(root, "bin");
+  bin = join(root, "bin");
   socket = join(root, "tmux.sock");
   home = join(root, "home");
   cli = join(bin, "ahelpa");
@@ -36,14 +47,7 @@ beforeAll(() => {
   // path_helper, Debian /etc/profile), so put the fake `kimi` back in front.
   writeFileSync(join(home, ".bash_profile"), `export PATH=${shellEscape(bin)}:"$PATH"\n`);
 
-  env = {
-    ...Object.fromEntries(Object.entries(process.env).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined && !HOST_ENV.test(entry[0]))),
-    PATH: `${bin}:${process.env.PATH}`,
-    HOME: home,
-    AHELPA_HOME: ahelpaHome(),
-    AHELPA_TMP_DIR: join(root, "run"),
-  };
+  env = helperEnv(process.env);
   // The release binary, built from this checkout (about 0.2 s): the daemon then
   // re-invokes the binary itself, a path `bun src/cli.ts` never takes.
   const build = Bun.spawnSync([process.execPath, "build", join(REPO, "src", "cli.ts"), "--compile", `--outfile=${cli}`],
@@ -107,6 +111,20 @@ function processTree(rootPid: number): Map<number, string> {
   return found;
 }
 
+test("host shell startup files never reach the helper's shell", () => {
+  const marker = join(root, "host-startup-ran");
+  const script = join(root, "host-startup.sh");
+  writeFileSync(script, `touch ${shellEscape(marker)}\n`);
+  const polluted = { ...process.env, BASH_ENV: script, ENV: script };
+  // Control: with the host environment bash runs the script.
+  Bun.spawnSync(["bash", "-c", "true"], { env: polluted });
+  expect(existsSync(marker)).toBe(true);
+  rmSync(marker);
+  // tmux starts every helper with `bash -lc`.
+  Bun.spawnSync(["bash", "-lc", "true"], { env: helperEnv(polluted), cwd: root });
+  expect(existsSync(marker)).toBe(false);
+});
+
 test.concurrent("launch, wait, check, kill, resume, a second task, kill", async () => {
   const project = newProject("chain");
   const marker = crypto.randomUUID();
@@ -162,9 +180,11 @@ test.concurrent("NEED_HELP stops the helper; send answers it and the helper fini
   const ledger = readFileSync(join(ahelpaHome(), "need-help.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
   expect(ledger.find(entry => entry.sessionId === id)).toMatchObject({ tags: ["input"], agentType: "kimi" });
 
-  // The second turn runs 2 s so check below sees it running before the daemon settles it.
-  expect(await run("send", id, "use blue [fake:work=2000]", "--token", helper.ownerToken)).toContain("sent");
+  // The fake keeps working until the release file exists, so `running` below cannot race the daemon.
+  const release = join(root, "need-help-release");
+  expect(await run("send", id, `use blue [fake:release=${release}]`, "--token", helper.ownerToken)).toContain("sent");
   expect((await row(id)).status).toBe("running");
+  writeFileSync(release, "");
   const finished = await wait(id);
   expect(finished.status).toBe("idle");
   expect(summary(project, id)).toContain("answer: use blue");
