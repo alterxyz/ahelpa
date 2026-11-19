@@ -9,7 +9,7 @@ import { executeLaunch, planLaunch, resume } from "../src/commands/launch";
 import { sendTask } from "../src/commands/session-ops";
 import { wait } from "../src/commands/wait";
 import * as evidence from "../src/evidence";
-import { buildTaskFileContent, planFileHandoff, prepareFileHandoff } from "../src/file-handoff";
+import { buildTaskFileContent, ORIGINAL_ASK_UNAVAILABLE, planFileHandoff, prepareFileHandoff } from "../src/file-handoff";
 import { COMMAND_CONTRACTS } from "../src/command-contract";
 import { Tmux } from "../src/tmux";
 import { FIFO } from "../src/fifo";
@@ -373,7 +373,7 @@ describe("review target and blind handoff", () => {
 });
 
 describe("blind review ask lineage", () => {
-  const UNAVAILABLE = "Original ask unavailable: the original ask predates ask.md and is unavailable to blind review.";
+  const UNAVAILABLE = ORIGINAL_ASK_UNAVAILABLE;
 
   let root: string;
   let project: string;
