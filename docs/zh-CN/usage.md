@@ -372,7 +372,7 @@ ahelpa check --parent "$id"     # 某个 parent 启动的 session
 ahelpa status
 ```
 
-daemon 未运行时，这两个命令也会先做 inline refresh。`status` 会写出正在运行的 daemon 的构建（版本、程序路径和它最后一次改动的时间；源码运行时取 `src/` 下最新的 `.ts` 文件），例如 `ahelpa daemon: running (build 0.17.0 <program path> <modification time>)`；构建不符时见 [Daemon 管理](#daemon-管理)。`status` 显示 RELATIONSHIP 列，`check` 包含 `relationship`。调用方直接启动的 session 为 `child`，其次是与实际 helper 调用方保存的 job 相同的其他 session（`job peer`），其余为 `other`。`child` 优先于同 job 关系。Host 依据已解析的调用方 ID 显示 `child` 或 `other`。这些标签不授予控制权，也不暴露 owner token。
+daemon 未运行时，这两个命令也会先做 inline refresh。`status` 会写出正在运行的 daemon 的构建：版本、程序路径和一个标记（二进制取它的修改时间；源码运行时取 `src/` 下每个 `.ts` 文件路径和修改时间的哈希），例如 `ahelpa daemon: running (build 0.17.0 <program path> <stamp>)`；构建不符时见 [Daemon 管理](#daemon-管理)。`status` 显示 RELATIONSHIP 列，`check` 包含 `relationship`。调用方直接启动的 session 为 `child`，其次是与实际 helper 调用方保存的 job 相同的其他 session（`job peer`），其余为 `other`。`child` 优先于同 job 关系。Host 依据已解析的调用方 ID 显示 `child` 或 `other`。这些标签不授予控制权，也不暴露 owner token。
 
 ## Capture 终端输出
 

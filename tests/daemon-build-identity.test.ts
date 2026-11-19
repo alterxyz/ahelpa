@@ -65,6 +65,21 @@ describe("buildIdentity", () => {
     expect(buildIdentity("/usr/bin/true", src)).not.toBe(first);
   });
 
+  test("a source edit counts even when another file has a newer (future) mtime", () => {
+    const src = join(root, "src");
+    mkdirSync(src);
+    const cli = join(src, "cli.ts");
+    const daemonFile = join(src, "daemon.ts");
+    writeFileSync(cli, "");
+    writeFileSync(daemonFile, "");
+    const future = new Date(Date.now() + 86_400_000);
+    utimesSync(cli, future, future);
+    utimesSync(daemonFile, new Date(1_000_000), new Date(1_000_000));
+    const first = buildIdentity("/usr/bin/true", src);
+    utimesSync(daemonFile, new Date(2_000_000), new Date(2_000_000));
+    expect(buildIdentity("/usr/bin/true", src)).not.toBe(first);
+  });
+
   test("a symlink to the program is the same build as the program", () => {
     const program = join(root, "program");
     writeFileSync(program, "#!/bin/sh\n");

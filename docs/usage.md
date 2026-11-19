@@ -371,7 +371,7 @@ Human-readable overview:
 ahelpa status
 ```
 
-Both commands perform an inline state refresh if the daemon isn't running. `status` names the running daemon's build (version, program path, and when it last changed; for a source run, the newest `.ts` file under `src/`), for example `ahelpa daemon: running (build 0.17.0 <program path> <modification time>)`; see [Daemon Management](#daemon-management) for a mismatch. `status` shows a RELATIONSHIP column; `check` includes `relationship`. Values are `child` for a session directly launched by the caller, then `job peer` for another session in the actual helper caller's stored job, otherwise `other`. `child` takes precedence over a shared job. A host sees `child` or `other` relative to its resolved caller ID. These labels do not grant control or owner tokens.
+Both commands perform an inline state refresh if the daemon isn't running. `status` names the running daemon's build: version, program path, and a stamp (the binary's modification time; for a source run, a hash of the path and modification time of every `.ts` file under `src/`), for example `ahelpa daemon: running (build 0.17.0 <program path> <stamp>)`; see [Daemon Management](#daemon-management) for a mismatch. `status` shows a RELATIONSHIP column; `check` includes `relationship`. Values are `child` for a session directly launched by the caller, then `job peer` for another session in the actual helper caller's stored job, otherwise `other`. `child` takes precedence over a shared job. A host sees `child` or `other` relative to its resolved caller ID. These labels do not grant control or owner tokens.
 
 ## Capture Terminal Output
 

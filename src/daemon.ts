@@ -530,29 +530,30 @@ export function isDaemonRunning(): boolean {
   }
 }
 
-// A build is its version plus the program it runs from and when that last
-// changed: a compiled binary replaced in place gets a new mtime, and a source
-// run (cli.ts) is as new as the newest .ts file beside it or below, so an edit
-// to daemon.ts counts too. The path is resolved, so a CLI reached through a
-// symlink (~/.local/bin/ahelpa) is the same build as its target.
+// A build is its version plus the program it runs from and a stamp of its
+// files: a compiled binary is stamped with its mtime, so one replaced in place
+// is a new build; a source run (cli.ts) with a hash of every .ts path and mtime
+// beside it or below, so an edit to any of them, or an added or removed file,
+// is a new build even when another file carries a future mtime. The path is
+// resolved, so a CLI reached through a symlink (~/.local/bin/ahelpa) is the
+// same build as its target.
 // ponytail: mtimes, not content; a copy with a fresh mtime warns, and a
 // replacement that keeps path and mtime (cp -p) does not.
 export function buildIdentity(execPath = process.execPath, moduleDir = import.meta.dir): string {
   const command = getSelfCommand(execPath, moduleDir);
   let program = command.at(-1)!;
-  let mtime = "unknown";
+  let stamp = "unknown";
   try {
     program = realpathSync(program);
-    let newest = statSync(program).mtimeMs;
     if (command.length > 1) {
       const dir = dirname(program);
-      for (const file of readdirSync(dir, { recursive: true })) {
-        if (String(file).endsWith(".ts")) newest = Math.max(newest, statSync(join(dir, String(file))).mtimeMs);
-      }
+      const files = readdirSync(dir, { recursive: true }).map(String).filter(file => file.endsWith(".ts")).sort();
+      stamp = Bun.hash(files.map(file => `${file} ${statSync(join(dir, file), { throwIfNoEntry: false })?.mtimeMs}`).join("\n")).toString(16);
+    } else {
+      stamp = new Date(statSync(program).mtimeMs).toISOString();
     }
-    mtime = new Date(newest).toISOString();
   } catch {}
-  return `${VERSION} ${program} ${mtime}`;
+  return `${VERSION} ${program} ${stamp}`;
 }
 
 // The identity the running daemon was started with; null when none was recorded
