@@ -12,7 +12,7 @@
     "build": "bun build src/cli.ts --compile --outfile=dist/ahelpa && rm -f .*.bun-build",
     "package:skill": "bun run scripts/package-skill.ts",
     "install:skill": "bun run src/cli.ts install-skill --source ./skill",
-    "test": "bun test",
+    "test": "bash scripts/test.sh",
     "typecheck": "tsc --noEmit",
     "closure:gate": "bash scripts/closure-gate.sh"
   },
