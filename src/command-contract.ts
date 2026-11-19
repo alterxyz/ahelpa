@@ -195,6 +195,10 @@ export const COMMAND_CONTRACTS: CommandContract[] = [
       const warn = ctx.printError ?? ((text: string) => console.error(text));
       const buildWarning = daemonBuildWarning();
       if (buildWarning !== undefined) warn(buildWarning);
+      const after = ctx.flags.strings.after;
+      if (after && ctx.db.getSession(after)?.status === "running") {
+        warn(`warning: --after ${after} is still running, so ${result.sessionId} started before ${after} wrote its result. Wait for ${after} before relying on ${result.sessionId}, or kill ${result.sessionId} and relaunch once ${after} has settled.`);
+      }
     },
   },
   {
