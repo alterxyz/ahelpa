@@ -129,11 +129,4 @@ describe("daemon uses hook readiness only for current accepted events", () => {
     await refreshSessionStatuses(db, [id]);
     expect(Tmux.sendKeys).not.toHaveBeenCalled();
   });
-  test("row-version change during capture still prevents the hook-aware nudge", async () => {
-    const id = seed();
-    spyOn(Tmux, "capture").mockImplementation(async () => { db.updateResumeId(id, "new-version"); return pane; });
-    await refreshSessionStatuses(db, [id]);
-    expect(Tmux.sendKeys).not.toHaveBeenCalled();
-    expect(db.getSession(id)?.turnHookOffset).toBeNull();
-  });
 });

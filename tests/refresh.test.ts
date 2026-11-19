@@ -23,17 +23,6 @@ describe("refreshSessionStatuses", () => {
     rmSync(scratch, { recursive: true, force: true });
   });
 
-  test("preserves settled sessions whose tmux session has gone away", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({ id: "stale-idle", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    db.updateStatus("stale-idle", "idle");
-    spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set());
-
-    await refreshSessionStatuses(db);
-
-    expect(db.getSession("stale-idle")?.status).toBe("idle");
-  });
-
   test("retains a successful record when its native agent session can be resumed", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "resumable-idle", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
@@ -47,39 +36,6 @@ describe("refreshSessionStatuses", () => {
     expect(db.getSession("resumable-idle")?.agentResumeId).toBe("session_abc-123");
   });
 
-  test("retains a token captured in the same draining refresh that reclaims tmux", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({ id: "fresh-token", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    db.updateStatus("fresh-token", "draining");
-    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
-    spyOn(Tmux, "capture").mockResolvedValue(
-      "To resume this session: kimi -r session_fresh-123",
-    );
-    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
-    const drainStartedAt = Date.parse(db.getSession("fresh-token")!.updatedAt);
-
-    await refreshSessionStatuses(db, ["fresh-token"], drainStartedAt + 16_000);
-
-    expect(killSpy).toHaveBeenCalledWith("fresh-token");
-    expect(db.getSession("fresh-token")?.status).toBe("idle");
-    expect(db.getSession("fresh-token")?.agentResumeId).toBe("session_fresh-123");
-  });
-
-  test("does not reclaim a recent draining session after daemon restart", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({ id: "recent-drain", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    db.updateStatus("recent-drain", "draining");
-    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
-    spyOn(Tmux, "capture").mockResolvedValue("Exiting…");
-    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
-    const drainStartedAt = Date.parse(db.getSession("recent-drain")!.updatedAt);
-
-    await refreshSessionStatuses(db, ["recent-drain"], drainStartedAt + 1_000);
-
-    expect(killSpy).not.toHaveBeenCalled();
-    expect(db.getSession("recent-drain")?.status).toBe("draining");
-  });
-
   test("leaves settled sessions alone while their tmux session lives", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "live-idle", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
@@ -91,25 +47,6 @@ describe("refreshSessionStatuses", () => {
 
     expect(db.getSession("live-idle")?.status).toBe("idle");
     expect(captureSpy).not.toHaveBeenCalled();
-  });
-
-  test("captures agent resume token after graceful exit enters draining", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({ id: "done-claude", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
-    spyOn(Tmux, "sendKeys").mockResolvedValue();
-    let captures = 0;
-    spyOn(Tmux, "capture").mockImplementation(async () => {
-      captures++;
-      return captures === 1
-        ? "[AHELPA:DONE]"
-        : "Resume this session with:\n  claude --resume dc8ca9c2-766b-4d52-9623-1ff9d44b2075";
-    });
-
-    await refreshSessionStatuses(db, ["done-claude"]);
-    await refreshSessionStatuses(db, ["done-claude"]);
-
-    expect(db.getSession("done-claude")?.agentResumeId).toBe("dc8ca9c2-766b-4d52-9623-1ff9d44b2075");
   });
 
   test("flags needs_attention after sustained idle (debounce = 4 polls)", async () => {

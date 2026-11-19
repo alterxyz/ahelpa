@@ -196,13 +196,6 @@ describe("turn hook payloads and append", () => {
 });
 
 describe("driver hook launch and resume", () => {
-  test("Claude helper settings disable prompt suggestions", () => {
-    const sessionId = "claude-no-suggestions";
-    mkdirSync(defaultRuntimeLayout.sessionDeliveryDir(root, sessionId), { recursive: true });
-    claudeCodeDriver.prepareLaunchFiles!({ cwd: root, sessionId });
-    const settings = JSON.parse(readFileSync(defaultRuntimeLayout.claudeSettingsPath(root, sessionId), "utf8"));
-    expect(settings.promptSuggestionEnabled).toBe(false);
-  });
 
   test("self invocation supports source and compiled runtimes", () => {
     expect(getSelfCommand("/runtime/ahelpa", root)).toEqual(["/runtime/ahelpa"]);

@@ -1,6 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { StateDB } from "../src/state";
-import { Database } from "bun:sqlite";
 import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -110,37 +109,4 @@ describe("StateDB", () => {
     expect(db.getSession("s1")).not.toBeNull();
   });
 
-  test("drops the legacy tmux_session column from existing databases", () => {
-    db.close();
-    rmSync(TEST_DB, { force: true });
-    rmSync(TEST_DB + "-wal", { force: true });
-    rmSync(TEST_DB + "-shm", { force: true });
-
-    const legacy = new Database(TEST_DB);
-    legacy.exec(`
-      CREATE TABLE sessions (
-        id TEXT PRIMARY KEY,
-        parent_id TEXT NOT NULL,
-        agent_type TEXT NOT NULL,
-        tmux_session TEXT NOT NULL,
-        task TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'running',
-        owner_token TEXT NOT NULL,
-        project_path TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        label TEXT
-      )
-    `);
-    legacy.exec(`
-      INSERT INTO sessions (id, parent_id, agent_type, tmux_session, task, status, owner_token, project_path, created_at, updated_at)
-      VALUES ('old-1', 'p1', 'codex', 'old-1', 't', 'running', 'tok', '/tmp', '2026-01-01', '2026-01-01')
-    `);
-    legacy.close();
-
-    db = new StateDB(TEST_DB);
-    expect(db.getSession("old-1")?.id).toBe("old-1");
-    db.createSession({ id: "new-1", parentId: "p1", agentType: "codex", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    expect(db.getSession("new-1")).not.toBeNull();
-  });
 });

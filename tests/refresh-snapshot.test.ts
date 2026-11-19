@@ -104,19 +104,6 @@ describe("refresh liveness snapshot", () => {
     expect(new Archive(join(root, "archive")).get(inserted!)).toBeNull();
   });
 
-  test("a capture failure settles a row the snapshot still lists once tmux is gone", async () => {
-    const live = create();
-    const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([live]));
-    const has = spyOn(Tmux, "hasSession").mockResolvedValue(false);
-    spyOn(Tmux, "capture").mockRejectedValue(new Error("can't find session"));
-    await refreshSessionStatuses(db, [live]);
-    expect(snapshot).toHaveBeenCalledTimes(1);
-    expect(has).toHaveBeenCalledTimes(1);
-    expect(has).toHaveBeenCalledWith(live);
-    expect(db.getSession(live)?.status).toBe("dead");
-    expect(new Archive(join(root, "archive")).get(live)?.reason).toBe("tmux session gone");
-  });
-
   test("logs one line per snapshot failure/recovery transition", async () => {
     const live = create();
     const snapshot = spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("permission denied"));

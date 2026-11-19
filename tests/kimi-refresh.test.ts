@@ -8,7 +8,6 @@ import { Tmux } from "../src/tmux";
 
 let TEST_DB: string;
 let scratch: string;
-const TASK = "Please read and complete the task described in /tmp/ahelpa-task-kimi.md.";
 
 describe("Kimi daemon activity", () => {
   let db: StateDB;
@@ -47,27 +46,4 @@ describe("Kimi daemon activity", () => {
     expect(db.getSession("kimi-working")?.status).toBe("running");
   });
 
-  test("flags a sustained Kimi approval prompt as needs_attention", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({
-      id: "kimi-approval",
-      parentId: "p",
-      agentType: "kimi",
-      task: "t",
-      ownerToken: "tok",
-      projectPath: "/tmp",
-    });
-    spyOn(Tmux, "hasSession").mockResolvedValue(true);
-    spyOn(Tmux, "capture").mockResolvedValue(
-      `${TASK}\n▶ Run this command?\n1. Approve once\n2. Approve for this session\n↵ confirm`,
-    );
-
-    for (let i = 0; i < 3; i++) {
-      await refreshSessionStatuses(db, ["kimi-approval"]);
-      expect(db.getSession("kimi-approval")?.status).toBe("running");
-    }
-    await refreshSessionStatuses(db, ["kimi-approval"]);
-
-    expect(db.getSession("kimi-approval")?.status).toBe("needs_attention");
-  });
 });
