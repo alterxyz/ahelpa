@@ -49,6 +49,8 @@ beforeEach(() => {
     if (key === "Escape" && screen === "working") screen = "ready";
   });
   spyOn(Tmux, "sendKeys").mockImplementation(async (_id, text) => { keys.push(text); });
+  // The stop polls are counted, not timed: a refused stop would otherwise sit out 8 × 500 ms.
+  spyOn(Bun, "sleep").mockResolvedValue();
 });
 
 afterEach(() => {
