@@ -84,6 +84,7 @@ The gate runs tests, typechecks, builds, and launches `claude` and `codex`; Kimi
 Campaign records with unchecked boxes live in `docs/superpowers/plans/`. At the start of a session, check them for open items before proposing new work:
 
 - `2026-10-08-helper-contract-and-evidence.md` — observation period for the v0.9.0 contract / evidence / `--check` / nudge mechanisms. Still open: re-count the nudge numbers on builds after 2026-10-20 and decide what to tune, the contract-wording decision, one Linux run of the evidence/wait tests, and four watch-only items (`nudged_at` never resets, other Claude `❯` forms, old sessions' skill snapshot, the intermittent Codex "did not expose the submitted task" launch failure).
+- `2026-11-19-daemon-and-launch-defects-from-host-reports.md` — five defects a host project logged in August–October, re-checked against v0.16.0 source, none fixed: no CLI/daemon build handshake, no outer error handling in `daemonLoop`, `--after` does not wait for a running previous hand, the Claude "did not expose the submitted task as a new turn" launch failure, and a session ID easy to miss in `launch` output.
 - `2026-10-18-codex-helper-status-detection.md` — both fixes are pushed and installed. Still open: align the Codex host instructions with the owner's memory-service policy (through the owner's config flow), and decide whether `wait --check` needs its own time budget.
 
 Fully shipped records are removed from the tree so searches stay lean. Read them from git history:
