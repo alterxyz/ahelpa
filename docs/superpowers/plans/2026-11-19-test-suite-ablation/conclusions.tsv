@@ -1,0 +1,95 @@
+file	conclusion	evidence
+accepts-input.test.ts	Keep, trim	Only home of `acceptsInputAfterTurn`/`workingAfterTurn` (:100); its Folder-access rows (:14-17) repeat codex-readiness:364. Takes the driver half of turn-hook-readiness.
+agy-driver.test.ts	Keep	Sole coverage of `drivers/agy.ts`.
+archive.test.ts	Keep	Small; `Archive.reasonFor`/`revision` still lack a direct test (gap).
+check.test.ts	Keep	Only file that catches `check` dropping nesting, role, model or scope (manual mutants chk-*).
+claude-model-switch.test.ts	Keep	4 exclusive kills.
+clean.test.ts	Keep	Receives the clean-retention tests from pr6-*.
+cli-args.test.ts	Keep	Exclusive coverage of `cli-args.ts`.
+cli-dispatch.test.ts	Keep	20 exclusive lines.
+closure-gate.test.ts	Keep (speed: test-speed)	Tests `scripts/closure-gate.sh` in subprocesses; no in-process coverage. 62% of suite time.
+codex-capabilities.test.ts	Keep	5 exclusive kills.
+codex-capacity.test.ts	Keep	17 exclusive lines; optional: move the settlement half (:114+) beside the refresh tests.
+codex-config.test.ts	Keep	40 exclusive lines; receives codex-model-switch.
+codex-driver.test.ts	Merge → codex-readiness	0 exclusive kills of 13. Delete :5; keep :18 (shell-quote oracle) and :44-79.
+codex-folder-trust.test.ts	Merge → launch	0 exclusive kills of 28; launch-level plumbing of the Folder-access answer and the rollback note (:114-165, the only launch-level coverage).
+codex-model-switch.test.ts	Merge → codex-config	2 exclusive kills; same subject as codex-config. Its effort list (:166) repeats command-contract:61-67.
+codex-readiness.test.ts	Keep	Receives codex-driver and the codex half of driver-protocol.
+command-contract.test.ts	Keep, rewrite	4 exclusive kills; rewrite the literal catalog/default pins (:56-95, :108-109) into structural checks.
+completion-nudge.test.ts	Keep	0 exclusive of 23 kills, but 2 kills shared only with other hook files; no duplicate found by reading.
+daemon-recovery.test.ts	Keep, trim	13 exclusive lines. Delete :658 (keep :191: the only test that a backoff on one session leaves the others alone). The "10000 actual refresh failures" test (12 s) fails under load.
+daemon-start.test.ts	Keep, trim	2 exclusive lines (spawn options); delete :65 (repeats :51).
+daemon-wake.test.ts	Keep	14 exclusive lines. :53 is the only test of `FIFO.tryWrite` against a regular file or a symlink (reviewer mutation H, reproduced).
+disk-usage.test.ts	Keep	273 exclusive lines.
+doctor.test.ts	Keep	Runs the CLI in subprocesses; only test of the `*-readiness.ts` doctor modules.
+driver-outcome.test.ts	Keep, trim	0 exclusive of 25 kills; delete :97 (codex-driver:31 covers it).
+driver-protocol.test.ts	Keep, trim, split	22 exclusive lines. Delete :555, :572, :620, :793, :970 (keep :537: the only legacy update screen without a cursor row); move the codex half (:433-580) to codex-readiness; collapse :454/:467/:480.
+drivers.test.ts	Keep, trim	0 exclusive of 21 kills; delete :56 and :101.
+evidence.test.ts	Keep	17 exclusive lines.
+fifo.test.ts	Keep	1 exclusive kill (`fifo.ts:96`).
+file-handoff.test.ts	Keep, rewrite	0 exclusive of 10 kills, but it is the only check on the helper contract text. Drop the verbatim sentence pins that repeat the keyword regexes of the same test (:224-226).
+installer.test.ts	Keep	Only test of `scripts/install.sh`.
+install-skill.test.ts	Keep	26 exclusive lines.
+integration.test.ts	Out of scope (hermetic-e2e)	Failed twice under load with the launch error "did not expose the submitted task as a new turn".
+interrupt.test.ts	Keep (speed: test-speed)	81 exclusive lines; 19 s.
+job.test.ts	Keep	Receives the job tests from pr6-guardrails.
+kill-archive-races.test.ts	Merge → kill	Exclusive kills (2 operator, 1 semantic).
+kill-nonsettle-races.test.ts	Merge → kill	Exclusive kills (2 operator, 2 semantic).
+kill-tree.test.ts	Merge → kill (base file)	Exclusive kills (1 operator, 1 semantic).
+kill-tree-rework.test.ts	Merge → kill / launch-reservation	0 exclusive kills (operator and semantic); :57 is the only test where kill throws because no terminal exists yet.
+kill-tree-rollback.test.ts	Merge → launch-reservation	Exclusive kills: rollback tombstone releases the reservation (state.ts:388), launch.ts:455.
+kimi-driver.test.ts	Keep, trim	16 exclusive lines; delete :226, :323, :387, :435, :553, :574.
+kimi-refresh.test.ts	Merge → refresh	0 exclusive of 11 kills. Delete :50 (daemon-wake:70 covers it); move :28.
+launch.test.ts	Keep	13 exclusive lines; receives codex-folder-trust.
+launch-profiles.test.ts	Keep, trim, rewrite	1 exclusive kill; delete :98; assert defaults structurally.
+linked-worktree-results.test.ts	Keep	0 exclusive of 19 kills, but the only tests of results living in the main checkout for a linked worktree; not read in depth.
+model-menu.test.ts	Keep	Unit layer for menus; 1 exclusive kill.
+model-named-drivers.test.ts	Keep, rewrite	1 exclusive kill; rewrite the catalog literals (:84-96) and wording pins (:52-58).
+model-state.test.ts	Keep	1 exclusive kill.
+need-help-ledger.test.ts	Keep	2 exclusive kills.
+peer-mail.test.ts	Keep, trim (merge target)	Exclusive kills (5 operator, 2 semantic). Delete :138 and :304.
+peer-mail-hardening.test.ts	Merge → peer-mail	Exclusive kills (4 operator, 3 semantic).
+peer-mail-regressions.test.ts	Merge → peer-mail	5 exclusive operator kills; 9 semantic kills shared only with other peer-mail files. Delete :275.
+peer-mail-stack.test.ts	Merge → peer-mail	0 exclusive kills; keep as a nested describe (runs with the daemon stopped).
+pi-driver.test.ts	Keep, trim	90 exclusive lines; delete :27.
+pr6-guardrails.test.ts	Split by module	2 exclusive semantic kills (cross-tree --parent, depth non-reduction). Reservation/quota → launch-reservation, job → job, clean → clean.
+pr6-reservation-edges.test.ts	Split by module	4 exclusive kills: the startup-lease boundary, an EPERM launcher and a crashed resume (targeted mutants), and the reservation re-check after tmux creation (`launch.ts:522`). Lease → refresh, CAS units → state, cancelled launches → launch-reservation. Delete :279, :359.
+refresh.test.ts	Keep, trim (merge target)	0 exclusive of 15 kills; 4 of its 9 tests repeat others: delete :26, :50, :68, :96.
+refresh-snapshot.test.ts	Merge → refresh	1 exclusive kill; delete :107.
+release-workflow.test.ts	Keep	Only test of the release workflow script.
+removed-dsh.test.ts	Keep	24 exclusive lines.
+resume.test.ts	Keep, trim	9 exclusive lines; delete :40; optional: move :560-640 (StateDB fields) to state.
+review-ask-lineage.test.ts	Merge → review-target	0 exclusive of 18 kills; each test adds assertions to review-target:214/:261.
+review-fingerprint-bounds.test.ts	Keep (merge target)	2 exclusive kills.
+review-fingerprint-lifecycle.test.ts	Merge → review-fingerprint-bounds	Test 1 is the only stable guard of fix 094a292 (git detached from the caller's group); delete test 2 (bounds kills its mutant twice).
+review-target.test.ts	Keep (merge target)	1 exclusive kill (`launch.ts:778`); 6.5 s; receives review-ask-lineage.
+runtime-layout.test.ts	Keep	0 exclusive of 7 kills, but the only direct test of `RuntimeLayout`; not read in depth.
+scope.test.ts	Keep	0 exclusive of 14 kills, 2 exclusive lines; the only tests of `--scope` parsing; not read in depth.
+sentinels.test.ts	Keep	3 exclusive kills.
+session-access.test.ts	Keep	0 exclusive kills (resume and cli-dispatch also catch them), but it is the direct contract of the token check; 55 lines.
+session-lifecycle.test.ts	Keep	1 exclusive kill.
+session-ops.test.ts	Keep	Catches glmA-19 (a kill commits while `send` re-arms monitoring), which none of the five kill files catches; 5 exclusive lines.
+settle.test.ts	Keep	Exclusive kills (2 operator, 1 semantic).
+settle-aba.test.ts	Keep, trim	1 exclusive semantic kill (updateStatus must bump the version); delete :175.
+skill-package.test.ts	Keep	Only test of `scripts/skill-package.ts`.
+state.test.ts	Keep, trim (merge target)	1 exclusive kill; delete :113.
+state-migration.test.ts	Merge → state	Migration describe.
+state-version.test.ts	Merge → state	Only killer of the cross-process lost-update mutant.
+status.test.ts	Rewrite	Claims to test depth and parent columns; both mutants survive it (it only checks header words and IDs).
+task-input.test.ts	Keep	Only killer of the blocking-open (FIFO hang) mutant.
+test-progress.test.ts	Keep	Guards the dot reporter in agent mode.
+tmux.test.ts	Keep	Exclusive lines in `tmux.ts`.
+tmux-env.test.ts	Keep	Only stable killer of host-identity leaks into tmux.
+tmux-errors.test.ts	Keep	Subprocess tmux error paths; not mutated.
+turn-delivery.test.ts	Keep	11 exclusive lines.
+turn-hook-attribution.test.ts	Merge → turn-hook-daemon	0 exclusive of 31 kills.
+turn-hook-daemon.test.ts	Keep (merge target)	3 exclusive kills.
+turn-hook-readiness.test.ts	Split	0 exclusive of 31 kills; the same 37 panes run twice (:53-57 and :116-124). Driver half → accepts-input, daemon half → turn-hook-daemon; delete :132.
+turn-hook-safety.test.ts	Merge → turn-hooks	Hardlink and moved-binary safety; not mutated.
+turn-hook-subagents.test.ts	Merge → turn-hooks	27 exclusive lines.
+turn-hooks.test.ts	Keep, trim (merge target)	8 exclusive lines; delete :199.
+turn-hooks-launch.test.ts	Merge → turn-hooks	0 exclusive of 1 kill.
+vibe-driver.test.ts	Keep	57 exclusive lines; :153 is tautological (one assertion), :92-96 pins a data literal.
+version.test.ts	Keep	One assertion, guards the release version.
+wait.test.ts	Keep	0 exclusive of 12 kills, 3 exclusive lines in `commands/wait.ts`; not read in depth.
+wakeup.test.ts	Keep	14 exclusive lines.

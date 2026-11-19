@@ -51,5 +51,9 @@ describe("status", () => {
     expect(output).toContain("child-session");
     expect(output).toContain("root-session");
     expect(output).toContain("nested");
+    // Columns: ID, TYPE, ROLE, STATUS, DEPTH, PARENT, ...
+    const columns = (id: string) => output.split("\n").find(line => line.startsWith(`${id} `))!.trim().split(/\s+/);
+    expect(columns("root-session").slice(4, 6)).toEqual(["1", "-"]);
+    expect(columns("child-session").slice(4, 6)).toEqual(["2", "root-session"]);
   });
 });

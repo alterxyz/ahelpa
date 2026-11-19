@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "fs";
+import { join } from "path";
 import { getDriver } from "../src/drivers/registry";
 
 // Panes modeled on each CLI's real layout. The daemon's completion nudge ends
@@ -136,4 +137,67 @@ describe("acceptsInput", () => {
       });
     }
   }
+});
+
+describe("hook-aware driver readiness (accepted Stop)", () => {
+  const pane = readFileSync(join(import.meta.dir, "fixtures/turn-hooks/claude-completed.txt"), "utf8");
+  const codexPane = readFileSync(join(import.meta.dir, "fixtures/turn-hooks/codex-completed.txt"), "utf8");
+  const claude = getDriver("claude-code");
+  const blocked: Record<string, string> = {
+    "numbered permission cursor": "⏺ Bash(command)\n Do you want to proceed?\n ❯ 1. Yes\n   2. No",
+    "column-zero permission cursor": "Do you want to proceed?\n❯ 1. Yes\n  2. No",
+    "question menu": "⏺ Which approach?\n ❯ 1. First\n   2. Second\n Enter to select · Esc to cancel",
+    "workspace trust": trust["wide-with-source-padding"],
+    "draft composer": pane.replace(/^❯.*$/mu, "❯ continue editing"),
+    "indented empty cursor": pane.replace(/^❯.*$/mu, " ❯ "),
+    "live spinner after reply": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)"),
+    "dot spinner frame": pane.replace("✻ Crunched for 7s · done 12:26 AM", "· Imagining… (5s · ↓ 197 tokens)"),
+    "spinner without ellipsis or timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining"),
+    "spinner without ellipsis with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining (5s · ↓ 197 tokens)"),
+    "spinner above newer tool bullet": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)\n⏺ Bash(still-running)"),
+    "ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining... (5s · ↓ 197 tokens)"),
+    "iconless Unicode spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining…"),
+    "iconless ASCII spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining..."),
+    "iconless Unicode spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining… (5s · ↓ 197 tokens)"),
+    "iconless ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining... (5s · ↓ 197 tokens)"),
+    "cursorless permission overlay": pane + "\nDo you want to proceed?\n  1. Yes\n  2. No\nEnter to confirm",
+    "cursorless selection footer": pane + "\nEnter to select",
+    "cursorless cancellation footer": pane + "\nEsc to cancel",
+    "cursorless permission prompt": pane + "\nPermission required for this command",
+    "cursorless allow prompt": pane + "\nAllow this command?",
+    "cursorless numbered menu": pane + "\n  1. Yes\n  2. No",
+    "wrapped interrupt hint": "ESC\n to interrupt\n" + pane,
+    "interrupt hint anywhere": "esc to interrupt\n" + pane,
+    "no composer": pane.replace(/^❯.*\n/mu, ""),
+  };
+  for (const icon of "✢✽✶✻✳✺✹✸✷✵·") {
+    blocked[`timerless ${icon} spinner frame`] = pane.replace("✻ Crunched for 7s · done 12:26 AM", `${icon} Imagining…`);
+  }
+
+  describe("hook-aware driver readiness", () => {
+    test("real Claude finished pane becomes ready only with accepted turn-end evidence", () => {
+      expect(claude.acceptsInput!(pane)).toBe(false);
+      expect(claude.acceptsInputAfterTurn?.(pane)).toBe(true);
+    });
+    for (const [name, output] of Object.entries(blocked)) {
+      test(`accepted Stop still refuses ${name}`, () => {
+        expect(claude.acceptsInputAfterTurn?.(output)).toBe(false);
+      });
+    }
+    test("completed spinner line is harmless while an older cursor cannot hide a live menu", () => {
+      expect(claude.acceptsInputAfterTurn?.("❯ previous task\n" + pane)).toBe(true);
+      expect(claude.acceptsInputAfterTurn?.(pane + "\n Do you want to proceed?\n ❯ 1. Yes\n  2. No")).toBe(false);
+    });
+    test("historical bullets with ellipses do not veto an otherwise finished pane", () => {
+      expect(claude.acceptsInputAfterTurn?.(pane.replace("⏺ ok", "⏺ Earlier reply…\n⏺ Earlier tool..."))).toBe(true);
+    });
+    test("dialog footers above the current empty composer remain historical", () => {
+      expect(claude.acceptsInputAfterTurn?.("Enter to confirm · Esc to cancel\n" + pane)).toBe(true);
+    });
+    test("Codex's saved pane includes an /exit draft and remains refused by existing readiness", () => {
+      expect(codexPane).toContain("› /exit");
+      expect(getDriver("codex").acceptsInput!(codexPane)).toBe(false);
+      expect(getDriver("codex").acceptsInput!("Reply finished\n\n› Improve documentation in @filename\n  gpt-6.1-sol · ~/project")).toBe(true);
+    });
+  });
 });

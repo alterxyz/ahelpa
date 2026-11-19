@@ -430,155 +430,6 @@ describe("claude-code adversarial readiness and turn isolation", () => {
 });
 
 describe("driver launch protocol", () => {
-  test("codex nudges directory trust prompt before task submission", async () => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime([
-      [
-        "You are in /private/tmp",
-        "Do you trust the contents of this directory?",
-        "Press enter to continue",
-      ].join("\n"),
-      "› Implement {feature}",
-    ]);
-
-    await driver.prepareForTask("codex-test", runtime);
-
-    expect(runtime.sent).toEqual([""]);
-    expect(runtime.captures).toEqual([
-      { sessionId: "codex-test", lines: 20 },
-      { sessionId: "codex-test", lines: 20 },
-    ]);
-    expect(runtime.sleeps).toEqual([2000, 1000, 1000]);
-  });
-
-  test("codex waits through startup text without nudging", async () => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime([
-      "Starting MCP servers",
-      "› Implement {feature}",
-    ]);
-
-    await driver.prepareForTask("codex-test", runtime);
-
-    expect(runtime.sent).toEqual([]);
-    expect(runtime.captures.length).toBe(2);
-  });
-
-  test("codex treats a slow MCP startup as booting, not as no response", async () => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime([
-      ...Array.from({ length: 30 }, () => "Starting MCP servers"),
-      "› Implement {feature}",
-    ]);
-
-    await driver.prepareForTask("codex-test", runtime);
-
-    expect(runtime.sent).toEqual([]);
-    expect(runtime.captures.length).toBe(31);
-  });
-
-  test.each(["prepareForTask", "prepareForResume"] as const)("codex %s grants the full slow-MCP budget", async (prepare) => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime([
-      ...Array.from({ length: 60 }, () => "Starting MCP servers"),
-      "› Implement {feature}",
-    ]);
-
-    await driver[prepare]!("codex-test", runtime);
-
-    expect(runtime.sent).toEqual([]);
-    expect(runtime.captures).toHaveLength(61);
-    expect(runtime.sleeps.reduce((sum, ms) => sum + ms, 0)).toBe(63_000);
-  });
-
-  test("codex bounds a startup that never exposes its input prompt", async () => {
-    const runtime = probeRuntime(["Starting MCP servers"]);
-
-    await expect(getDriver("codex").prepareForTask("codex-test", runtime))
-      .rejects.toThrow("did not reach its input prompt");
-
-    expect(runtime.sent).toEqual([]);
-    expect(runtime.captures).toHaveLength(80);
-    expect(runtime.sleeps.reduce((sum, ms) => sum + ms, 0)).toBe(82_000);
-  });
-
-  test("codex accepts the in-turn MCP spinner as turn evidence without an extra Enter", async () => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime([
-      [
-        "› Please read and complete the task described in /tmp/ahelpa/x.md",
-        "• Starting MCP servers (2/3): codex_apps (5s • esc to interrupt)",
-      ].join("\n"),
-    ]);
-
-    const submitted = await driver.afterTaskSubmitted("codex-test", runtime, {
-      beforeOutput: "› Improve documentation in @filename",
-    });
-
-    expect(submitted).toBe(true);
-    expect(runtime.sent).toEqual([]);
-  });
-
-  test("codex does not nudge Enter on the MCP spinner when no pre-submit snapshot exists", async () => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime([
-      [
-        "› Please read and complete the task described in /tmp/ahelpa/x.md",
-        "• Starting MCP servers (2/3): codex_apps (5s • esc to interrupt)",
-      ].join("\n"),
-    ]);
-
-    const submitted = await driver.afterTaskSubmitted("codex-test", runtime, {});
-
-    expect(submitted).toBe(true);
-    expect(runtime.sent).toEqual([]);
-  });
-
-  test("codex skips update prompt instead of accepting update", async () => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime([
-      [
-        "Update available! 0.128.0 -> 0.140.0",
-        "1. Update now",
-        "2. Skip",
-        "3. Skip until next version",
-        "Press enter to continue",
-      ].join("\n"),
-      "› Implement {feature}",
-    ]);
-
-    await driver.prepareForTask("codex-test", runtime);
-
-    expect(runtime.sent).toEqual(["2"]);
-  });
-
-  test("codex skips the 0.160 update menu and never mistakes it for the input prompt", async () => {
-    const driver = getDriver("codex");
-    const menu = [
-      "  Update available · 0.160.0 → 0.160.1",
-      "  Release notes: https://github.com/openai/codex/releases/latest",
-      "› 1. Update now (runs `sh -c 'curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh'`)",
-      "  2. Skip",
-      "  3. Skip until next version",
-      "  enter continue · esc skip",
-    ].join("\n");
-    const runtime = probeRuntime([menu, "› Implement {feature}"]);
-
-    await driver.prepareForTask("codex-test", runtime);
-
-    expect(runtime.sent).toEqual(["2"]);
-  });
-
-  test("codex keeps waiting past an unknown numbered menu instead of typing into it", async () => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime(["› 1. Do something irreversible\n  2. Cancel", "› Implement {feature}"]);
-
-    await driver.prepareForTask("codex-test", runtime);
-
-    expect(runtime.sent).toEqual([]);
-    expect(runtime.captures.length).toBeGreaterThanOrEqual(2);
-  });
-
   test("claude-code waits for the input prompt before task submission", async () => {
     const driver = getDriver("claude-code");
     const runtime = probeRuntime([
@@ -615,30 +466,6 @@ describe("driver launch protocol", () => {
     expect(runtime.sent).toEqual([]);
     expect(runtime.keys).toEqual([]);
     expect(runtime.captures).toHaveLength(1);
-  });
-
-  test.each(["prepareForTask", "prepareForResume"] as const)("claude-code %s fails fast without typing into the workspace safety dialog", async (prepare) => {
-    const dialog = [
-      "  Accessing workspace:",
-      "  /tmp/project with spaces",
-      "  Quick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source project, or",
-      "  work from your team). If not, take a moment to review what's in this folder first.",
-      "  Claude Code'll be able to read, edit, and execute files here.",
-      "  Security guide",
-      "  ❯ No, exit",
-      "    Yes, I trust this folder",
-      "  Enter to confirm · Esc to cancel",
-    ].join("\n");
-    const driver = getDriver("claude-code");
-    const runtime = probeRuntime([dialog]);
-
-    await expect(driver[prepare]!("claude-test", runtime)).rejects.toThrow(
-      "Claude Code has not trusted the project directory; run `claude` there once and choose 'Yes, I trust this folder', then relaunch",
-    );
-    expect(runtime.captures).toHaveLength(1);
-    expect(runtime.sent).toEqual([]);
-    expect(runtime.keys).toEqual([]);
-    expect(driver.detectActivity(dialog)).toBe("booting");
   });
 
   test("claude-code nudges when the submitted task remains queued", async () => {
@@ -790,35 +617,6 @@ describe("driver launch protocol", () => {
     expect(runtime.keys).toEqual(["Up", "Up", "s"]);
   });
 
-  test("codex switches model through model and reasoning menus", async () => {
-    const driver = getDriver("codex");
-    const runtime = probeRuntime([
-      [
-        "Select Model and Effort",
-        "❯ 1. gpt-5.5 (current)",
-        "  2. gpt-5.4",
-      ].join("\n"),
-      [
-        "Select Reasoning Level for gpt-5.4",
-        "  1. Low",
-        "❯ 2. Medium (default)",
-        "  3. High",
-        "  4. Extra high",
-      ].join("\n"),
-      "Model changed to gpt-5.4 xhigh",
-    ]);
-
-    const result = await driver.switchModel("codex-test", runtime, {
-      model: "gpt-5.4",
-      effort: "xhigh",
-      persist: true,
-    });
-
-    expect(result).toContain("Model changed to gpt-5.4 xhigh");
-    expect(runtime.sent).toEqual(["/model"]);
-    expect(runtime.keys).toEqual(["2", "4"]);
-  });
-
   test("codex routes the gpt-5.6 alias to sol when switching models", async () => {
     const driver = getDriver("codex");
     const runtime = probeRuntime([
@@ -964,13 +762,6 @@ describe("resumed turn status", () => {
     const driver = getDriver("claude-code");
     expect(driver.detectStatus(
       "❯ First task\n[AHELPA:DONE]\n❯ Follow-up task\n✢ Working…",
-    )).toBe("running");
-  });
-
-  test("codex ignores NEED_HELP from an earlier turn", () => {
-    const driver = getDriver("codex");
-    expect(driver.detectStatus(
-      "› First task\n[AHELPA:NEED_HELP]\n› Follow-up task\nWorking (1s)",
     )).toBe("running");
   });
 

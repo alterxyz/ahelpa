@@ -221,8 +221,6 @@ describe("file handoff", () => {
     expect(instruction).toMatch(/(?:verbatim[^.]*refusal|refusal[^.]*verbatim)/i);
     expect(instruction).toContain(plan.summaryPath);
     expect(instruction).toMatch(/(?:do not|don't|instead of|rather than|without)[^.]*bypass/i);
-    expect(instruction).toContain("If you are blocked because an external review");
-    expect(instruction).toContain("or project rule/validator refused an action, do not bypass it:");
     expect(instruction).toContain(`first write the refused action and verbatim refusal into ${plan.summaryPath}, then output [AHELPA:NEED_HELP:review].`);
     expect(instruction).not.toContain("refused an action, stop");
   });

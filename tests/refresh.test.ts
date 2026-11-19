@@ -1,10 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
-import { mkdtempSync, realpathSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { StateDB } from "../src/state";
-import { refreshSessionStatuses } from "../src/daemon";
+import { Archive } from "../src/archive";
 import { Tmux } from "../src/tmux";
+import { defaultRuntimeLayout } from "../src/runtime-layout";
+import { refreshSessionStatuses, resetLivenessSnapshotState } from "../src/daemon";
 
 let TEST_DB: string;
 let scratch: string;
@@ -23,17 +25,6 @@ describe("refreshSessionStatuses", () => {
     rmSync(scratch, { recursive: true, force: true });
   });
 
-  test("preserves settled sessions whose tmux session has gone away", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({ id: "stale-idle", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    db.updateStatus("stale-idle", "idle");
-    spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set());
-
-    await refreshSessionStatuses(db);
-
-    expect(db.getSession("stale-idle")?.status).toBe("idle");
-  });
-
   test("retains a successful record when its native agent session can be resumed", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "resumable-idle", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
@@ -47,39 +38,6 @@ describe("refreshSessionStatuses", () => {
     expect(db.getSession("resumable-idle")?.agentResumeId).toBe("session_abc-123");
   });
 
-  test("retains a token captured in the same draining refresh that reclaims tmux", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({ id: "fresh-token", parentId: "p", agentType: "kimi", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    db.updateStatus("fresh-token", "draining");
-    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
-    spyOn(Tmux, "capture").mockResolvedValue(
-      "To resume this session: kimi -r session_fresh-123",
-    );
-    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
-    const drainStartedAt = Date.parse(db.getSession("fresh-token")!.updatedAt);
-
-    await refreshSessionStatuses(db, ["fresh-token"], drainStartedAt + 16_000);
-
-    expect(killSpy).toHaveBeenCalledWith("fresh-token");
-    expect(db.getSession("fresh-token")?.status).toBe("idle");
-    expect(db.getSession("fresh-token")?.agentResumeId).toBe("session_fresh-123");
-  });
-
-  test("does not reclaim a recent draining session after daemon restart", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({ id: "recent-drain", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    db.updateStatus("recent-drain", "draining");
-    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
-    spyOn(Tmux, "capture").mockResolvedValue("Exiting…");
-    const killSpy = spyOn(Tmux, "kill").mockResolvedValue();
-    const drainStartedAt = Date.parse(db.getSession("recent-drain")!.updatedAt);
-
-    await refreshSessionStatuses(db, ["recent-drain"], drainStartedAt + 1_000);
-
-    expect(killSpy).not.toHaveBeenCalled();
-    expect(db.getSession("recent-drain")?.status).toBe("draining");
-  });
-
   test("leaves settled sessions alone while their tmux session lives", async () => {
     db = new StateDB(TEST_DB);
     db.createSession({ id: "live-idle", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
@@ -91,25 +49,6 @@ describe("refreshSessionStatuses", () => {
 
     expect(db.getSession("live-idle")?.status).toBe("idle");
     expect(captureSpy).not.toHaveBeenCalled();
-  });
-
-  test("captures agent resume token after graceful exit enters draining", async () => {
-    db = new StateDB(TEST_DB);
-    db.createSession({ id: "done-claude", parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: "/tmp" });
-    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(s => s.id)));
-    spyOn(Tmux, "sendKeys").mockResolvedValue();
-    let captures = 0;
-    spyOn(Tmux, "capture").mockImplementation(async () => {
-      captures++;
-      return captures === 1
-        ? "[AHELPA:DONE]"
-        : "Resume this session with:\n  claude --resume dc8ca9c2-766b-4d52-9623-1ff9d44b2075";
-    });
-
-    await refreshSessionStatuses(db, ["done-claude"]);
-    await refreshSessionStatuses(db, ["done-claude"]);
-
-    expect(db.getSession("done-claude")?.agentResumeId).toBe("dc8ca9c2-766b-4d52-9623-1ff9d44b2075");
   });
 
   test("flags needs_attention after sustained idle (debounce = 4 polls)", async () => {
@@ -165,5 +104,223 @@ describe("refreshSessionStatuses", () => {
     await refreshSessionStatuses(db, ["flaky"]);
 
     expect(db.getSession("flaky")?.status).toBe("running");
+  });
+});
+
+describe("Kimi daemon activity", () => {
+  let TEST_DB: string;
+  let scratch: string;
+  let db: StateDB;
+
+  beforeEach(() => {
+    spyOn(Tmux, "liveSessionNames").mockImplementation(async () => new Set(db.listSessions().map(session => session.id)));
+    scratch = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-kimi-refresh-"));
+    TEST_DB = join(scratch, "state.db");
+  });
+
+  afterEach(() => {
+    mock.restore();
+    try { db.close(); } catch {}
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  test("keeps a Kimi session running while its submitted task is active", async () => {
+    db = new StateDB(TEST_DB);
+    db.createSession({
+      id: "kimi-working",
+      parentId: "p",
+      agentType: "kimi",
+      task: "t",
+      ownerToken: "tok",
+      projectPath: "/tmp",
+    });
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    spyOn(Tmux, "capture").mockResolvedValue(
+      `│ >   │\n🌕\ncontext: 0%`,
+    );
+
+    for (let i = 0; i < 5; i++) {
+      await refreshSessionStatuses(db, ["kimi-working"]);
+    }
+
+    expect(db.getSession("kimi-working")?.status).toBe("running");
+  });
+
+});
+
+describe("refresh liveness snapshot", () => {
+  let db: StateDB;
+  let root: string;
+  beforeEach(() => {
+    root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-snapshot-"));
+    db = new StateDB(":memory:");
+    resetLivenessSnapshotState();
+    spyOn(defaultRuntimeLayout, "archiveDir").mockReturnValue(join(root, "archive"));
+    spyOn(defaultRuntimeLayout, "daemonLogPath").mockReturnValue(join(root, "daemon.log"));
+    spyOn(defaultRuntimeLayout, "taskFilePath").mockImplementation(id => join(root, `${id}.task`));
+    spyOn(defaultRuntimeLayout, "fifoPath").mockImplementation(id => join(root, `${id}.fifo`));
+    spyOn(Tmux, "capture").mockResolvedValue("Working… (esc to interrupt)");
+  });
+  afterEach(() => {
+    mock.restore();
+    db.close();
+    rmSync(root, { recursive: true, force: true });
+  });
+  function create(status: "running" | "idle" | "error" = "running") {
+    const id = `snapshot-${crypto.randomUUID()}`;
+    db.createSession({ id, parentId: "p", agentType: "claude-code", task: "t", ownerToken: "tok", projectPath: root });
+    if (status !== "running") db.updateStatus(id, status);
+    return id;
+  }
+
+  test.each([false, true])("one snapshot for ended rows and a running row (targeted=%s)", async targeted => {
+    const ended = Array.from({ length: 30 }, (_, i) => create(i % 2 ? "idle" : "error"));
+    const live = create();
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([live]));
+    const has = spyOn(Tmux, "hasSession").mockImplementation(async id => id === live);
+    await refreshSessionStatuses(db, targeted ? [...ended, live] : undefined);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(has).not.toHaveBeenCalled();
+    expect(db.getSession(live)?.status).toBe("running");
+    expect(Tmux.capture).toHaveBeenCalledTimes(1);
+    expect(ended.every(id => ["idle", "error"].includes(db.getSession(id)!.status))).toBe(true);
+  });
+
+  test("snapshot failure falls back to probes without killing a live running row", async () => {
+    const live = create();
+    const ended = create("idle");
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("permission denied"));
+    const has = spyOn(Tmux, "hasSession").mockImplementation(async id => id === live);
+    await refreshSessionStatuses(db);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(has).toHaveBeenCalledTimes(2);
+    expect(has).toHaveBeenCalledWith(ended);
+    expect(db.getSession(live)?.status).toBe("running");
+    expect(new Archive(join(root, "archive")).get(live)).toBeNull();
+  });
+
+  test("a capture failure settles a row the snapshot still lists once tmux is gone", async () => {
+    const live = create();
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([live]));
+    const has = spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    spyOn(Tmux, "capture").mockRejectedValue(new Error("can't find session"));
+    await refreshSessionStatuses(db, [live]);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(has).toHaveBeenCalledTimes(1);
+    expect(has).toHaveBeenCalledWith(live);
+    expect(db.getSession(live)?.status).toBe("dead");
+    expect(new Archive(join(root, "archive")).get(live)?.reason).toBe("tmux session gone");
+  });
+
+  test.each([false, true])("absent running row settles dead (empty server=%s)", async empty => {
+    const gone = create();
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set(empty ? [] : ["unrelated-live-session"]));
+    const has = spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    await refreshSessionStatuses(db, [gone]);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(has).not.toHaveBeenCalled();
+    expect(db.getSession(gone)?.status).toBe("dead");
+    expect(new Archive(join(root, "archive")).get(gone)?.reason).toBe("tmux session gone");
+  });
+
+  test("backoff and capture recovery reuse the same snapshot", async () => {
+    const live = create();
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([live]));
+    // The failing row's own probe still finds tmux, so only the snapshot decides.
+    const has = spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    const capture = spyOn(Tmux, "capture").mockRejectedValue(new Error("temporary capture failure"));
+    await refreshSessionStatuses(db, [live]);
+    await refreshSessionStatuses(db, [live]);
+    expect(db.getSession(live)?.status).toBe("running");
+    snapshot.mockResolvedValue(new Set());
+    await refreshSessionStatuses(db, [live]);
+    expect(snapshot).toHaveBeenCalledTimes(3);
+    expect(has).toHaveBeenCalledTimes(2);
+    expect(capture).toHaveBeenCalledTimes(2);
+    expect(db.getSession(live)?.status).toBe("dead");
+  });
+
+  test("a row inserted while the snapshot is taken is not judged dead by it", async () => {
+    const live = create();
+    let inserted: string | undefined;
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockImplementation(async () => {
+      // Rows are read before the snapshot, so this row is not compared against it.
+      inserted = create();
+      return new Set([live]);
+    });
+    const has = spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    await refreshSessionStatuses(db);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(inserted).toBeDefined();
+    expect(has).not.toHaveBeenCalled();
+    expect(db.getSession(inserted!)?.status).toBe("running");
+    expect(new Archive(join(root, "archive")).get(inserted!)).toBeNull();
+  });
+
+  test("a finished helper is reclaimed once the drain timeout has passed since its graceful exit", async () => {
+    const done = create();
+    spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([done]));
+    spyOn(Tmux, "capture").mockResolvedValue("[AHELPA:DONE]");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    const kill = spyOn(Tmux, "kill").mockResolvedValue();
+    // An hour from the wall clock that stamps the row, so only the timer
+    // started at the graceful exit can time the drain.
+    const exitedAt = Date.now() - 3_600_000;
+
+    await refreshSessionStatuses(db, [done], exitedAt);
+    expect(db.getSession(done)?.status).toBe("draining");
+    await refreshSessionStatuses(db, [done], exitedAt + 15_000);
+    expect(kill).not.toHaveBeenCalled();
+    await refreshSessionStatuses(db, [done], exitedAt + 15_001);
+
+    expect(kill).toHaveBeenCalledWith(done);
+    expect(db.getSession(done)?.status).toBe("idle");
+  });
+
+  test("a launch that takes over the row drops its half-confirmed Codex capacity stop", async () => {
+    const id = "capacity-relaunched";
+    const row = { id, parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: root };
+    db.createSession(row);
+    expect(db.beginTurn(id, db.getSession(id)!.version, "continue")).not.toBeNull();
+    spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([id]));
+    spyOn(Tmux, "capture").mockResolvedValue(readFileSync(new URL("./fixtures/codex/model-capacity.txt", import.meta.url), "utf8"));
+    await refreshSessionStatuses(db, [id]);
+    const sighted = db.getSession(id)!;
+    expect(sighted.status).toBe("running");
+
+    // The same ID starts over under a live launcher; finishing the launch
+    // brings the new row to the version the first sighting was recorded at.
+    db.deleteSession(id);
+    db.createSession({ ...row, launchPid: process.pid });
+    await refreshSessionStatuses(db, [id]);
+    expect(db.completeLaunch(id, process.pid)).toBe(true);
+    expect(db.getSession(id)?.version).toBe(sighted.version);
+
+    await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe("running");
+    await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)).toMatchObject({ status: "needs_attention" });
+  });
+
+  test("logs one line per snapshot failure/recovery transition", async () => {
+    const live = create();
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("permission denied"));
+    spyOn(Tmux, "hasSession").mockResolvedValue(true);
+    const livenessLines = () => readFileSync(join(root, "daemon.log"), "utf8")
+      .split("\n").filter(line => line.includes("liveness snapshot"));
+
+    for (let i = 0; i < 3; i++) await refreshSessionStatuses(db, [live]);
+    expect(livenessLines()).toHaveLength(1);
+    expect(livenessLines()[0]).toContain("liveness snapshot failed, probing sessions individually: permission denied");
+
+    snapshot.mockResolvedValue(new Set([live]));
+    for (let i = 0; i < 3; i++) await refreshSessionStatuses(db, [live]);
+    expect(livenessLines()).toHaveLength(2);
+    expect(livenessLines()[1]).toContain("liveness snapshot recovered");
+
+    snapshot.mockRejectedValue(new Error("permission denied"));
+    await refreshSessionStatuses(db, [live]);
+    expect(livenessLines()).toHaveLength(3);
+    expect(livenessLines()[2]).toContain("liveness snapshot failed, probing sessions individually: permission denied");
   });
 });

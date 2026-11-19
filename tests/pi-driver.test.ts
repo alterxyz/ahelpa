@@ -24,7 +24,6 @@ function screen(transcript: string, { top = border, draft = "", right = "deepsee
 }
 const done = `${task}\n\n\n Hello!\n\n [AHELPA:DONE]`;
 
-test("Pi is registered", () => { expect(getDriver("pi")).toBe(getDriver("deepseek-pi")); });
 // Stored sessions resolve by harness ID: a second public name on Pi must not take over old records.
 test("the pi harness still resolves to deepseek-pi after glm joined it", () => { expect(getHarnessDriver("pi")).toBe(getDriver("deepseek-pi")); });
 test("Pi launches its fullscreen TUI with quoted arguments and resumes by exact native UUID", () => {

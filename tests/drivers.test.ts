@@ -3,7 +3,6 @@ import { mkdtempSync, realpathSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { getDriver } from "../src/drivers/registry";
-import { codexNeedsHooksTrustEscape } from "../src/drivers/codex";
 import * as capabilities from "../src/drivers/codex-capabilities";
 import { shellEscape } from "../src/shell";
 
@@ -53,12 +52,6 @@ describe("Drivers", () => {
     expect(cmd).not.toContain("--dangerously-bypass");
   });
 
-  test("codex danger mode includes bypass flag by default", () => {
-    const driver = getDriver("codex");
-    const cmd = driver.buildLaunchCommand({ cwd: "/tmp/project" });
-    expect(cmd).toContain("--dangerously-bypass");
-  });
-
   test("codex launch command accepts model and effort", () => {
     const driver = getDriver("codex");
     const cmd = driver.buildLaunchCommand({
@@ -96,16 +89,6 @@ describe("Drivers", () => {
       const command = driver.buildLaunchCommand({ cwd: "/tmp/project", model });
       expect(command).toContain(`--model '${model}'`);
     }
-  });
-
-  test("codex hooks trust screens trigger an escape", () => {
-    expect(codexNeedsHooksTrustEscape(
-      "SessionStart hooks\n  Press t to trust all; enter to review hooks; esc to close",
-    )).toBe(true);
-    expect(codexNeedsHooksTrustEscape(
-      "[ ] Hook 1\n  Press space or enter to toggle; esc to go back",
-    )).toBe(true);
-    expect(codexNeedsHooksTrustEscape("› Implement {feature}\n  gpt-5.5 high")).toBe(false);
   });
 
   test("claude-code detects status via sentinel", () => {

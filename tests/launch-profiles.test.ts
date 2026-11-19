@@ -95,13 +95,6 @@ describe("launch profiles", () => {
       .toThrow("Unknown helper role");
   });
 
-  test.each(["codex", "claude-code"])("native %s resume still leaves unspecified model and effort unchanged", (agent) => {
-    const command = getDriver(agent).buildResumeCommand!({ cwd: "/tmp/project", resumeId: "old-session" });
-    expect(command).not.toContain("--model");
-    expect(command).not.toContain("--effort");
-    expect(command).not.toContain("model_reasoning_effort");
-  });
-
   test("the model catalog reports native defaults separately from launch presets", () => {
     const codex = getDriver("codex");
     const claude = getDriver("claude-code");
