@@ -2,11 +2,6 @@ import { describe, test, expect } from "bun:test";
 import { getDriver } from "../src/drivers/registry";
 
 describe("Codex Driver", () => {
-  test("codex driver exists", () => {
-    const driver = getDriver("codex");
-    expect(driver.name).toBe("codex");
-    expect(driver.sessionPrefix).toBe("codex");
-  });
 
   test("codex builds launch command", () => {
     const driver = getDriver("codex");

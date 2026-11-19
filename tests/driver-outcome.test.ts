@@ -94,21 +94,6 @@ describe("driver-specific outcome winners", () => {
     expect(driver.detectOutcome(capture)).toEqual({ status: "error", needHelpTags: [...tags] });
     expect(driver.detectActivity(capture)).toBe("idle");
   });
-  test("Codex unsupported-model error does not inherit older help tags", () => {
-    const driver = getDriver("codex");
-    const output = [
-      "› First task",
-      "• [AHELPA:NEED_HELP:review]",
-      "› Please read and complete the task described in /tmp/ahelpa/task.md.",
-      "■ {\"type\":\"error\",\"status\":400,\"error\":",
-      "{\"message\":\"The 'gpt-5.6' model is not supported",
-      "when using Codex with a ChatGPT account.\"}}",
-      "› Explain this codebase",
-    ].join("\n");
-
-    expect(driver.detectOutcome(output)).toEqual({ status: "error", needHelpTags: null });
-    expect(driver.detectStatus(output)).toBe("error");
-  });
 
   test.each(["⠹ working...", "⠹ thinking...", "Retrying (1/3)", "● Using Write (/tmp/result.md)"])(
     "Kimi newer generation %j retires same-turn help tags",

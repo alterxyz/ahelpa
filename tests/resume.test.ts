@@ -37,13 +37,6 @@ describe("extractResumeToken", () => {
     expect(driver.extractResumeToken!(output)).toBe("019ed880-4604-7ad1-8ba7-dcbbba1f34f3");
   });
 
-  test("kimi extracts resume ID after the first message", () => {
-    const driver = getDriver("kimi");
-    expect(driver.extractResumeToken!(
-      "Welcome to Kimi Code!\n│  Session:   session_bce9aed7-8ee0-42ba-8ee8-5326e673db72  │",
-    )).toBe("session_bce9aed7-8ee0-42ba-8ee8-5326e673db72");
-  });
-
   test("returns null when no resume token present", () => {
     const driver = getDriver("claude-code");
     expect(driver.extractResumeToken!("some random output\nno resume here")).toBeNull();

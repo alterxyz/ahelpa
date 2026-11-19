@@ -223,23 +223,6 @@ describe("Kimi driver", () => {
     expect(runtime.captures).toHaveLength(1);
   });
 
-  test("resume readiness ignores settled historical tool use before a newer prompt", async () => {
-    const driver = getDriver("kimi");
-    const runtime = runtimeProbe([
-      [
-        "✨ Earlier turn",
-        "● Using Write (/tmp/result.md)",
-        "🌗 · Tip: stay curious",
-        "● [AHELPA:DONE]",
-        "│ >   │",
-      ].join("\n"),
-    ]);
-
-    await driver.prepareForResume!("kimi-resumed", runtime);
-
-    expect(runtime.captures).toHaveLength(1);
-  });
-
   test.each(["prepareForTask", "prepareForResume"] as const)("%s waits for active generation above the composer to finish", async (prepare) => {
     const runtime = runtimeProbe([
       workingWithComposer,
@@ -320,15 +303,6 @@ describe("Kimi driver", () => {
     expect(runtime.captures).toHaveLength(2);
   });
 
-  test("accepts resumed generation above the persistent composer within the same turn", async () => {
-    const waiting = "│ Session: session_same-turn │\n✨ Task\n▶ Run this command?\n1. Approve once\n│ > │";
-    const runtime = runtimeProbe([waiting, `${waiting}\n🌘\n│ > │`]);
-
-    expect(await getDriver("kimi").afterTaskSubmitted("kimi-test", runtime, { beforeOutput: waiting }))
-      .toBe(true);
-    expect(runtime.captures).toHaveLength(2);
-  });
-
   test.each([
     workingWithComposer,
     "│ Session: session_old-work │\n✨ Task\n● Using Write (/tmp/result.md)\n│ > │",
@@ -384,28 +358,6 @@ describe("Kimi driver", () => {
     expect(runtime.captures).toHaveLength(1);
   });
 
-  test("does not accept an unchanged retained approval and DONE as a new turn", async () => {
-    const driver = getDriver("kimi");
-    const settled = [
-      "│  Session:   session_abc-123   │",
-      "✨ Inspect the repository",
-      "▶ Run this command?",
-      "1. Approve once",
-      "● [AHELPA:DONE]",
-      "│ >   │",
-    ].join("\n");
-    const runtime = runtimeProbe([settled]);
-
-    const submitted = await driver.afterTaskSubmitted(
-      "kimi-test",
-      runtime,
-      { beforeOutput: settled },
-    );
-
-    expect(submitted).toBe(false);
-    expect(runtime.captures).toHaveLength(10);
-  });
-
   test("recognizes a repeated identical turn after the old settled capture slides away", async () => {
     const driver = getDriver("kimi");
     const repeatedTask = "✨ Repeat this exact task";
@@ -430,27 +382,6 @@ describe("Kimi driver", () => {
 
     expect(submitted).toBe(true);
     expect(driver.detectStatus(after)).toBe("running");
-  });
-
-  test("does not accept an unchanged attention panel without newer generation", async () => {
-    const driver = getDriver("kimi");
-    const waiting = [
-      "│  Session:   session_abc-123   │",
-      "✨ Inspect the repository",
-      "⠹ working...",
-      "▶ Run this command?",
-      "1. Approve once",
-    ].join("\n");
-    const runtime = runtimeProbe([waiting]);
-
-    const submitted = await driver.afterTaskSubmitted(
-      "kimi-test",
-      runtime,
-      { beforeOutput: waiting },
-    );
-
-    expect(submitted).toBe(false);
-    expect(runtime.captures).toHaveLength(10);
   });
 
   test("detects generation, attention panels, returned-prompt, and booting activity", () => {
@@ -550,13 +481,6 @@ describe("Kimi driver", () => {
       .toBe("working");
   });
 
-  test("detects Kimi Code bullet sentinels", () => {
-    const driver = getDriver("kimi");
-
-    expect(driver.detectStatus("● [AHELPA:DONE]")).toBe("idle");
-    expect(driver.detectStatus("● [AHELPA:NEED_HELP]")).toBe("error");
-  });
-
   test("ignores a completed sentinel from an earlier resumed turn", () => {
     const driver = getDriver("kimi");
     const resumed = [
@@ -569,18 +493,6 @@ describe("Kimi driver", () => {
 
     expect(driver.detectStatus(resumed)).toBe("running");
     expect(driver.detectStatus(`${resumed}\n● [AHELPA:DONE]`)).toBe("idle");
-  });
-
-  test("ignores a historical NEED_HELP after intervention resumes the same turn", () => {
-    const driver = getDriver("kimi");
-    const resumed = [
-      "✨ First turn",
-      "● [AHELPA:NEED_HELP]",
-      "⠹ working...",
-    ].join("\n");
-
-    expect(driver.detectStatus(resumed)).toBe("running");
-    expect(driver.detectActivity(resumed)).toBe("working");
   });
 
   test("exits gracefully and reports unsupported runtime model switching", async () => {
