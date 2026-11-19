@@ -244,6 +244,26 @@ describe("refresh liveness snapshot", () => {
     expect(new Archive(join(root, "archive")).get(inserted!)).toBeNull();
   });
 
+  test("a finished helper is reclaimed once the drain timeout has passed since its graceful exit", async () => {
+    const done = create();
+    spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([done]));
+    spyOn(Tmux, "capture").mockResolvedValue("[AHELPA:DONE]");
+    spyOn(Tmux, "sendKeys").mockResolvedValue();
+    const kill = spyOn(Tmux, "kill").mockResolvedValue();
+    // An hour from the wall clock that stamps the row, so only the timer
+    // started at the graceful exit can time the drain.
+    const exitedAt = Date.now() - 3_600_000;
+
+    await refreshSessionStatuses(db, [done], exitedAt);
+    expect(db.getSession(done)?.status).toBe("draining");
+    await refreshSessionStatuses(db, [done], exitedAt + 15_000);
+    expect(kill).not.toHaveBeenCalled();
+    await refreshSessionStatuses(db, [done], exitedAt + 15_001);
+
+    expect(kill).toHaveBeenCalledWith(done);
+    expect(db.getSession(done)?.status).toBe("idle");
+  });
+
   test("logs one line per snapshot failure/recovery transition", async () => {
     const live = create();
     const snapshot = spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("permission denied"));
