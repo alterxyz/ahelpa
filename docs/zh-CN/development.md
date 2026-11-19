@@ -151,7 +151,7 @@ macOS 矩阵使用 `macos-15` 与 `macos-15-intel`：[macOS 13 已退役](https:
 bun run test
 ```
 
-`bun run test` 执行 `scripts/test.sh`：先用 `bun test --parallel` 跑除几个计时敏感文件以外的全部测试文件，再让这几个文件单独并行跑一轮。它们拿真进程对着几秒的时限计时（真起一个 `claude`、git 截止时间、help 探测超时、一个吃 CPU 的循环），第一轮把 CPU 占满时会超时；名单和原因写在脚本里。整次约 30 秒，结尾有两行 `Ran N tests` 汇总。直接 `bun test` 仍逐个文件串行跑，约 85 秒。
+`bun run test` 执行 `scripts/test.sh`：先用 `bun test --parallel` 跑除几个计时敏感文件以外的全部测试文件，再让这几个文件单独并行跑一轮。它们拿真进程对着几秒的时限计时（git 截止时间、help 探测超时），第一轮把 CPU 占满时会超时；名单和原因写在脚本里。整次约 30 秒，结尾有两行 `Ran N tests` 汇总。直接 `bun test` 仍逐个文件串行跑，约 85 秒。
 
 macOS 上每个新写出的可执行文件，第一次运行要多花约 0.1 秒（系统做一次安全评估，全机一次只做一个）。所以需要假命令的测试 fixture 每个测试文件只写一次，场景从环境变量读。
 

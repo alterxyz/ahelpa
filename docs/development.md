@@ -150,7 +150,7 @@ For ordinary code changes:
 bun run test
 ```
 
-`bun run test` runs `scripts/test.sh`: `bun test --parallel` over every test file except a few timing-bound ones, then those in a second parallel pass. They time real processes against limits of a few seconds (a real `claude` launch, git deadlines, help-probe timeouts, a CPU-bound loop) and miss them when the first pass saturates the CPU; the script lists them with reasons. The run takes about 30 s and ends with two `Ran N tests` summaries. Plain `bun test` still runs the files one at a time, in about 85 s.
+`bun run test` runs `scripts/test.sh`: `bun test --parallel` over every test file except a few timing-bound ones, then those in a second parallel pass. They time real processes against limits of a few seconds (git deadlines, help-probe timeouts) and miss them when the first pass saturates the CPU; the script lists them with reasons. The run takes about 30 s and ends with two `Ran N tests` summaries. Plain `bun test` still runs the files one at a time, in about 85 s.
 
 On macOS every newly written executable costs about 0.1 s on its first run (a system assessment that runs one at a time across the machine). Fixtures that need fake commands therefore write them once per test file and read their scenario from the environment.
 
