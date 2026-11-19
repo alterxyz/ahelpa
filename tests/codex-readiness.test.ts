@@ -427,6 +427,7 @@ describe("Codex Driver", () => {
       "› Explain this codebase",
     ].join("\n");
 
+    expect(driver.detectOutcome(output)).toEqual({ status: "error", needHelpTags: null });
     expect(driver.detectStatus(output)).toBe("error");
   });
 

@@ -199,6 +199,19 @@ describe("refresh liveness snapshot", () => {
     expect(new Archive(join(root, "archive")).get(live)).toBeNull();
   });
 
+  test("a capture failure settles a row the snapshot still lists once tmux is gone", async () => {
+    const live = create();
+    const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([live]));
+    const has = spyOn(Tmux, "hasSession").mockResolvedValue(false);
+    spyOn(Tmux, "capture").mockRejectedValue(new Error("can't find session"));
+    await refreshSessionStatuses(db, [live]);
+    expect(snapshot).toHaveBeenCalledTimes(1);
+    expect(has).toHaveBeenCalledTimes(1);
+    expect(has).toHaveBeenCalledWith(live);
+    expect(db.getSession(live)?.status).toBe("dead");
+    expect(new Archive(join(root, "archive")).get(live)?.reason).toBe("tmux session gone");
+  });
+
   test.each([false, true])("absent running row settles dead (empty server=%s)", async empty => {
     const gone = create();
     const snapshot = spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set(empty ? [] : ["unrelated-live-session"]));

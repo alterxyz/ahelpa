@@ -515,6 +515,8 @@ describe("peer mail second rework", () => {
     const path = join(b.projectPath, component); const moved = path + "-moved";
     fs.renameSync(path, moved); fs.symlinkSync(moved, path); caller("b");
     expect(() => inbox(db, 1)).toThrow("symlink"); expect(db.listPeerMail("b")[0].readAt).toBeNull();
+    // The refused read leaves the message behind the link untouched.
+    expect(fs.readFileSync(join(moved, ".ahelpa/b/inbox/1-from-a.md".slice(component.length)), "utf8")).toBe("private note");
   });
 
   test("file reading stays on the checked descriptor when the path is swapped", () => {
