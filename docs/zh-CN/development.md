@@ -151,7 +151,22 @@ macOS 矩阵使用 `macos-15` 与 `macos-15-intel`：[macOS 13 已退役](https:
 bun test
 ```
 
-Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，并在测试结束后删除这些目录。因此 unit/integration test 不会把 session 状态、archive、FIFO 或任务文件写进用户正在使用的 ahelpa runtime。
+Bun test preload 会在调用方没有显式设置时分配临时 `AHELPA_HOME` 和 `AHELPA_TMP_DIR`，并在测试结束后删除这些目录。因此 unit test 和端到端测试都不会把 session 状态、archive、FIFO 或任务文件写进用户正在使用的 ahelpa runtime。
+
+### 不调用模型的端到端测试
+
+`tests/e2e.test.ts` 不调用模型，不需要登录和网络，把 helper 的整条生命周期真跑一遍。它先把 CLI 编译进临时目录（约 0.2 秒），再用这个二进制去驱动真的 daemon 和真的 tmux server。`tests/fixtures/fake-kimi.ts` 通过 `PATH` 最前面的 `kimi` 包装脚本冒充 Kimi Code TUI：它画出 Kimi driver 认得的屏幕，读入 `send-keys` 打进来的任务，写 `summary.md`，再打印 `[AHELPA:DONE]` 或 `[AHELPA:NEED_HELP:input]`。任务文本里的指令决定它的行为，例如 `[fake:spawn]`（起一个子进程）和 `[fake:hold]`（一直不结束）。三个场景并发运行，总共约 10 秒：
+
+- `launch` 返回合法 JSON；`wait` 在 daemon 结算 helper 后返回，并带上 `--check` 的证据；`check` 与 `wait` 一致；`capture` 能看到屏幕。
+- `kill` 清掉 tmux session；`resume` 重新打开 helper 的原生会话，再发一个 `task`，第二轮的回答带着第一轮的上下文。
+- NEED_HELP 的 helper 停下来，登记进 need-help 账本，`send` 之后继续并完成。
+- 回合中途 `kill`，tmux session 和 pane 的整棵进程树（包括工具子进程）都不剩。
+
+```bash
+bun test tests/e2e.test.ts
+```
+
+测试与用户自己的会话隔离：一个 `tmux` 包装脚本把所有 tmux 调用都放到私有 socket 上，`HOME`、`AHELPA_HOME` 和 `AHELPA_TMP_DIR` 都是临时目录；`TMUX`、`CLAUDE*`、`CODEX*`、`AHELPA_*` 等宿主变量不会传进去；结束后全部删除。它测不到的是厂商 TUI 真实的画面和行为，这部分仍由 `bun run closure:gate` 负责。
 
 ## Closure gate
 

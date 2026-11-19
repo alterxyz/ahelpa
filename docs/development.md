@@ -150,7 +150,22 @@ For ordinary code changes:
 bun test
 ```
 
-The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots when the caller has not supplied them, then removes those roots after the suite. Unit and integration tests therefore do not write session state, archives, FIFOs, or task files into the user's active ahelpa runtime.
+The Bun test preload assigns temporary `AHELPA_HOME` and `AHELPA_TMP_DIR` roots when the caller has not supplied them, then removes those roots after the suite. Unit and end-to-end tests therefore do not write session state, archives, FIFOs, or task files into the user's active ahelpa runtime.
+
+### End-to-end tests without a model
+
+`tests/e2e.test.ts` runs the whole helper lifecycle with no model call, login or network. It compiles the CLI into a scratch directory (about 0.2 s) and drives that binary against a real daemon and a real tmux server. `tests/fixtures/fake-kimi.ts` stands in for the Kimi Code TUI through a `kimi` wrapper first on `PATH`: it draws the screens the Kimi driver recognizes, reads the task that `send-keys` types, writes `summary.md`, and prints `[AHELPA:DONE]` or `[AHELPA:NEED_HELP:input]`. Directives in the task text, such as `[fake:spawn]` (start a child process) and `[fake:hold]` (never finish), choose its behavior. Three scenarios run concurrently, in about 10 s:
+
+- `launch` returns valid JSON; `wait` returns when the daemon settles the helper, with the `--check` evidence; `check` agrees with `wait`; `capture` shows the screen.
+- `kill` removes the tmux session; `resume` reopens the helper's native session, and a `task` sent to it is answered with the context of the first round.
+- A NEED_HELP helper stops, lands in the need-help ledger, and finishes after `send`.
+- `kill` mid-turn leaves no tmux session and no process of the pane's tree, including the tool child.
+
+```bash
+bun test tests/e2e.test.ts
+```
+
+The run is isolated from the user's session: a `tmux` wrapper puts every call on a private socket, and `HOME`, `AHELPA_HOME` and `AHELPA_TMP_DIR` are scratch directories. Host variables such as `TMUX`, `CLAUDE*`, `CODEX*` and `AHELPA_*` are not passed on. Everything is removed afterwards. What it cannot cover is how a vendor TUI really draws and behaves; that stays with `bun run closure:gate`.
 
 ## Closure Gate
 
