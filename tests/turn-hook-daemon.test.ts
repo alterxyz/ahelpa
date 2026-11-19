@@ -376,38 +376,12 @@ describe("turn attribution", () => {
 
 describe("hook readiness through the daemon", () => {
   const pane = readFileSync(join(import.meta.dir, "fixtures/turn-hooks/claude-completed.txt"), "utf8");
-  const trust = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/claude-trust.json"), "utf8"));
+  // The driver loop in accepts-input.test.ts covers every blocked pane; here two prove the wiring:
+  // the daemon consults the driver's verdict and does not nudge.
   const blocked: Record<string, string> = {
     "numbered permission cursor": "⏺ Bash(command)\n Do you want to proceed?\n ❯ 1. Yes\n   2. No",
-    "column-zero permission cursor": "Do you want to proceed?\n❯ 1. Yes\n  2. No",
-    "question menu": "⏺ Which approach?\n ❯ 1. First\n   2. Second\n Enter to select · Esc to cancel",
-    "workspace trust": trust["wide-with-source-padding"],
-    "draft composer": pane.replace(/^❯.*$/mu, "❯ continue editing"),
-    "indented empty cursor": pane.replace(/^❯.*$/mu, " ❯ "),
     "live spinner after reply": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)"),
-    "dot spinner frame": pane.replace("✻ Crunched for 7s · done 12:26 AM", "· Imagining… (5s · ↓ 197 tokens)"),
-    "spinner without ellipsis or timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining"),
-    "spinner without ellipsis with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining (5s · ↓ 197 tokens)"),
-    "timerless spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining…"),
-    "spinner above newer tool bullet": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)\n⏺ Bash(still-running)"),
-    "ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining... (5s · ↓ 197 tokens)"),
-    "iconless Unicode spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining…"),
-    "iconless ASCII spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining..."),
-    "iconless Unicode spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining… (5s · ↓ 197 tokens)"),
-    "iconless ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining... (5s · ↓ 197 tokens)"),
-    "cursorless permission overlay": pane + "\nDo you want to proceed?\n  1. Yes\n  2. No\nEnter to confirm",
-    "cursorless selection footer": pane + "\nEnter to select",
-    "cursorless cancellation footer": pane + "\nEsc to cancel",
-    "cursorless permission prompt": pane + "\nPermission required for this command",
-    "cursorless allow prompt": pane + "\nAllow this command?",
-    "cursorless numbered menu": pane + "\n  1. Yes\n  2. No",
-    "wrapped interrupt hint": "ESC\n to interrupt\n" + pane,
-    "interrupt hint anywhere": "esc to interrupt\n" + pane,
-    "no composer": pane.replace(/^❯.*\n/mu, ""),
   };
-  for (const icon of "✢✽✶✻✳✺✹✸✷✵·") {
-    blocked[`timerless ${icon} spinner frame`] = pane.replace("✻ Crunched for 7s · done 12:26 AM", `${icon} Imagining…`);
-  }
 
   let root: string;
   let db: StateDB;

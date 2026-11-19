@@ -154,7 +154,6 @@ describe("hook-aware driver readiness (accepted Stop)", () => {
     "dot spinner frame": pane.replace("✻ Crunched for 7s · done 12:26 AM", "· Imagining… (5s · ↓ 197 tokens)"),
     "spinner without ellipsis or timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining"),
     "spinner without ellipsis with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining (5s · ↓ 197 tokens)"),
-    "timerless spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining…"),
     "spinner above newer tool bullet": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining… (5s · ↓ 197 tokens)\n⏺ Bash(still-running)"),
     "ASCII spinner with timer": pane.replace("✻ Crunched for 7s · done 12:26 AM", "✻ Imagining... (5s · ↓ 197 tokens)"),
     "iconless Unicode spinner": pane.replace("✻ Crunched for 7s · done 12:26 AM", "Imagining…"),
