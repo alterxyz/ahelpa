@@ -264,6 +264,31 @@ describe("refresh liveness snapshot", () => {
     expect(db.getSession(done)?.status).toBe("idle");
   });
 
+  test("a launch that takes over the row drops its half-confirmed Codex capacity stop", async () => {
+    const id = "capacity-relaunched";
+    const row = { id, parentId: "p", agentType: "codex", task: "t", ownerToken: "tok", projectPath: root };
+    db.createSession(row);
+    expect(db.beginTurn(id, db.getSession(id)!.version, "continue")).not.toBeNull();
+    spyOn(Tmux, "liveSessionNames").mockResolvedValue(new Set([id]));
+    spyOn(Tmux, "capture").mockResolvedValue(readFileSync(new URL("./fixtures/codex/model-capacity.txt", import.meta.url), "utf8"));
+    await refreshSessionStatuses(db, [id]);
+    const sighted = db.getSession(id)!;
+    expect(sighted.status).toBe("running");
+
+    // The same ID starts over under a live launcher; finishing the launch
+    // brings the new row to the version the first sighting was recorded at.
+    db.deleteSession(id);
+    db.createSession({ ...row, launchPid: process.pid });
+    await refreshSessionStatuses(db, [id]);
+    expect(db.completeLaunch(id, process.pid)).toBe(true);
+    expect(db.getSession(id)?.version).toBe(sighted.version);
+
+    await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)?.status).toBe("running");
+    await refreshSessionStatuses(db, [id]);
+    expect(db.getSession(id)).toMatchObject({ status: "needs_attention" });
+  });
+
   test("logs one line per snapshot failure/recovery transition", async () => {
     const live = create();
     const snapshot = spyOn(Tmux, "liveSessionNames").mockRejectedValue(new Error("permission denied"));
