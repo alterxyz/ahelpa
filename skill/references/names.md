@@ -14,6 +14,7 @@ Public names belong to ahelpa. A public name and its nicknames point to a harnes
 | `deepseek` | `deepseek-vibe` | Mistral Vibe CLI / `vibe` | worker/reviewer: `deepseek-v4-1-flash-1017` / `high` | Mistral subscription via Vibe login | `vibe` ≥ 3.1.0 on PATH; subscription includes this model | Subscription first. If the first turn reports `model unavailable (the Mistral subscription may not include it)` or authentication fails, the host may launch `deepseek-pi` through the API. |
 | `deepseek-pi` | `pi` | Pi Coding Agent / `pi` | worker/reviewer: `cc-switch-deep-seek/deepseek-flash` / `high` | Official DeepSeek API | Pi ≥ 1.4.0 and Node.js; configure DeepSeek in CC-Switch and sync to Pi so provider `cc-switch-deep-seek` exists | API backup for `deepseek`. Repair CC-Switch/Pi provider or API credentials when unavailable; the host decides whether to return to the subscription route. |
 | `glm` | — | Pi Coding Agent / `pi` | worker/reviewer: `magpie/opencode-go/glm-5.3` / `high` | OpenCode Go plan through the local magpie gateway | Pi ≥ 1.4.0 and Node.js; OpenCode Go added as a provider in magpie, Pi connected in magpie so provider `magpie` lists `opencode-go/glm-5.3`; keep magpie running | No fallback entry. A used-up plan window has not been observed yet; if the provider answers 429, Pi reports `Pi: rate limited (429)` and the host decides what to use next. |
+| `devin` | `swe` | Devin CLI / `devin` | worker/reviewer: `swe-2-flash` / `medium` (sent as `swe-2-flash-medium`) | Devin account; the Free plan offers only this model, free through 2026-11-30 per Cognition | `devin` on PATH; `devin setup` finished once in a terminal | No fallback entry. On the Free plan any other model fails at launch with `Upgrade to Pro`; the host decides what to use next. |
 
 Fallback is a disclosed policy, not runtime automation. It can describe subscription → API or API → subscription; current entries use subscription first for `deepseek` and its API backup. A different route can change cost, permissions, and native resume behavior. Start a new helper with an explicit handoff when changing routes; do not treat it as continuation of the old native session.
 
@@ -33,10 +34,11 @@ Explicit `--model` and `--effort` independently override role defaults. `claude`
 - [Kimi](kimi.md): configured aliases, trust, and resume.
 - [Mistral and DeepSeek](vibe.md): per-session model definitions, thinking, subscription access, and cleanup.
 - [DeepSeek API backup and GLM](pi.md): CC-Switch setup, the magpie gateway for `glm`, the TUI in tmux, turn failure reasons, and native takeover.
+- [Devin](devin.md): sign-in, model IDs with effort, interrupt before a mid-turn kill, and resume by session name.
 
 ## Startup timing
 
-Measured 2026-11-07 on one macOS machine, after the daemon poll fix, with each name's default role and model; `gemini`, `mistral`, `deepseek` and `deepseek-pi` were re-measured on v0.12.0, driven through their own TUIs; `glm` was measured on 2026-11-18 (Pi 1.5.2, magpie 0.1.4501; `deepseek-pi` in the same run: 1.8, 5.1, 9.4). The task only wrote `ok` into `summary.md`. The table gives the median and range of 3 runs, in seconds from the start of `ahelpa launch`. The reference value for `launch` is 4.5 s; a name that stays above 6 s may have regressed.
+Measured 2026-11-07 on one macOS machine, after the daemon poll fix, with each name's default role and model; `gemini`, `mistral`, `deepseek` and `deepseek-pi` were re-measured on v0.12.0, driven through their own TUIs; `glm` was measured on 2026-11-18 (Pi 1.5.2, magpie 0.1.4501; `deepseek-pi` in the same run: 1.8, 5.1, 9.4). `devin` was measured on 2026-11-19 (Devin CLI 3000.14.30821, Free plan). The task only wrote `ok` into `summary.md`. The table gives the median and range of 3 runs, in seconds from the start of `ahelpa launch`. The reference value for `launch` is 4.5 s; a name that stays above 6 s may have regressed.
 
 | Name | Default model / effort | `launch` returned | Helper wrote `summary.md` | `wait` returned |
 | --- | --- | --- | --- | --- |
@@ -48,6 +50,7 @@ Measured 2026-11-07 on one macOS machine, after the daemon poll fix, with each n
 | `deepseek` | `deepseek-v4-1-flash-1017` / `high` | 4.4 (4.4–4.4) | 10.7 (10.6–12.9) | 15.4 (12.3–18.4) |
 | `deepseek-pi` | `cc-switch-deep-seek/deepseek-flash` / `high` | 1.9 (1.9–1.9) | 5.3 (4.7–5.3) | 9.3 (9.3–9.3) |
 | `glm` | `magpie/opencode-go/glm-5.3` / `high` | 1.9 (1.9–2.0) | 15.3 (11.4–19.1) | 21.7 (18.7–25.8) |
+| `devin` | `swe-2-flash` / `medium` | 1.8 (1.4–1.9) | 6.2 (5.5–6.5) | 9.3 (8.1–9.3) |
 
 - **`launch` returned:** the helper is up and has confirmed the task.
 - **Helper wrote `summary.md`:** roughly when the model finished the work.

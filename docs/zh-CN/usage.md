@@ -17,7 +17,7 @@ ahelpa doctor
 ahelpa doctor codex --project /path/to/project
 ```
 
-`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral`、`deepseek` 或 `glm`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
+`doctor [agent] [--project <path>]` 默认检查所有已注册 driver，也可指定 `claude`、`codex`、`kimi`、`deepseek-pi`、`gemini`、`mistral`、`deepseek`、`glm` 或 `devin`。项目默认为当前目录；相对路径从调用方目录解析，必须指向已存在的目录。
 
 JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver 名称组织的 `agents`。每个 agent 返回 `executable`、`version`（无法获取时为 `null`）、`locally_ready: true|false|"unknown"` 和 `reasons: [...]`。缺少 tmux 或 agent 二进制时，该 agent 未就绪；明确阻塞优先于未知状态。检查完成时退出码为 0，即使 agent 未就绪；参数无效或项目目录不存在时退出码为 1。调用方应读取 `locally_ready`；已就绪的 agent 仍可能带有仅供参考的 `reasons`。
 
@@ -28,6 +28,7 @@ JSON 结果包含 `project`、`tmux: {present, executable}`，以及按 driver �
 - Kimi 检查 `KIMI_CODE_HOME`（默认 `~/.kimi-code`）中的默认模型、provider 和本地 API key 或文件 OAuth 凭据是否存在，也识别模型环境变量覆盖。模型必须包含模型名称及正整数 `max_context_size`；provider 的 API key 与 OAuth 互斥。缺失或冲突的配置、keyring 和服务身份状态返回 `unknown`。
 - agy 读取 Go 二进制里内嵌的版本串，拒绝低于测试版本 1.5.2 的版本。`PATH` 上有多个不同的 `agy` 时，逐一列出，说明哪个遮住了其他的、它是否在桌面 `.app` 包里。agy 把登录态存在系统钥匙串，doctor 不打开钥匙串，所以登录状态到启动时才确定，此前为 `unknown`。
 - Vibe 检查 PATH 中的 `vibe`，读取已安装 `mistral-vibe` 的 dist-info 元数据，标记低于测试基线 3.1.0 的版本。doctor 不读钥匙串，登录状态保持 `unknown`，在首次回合确认。
+- Devin 从安装路径（`…/devin/cli/_versions/<version>/bin/devin`）读取版本，只检查 `~/.local/share/devin/credentials.toml` 是否存在；不存在时，就绪状态为 `unknown`。
 
 `doctor` 检查本地凭据和配置的结构，不验证其完整有效性；例如，不检测 JWT claim 键的重复。`locally_ready: true` 表示未发现已知的本地启动阻塞。不会向服务器验证凭据、刷新 token、检查配额，也不保证模型调用成功。检查不调用模型、不启动交互会话或 daemon，不创建配置、tmux session、数据库、任务文件或 FIFO。源码方式运行时，可设置 `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0`，同时关闭 Bun 自身的编译缓存。
 
@@ -107,6 +108,12 @@ agy 默认为 `worker`，使用 `--model gemini-4-neon --effort medium`，agy �
 先完成 Vibe 登录，运行 `ahelpa doctor mistral`，再用 `ahelpa launch mistral --file ./task.md --project /path/to/project` 启动。测试基线为 3.1.0。`worker`（默认）和 `reviewer` 都使用 `mistral-large-4-0-3`／`high`。`--model` 接收模型别名，`--effort off|low|medium|high|max` 通过会话专属 agent TOML 写入模型的 thinking；各模型支持的级别不同，见 `ahelpa models mistral`。
 
 Vibe 自己的 TUI 在 tmux 里运行，`tmux attach` 能看到它，按 Esc 只停当前回合、会话保留。`--trust` 仅对本次调用生效；不写 Vibe 全局配置，关闭自动更新和更新检查。屏幕上的暗号决定回合状态。Vibe 退出时打印会话 ID，`resume` 用 `--resume` 传回；未知 resume ID 明确失败。拒绝 `advisor`、`--safe` 和运行时模型切换。使用 `ahelpa launch deepseek --file ./task.md` 可通过 Mistral 订阅启动 `deepseek-v4-1-flash-1017`／`high`。Vibe 启动前，pane 按会话写好完整模型定义，不依赖全局配置；订阅必须包含该模型，否则会报告模型不可用及订阅提示。`deepseek-pi` 是 API 备份，默认 `cc-switch-deep-seek/deepseek-flash`／`high`；需先在 CC-Switch 中配置 DeepSeek 并同步到 Pi。订阅模型不可用或认证失败后，由 host 决定是否回退，运行时不会自动切换路线。`glm` 与 `deepseek-pi` 使用同一个 Pi driver，走 OpenCode Go 套餐和本地 magpie 网关，默认 `magpie/opencode-go/glm-5.3`／`high`；见 [Pi 接入说明](../../skill/references/pi.md)。小名、内部 harness ID 和完整回退策略见[名字目录](../../skill/references/names.md)。详见 [Vibe 接入说明](../../skill/references/vibe.md)。
+
+**Devin**
+
+先在终端里运行一次 `devin setup` 并完成向导，再运行 `ahelpa doctor devin`，然后用 `ahelpa launch devin --file ./task.md --project /path/to/project` 启动。测试版本为 3000.14.30821。`worker`（默认）和 `reviewer` 都选用 `swe-2-flash`／`medium`，devin 收到的是 `swe-2-flash-medium`，即 Free 套餐的唯一模型（按 Cognition 说法免费到 2026-11-30）。模型 ID 自带 effort：`--model swe-2-flash --effort high` 得到 `swe-2-flash-high`，带后缀的 `--model` 须配相同的 `--effort`。
+
+Devin 自己的 TUI 在 tmux 里运行，带 `--permission-mode dangerous` 和 `--respect-workspace-trust false`（仅本次运行）；ahelpa 不写任何 Devin 配置。`C-c` 停止当前回合及其工具，会话保留。**回合中途 kill helper 前，先用 `interrupt`：** Devin 把每个工具跑在它自己独立的会话里，关掉 tmux 并不会停掉它。退出时 devin 打印会话名，`resume` 用 `-r` 传回；未知名称会被拒绝。拒绝 `advisor`、`--safe` 和运行时模型切换。详见 [Devin 接入说明](../../skill/references/devin.md)。
 
 用 `--label` 给 session 打标签，方便识别：
 
@@ -260,7 +267,7 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 
 Helper 必须停在可输入的 idle prompt。Claude Code 只切当前 session。Codex 会走自己的 `/model` TUI，而该 TUI 会写入 Codex config；ahelpa 默认在当前 session 切换后恢复原 config。检测到无关配置变化时，会保留当前文件并报告未能恢复默认值。需要保留 Codex 新默认模型时，加 `--persist`。成功切换会更新 `resume` 沿用的模型和显式 effort；省略 effort 时，恢复的 CLI 自行选择默认值。
 
-`kimi`、`gemini`、`mistral`、`deepseek`、`deepseek-pi` 和 `glm` 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择设置。
+`kimi`、`gemini`、`mistral`、`deepseek`、`deepseek-pi`、`glm` 和 `devin` 不支持运行中的 `ahelpa model` 切换；请在 launch 时选择设置。
 
 Claude Code 会拒绝运行时的 `--effort` 和 `--persist`；effort 请在 launch 时指定。切换成功必须有匹配所选模型的新确认信息；失败时会先退出模型菜单，再返回错误。
 

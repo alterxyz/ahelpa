@@ -37,7 +37,7 @@ ahelpa **不是**：
 
 | 层 | 是什么 | 结论 | 例子 |
 | --- | --- | --- | --- |
-| **helper 后端** | 本身就是干活的 agent harness：读文件、改文件、跑命令、调模型。 | driver 候选，进入漏斗。 | `claude-code`、`codex`、`kimi`、Pi、`agy`、Vibe；候选 OpenCode |
+| **helper 后端** | 本身就是干活的 agent harness：读文件、改文件、跑命令、调模型。 | driver 候选，进入漏斗。 | `claude-code`、`codex`、`kimi`、Pi、`agy`、Vibe、Devin CLI；候选 OpenCode |
 | **host 目标** | *调用* ahelpa 的 agent，对应 skill 安装目标，不是 driver。同一个 agent 可以两者都是。 | 是 skill 安装问题，不是 driver 问题。 | skill 目标 `codex`、`claude-code`、`kimi-code-cli`（三者同时也是 helper 后端） |
 | **模型／网关层** | 位于 driver 之下：provider 端点、路由、密钥代理，或无状态的模型 CLI。 | 是某个现有 driver 的配置，绝不是新 driver。 | Kimi `config.toml` 里的 provider、Pi 的 `provider/id` 模型、`gemini-api` |
 | **同行运行时** | 和 ahelpa 处在同一层的编排或管理工具。 | **参照，不是拒绝。** 吸取经验，必要时考虑互通，不写 driver。 | Raft、mngr、oar |
@@ -138,18 +138,18 @@ ahelpa **不是**：
 - **接到哪一档？** 底线（只过门槛）→ 加结构化的回合结束信号 → 再加 model/effort、safe 姿态和运行时切换。缺少软能力只会降档，不会挡住准入。
 ## Driver 能力矩阵
 
-2026-11-06 据 `src/drivers/*.ts` 和 `skill/references/*.md` 手写；Pi、agy、Vibe 三列在 2026-11-07 按它们的 TUI driver 更新。同样的列也是新候选的打分格子：评估卡的「Grid」一节照此填写。
+2026-11-06 据 `src/drivers/*.ts` 和 `skill/references/*.md` 手写；Pi、agy、Vibe 三列在 2026-11-07 按它们的 TUI driver 更新，`devin` 列于 2026-11-19 加入。同样的列也是新候选的打分格子：评估卡的「Grid」一节照此填写。
 
-| | `claude` (Claude Code) | `codex` | `kimi` | `deepseek-pi` (Pi) | `gemini` (Antigravity) | `mistral` / `deepseek` (Vibe) |
-| --- | --- | --- | --- | --- | --- | --- |
-| 形态 | TUI + hook | TUI + hook | TUI，无 hook | TUI（全屏）+ hook | TUI + 只叫醒的 hook | TUI + 只叫醒的 hook |
-| 恢复 token（`resumeTokenAvailableAfterSubmit`） | 仅退出后可得（draining 期间捕获） | 仅退出后可得（draining 期间捕获） | 首次提交后立即可得（原生 `session_*` id） | 仅退出后可得：`/quit` 退出提示里的 `pi --session <uuid>`（draining 期间捕获） | 仅退出后可得：退出时打印的 `agy --conversation=<id>`（draining 期间捕获）；未知 id 让 resume 失败 | 仅退出后可得：退出时打印的 `vibe --resume <8 位十六进制>`（draining 期间捕获）；桥接时代记录的完整 UUID 仍能恢复 |
-| 回合结束信号 | 经 `--settings` 会话文件的 hook：`UserPromptSubmit`、`Stop`、`StopFailure` | 单次调用的 `-c notify=[...]` 覆盖（`agent-turn-complete`） | 无；不活动启发式加暗号 | 会话扩展（`-e .ahelpa/<id>/pi-turn-hook.mjs`）转发 `agent_settled`；暗号须是对话记录最后一行且没有转圈 | 会话 `--add-dir` 目录里的 `Stop` hook（`.agents/hooks.json`）叫醒 daemon（别的 Stop handler 可能让回合继续，所以它不参与裁决）；当前回合里的暗号之后没有转圈或后台任务，否则靠不活动判断 | 会话 `--add-dir` 目录里的 `post_agent` hook 叫醒 daemon（不带输入，不参与裁决）；最新回合里最后一个转圈行之后的暗号，否则靠不活动判断 |
-| `--safe` 的含义 | 去掉 `--dangerously-skip-permissions`，原生审批仍在；结果目录在项目外时加 `--add-dir` | `-s workspace-write -a never`（加 `--add-dir`） | 用 `--yolo` 取代 `--auto`（高风险动作仍会询问）；不是沙箱 | 拒绝 | 拒绝 | 拒绝 |
-| 信任是否持久化 | driver 不管；用户须先在项目里跑一次 `claude`，否则启动快速失败 | 是：回答「Folder access」（0.163+）会把仓库根写成受信任，保存在 Codex 配置里；hooks 信任提示用 Escape 暂时拒绝 | 是：两种模式都会选「Trust and continue」，由 Kimi 持久化 | 否：`--approve` 只在本次运行信任项目文件 | 否：`--settings '{"trustedWorkspaces":[…]}'` 只信任本次会话 | 否：`--trust` 仅本次调用 |
-| 自更新 | driver 未压制（上游行为未在此核实） | 更新对话框用「Skip」跳过；未压制 | `KIMI_CODE_NO_AUTO_UPDATE=1` | `--offline` 跳过 Pi 启动时的更新和目录检查 | `AGY_CLI_DISABLE_AUTO_UPDATE=true`（1.5.2 只认小写 `true`；设成 `1` 仍会拉起更新进程） | `VIBE_ENABLE_AUTO_UPDATE=false`, `VIBE_ENABLE_UPDATE_CHECKS=false` |
-| 模型／effort | 启动时 `--model`、`--effort`；运行时经模型菜单切换 | `--model`、`-c model_reasoning_effort=`；运行时经模型菜单切换 | 只有 `--model <config.toml 别名>`；无 effort；不能运行时切换 | `--model provider/id`，`--effort` 以 `--thinking` 传入；页脚显示的模型和级别与请求不符就启动失败（Pi 会静默降级）；不能运行时切换 | 默认 `--model gemini-4-neon --effort medium`；带后缀的 id（如 `gemini-4-neon-high`）须配同名 `--effort`；不能运行时切换 | 会话 agent TOML 由 pane 在启动 `vibe` 前写入：分别默认 `mistral-large-4-0-3` / `high` 和 `deepseek-v4-1-flash-1017` / `high`；不能运行时切换 |
-| 最后验证的上游版本 | 树内未记录固定版本；`doctor` 报告已安装版本 | 0.163+（Folder access）；容量短语见于 0.154；更新对话框格式 ≤0.15x 与 0.160 | Kimi Code 2.x（`--auto` 需要） | 接受 ≥ 1.4.0；TUI 在 1.5.0 上测试（2026-11-07） | 接受 ≥ 1.5.2；TUI 在 1.5.3 上测试（2026-11-07） | TUI 在 3.1.0 上测试（2026-11-07） |
+| | `claude` (Claude Code) | `codex` | `kimi` | `deepseek-pi` (Pi) | `gemini` (Antigravity) | `mistral` / `deepseek` (Vibe) | `devin` (Devin CLI) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 形态 | TUI + hook | TUI + hook | TUI，无 hook | TUI（全屏）+ hook | TUI + 只叫醒的 hook | TUI + 只叫醒的 hook | TUI，无 hook |
+| 恢复 token（`resumeTokenAvailableAfterSubmit`） | 仅退出后可得（draining 期间捕获） | 仅退出后可得（draining 期间捕获） | 首次提交后立即可得（原生 `session_*` id） | 仅退出后可得：`/quit` 退出提示里的 `pi --session <uuid>`（draining 期间捕获） | 仅退出后可得：退出时打印的 `agy --conversation=<id>`（draining 期间捕获）；未知 id 让 resume 失败 | 仅退出后可得：退出时打印的 `vibe --resume <8 位十六进制>`（draining 期间捕获）；桥接时代记录的完整 UUID 仍能恢复 | 仅退出后可得：退出画面上的 `devin -r <name>`（draining 期间捕获）；未知名称会静默开一个新会话，所以 resume 要求屏幕上还有此前的回合 |
+| 回合结束信号 | 经 `--settings` 会话文件的 hook：`UserPromptSubmit`、`Stop`、`StopFailure` | 单次调用的 `-c notify=[...]` 覆盖（`agent-turn-complete`） | 无；不活动启发式加暗号 | 会话扩展（`-e .ahelpa/<id>/pi-turn-hook.mjs`）转发 `agent_settled`；暗号须是对话记录最后一行且没有转圈 | 会话 `--add-dir` 目录里的 `Stop` hook（`.agents/hooks.json`）叫醒 daemon（别的 Stop handler 可能让回合继续，所以它不参与裁决）；当前回合里的暗号之后没有转圈或后台任务，否则靠不活动判断 | 会话 `--add-dir` 目录里的 `post_agent` hook 叫醒 daemon（不带输入，不参与裁决）；最新回合里最后一个转圈行之后的暗号，否则靠不活动判断 | 无；最新任务回显之后是暗号且没有 `(esc twice to interrupt)` 状态行，否则靠不活动判断 |
+| `--safe` 的含义 | 去掉 `--dangerously-skip-permissions`，原生审批仍在；结果目录在项目外时加 `--add-dir` | `-s workspace-write -a never`（加 `--add-dir`） | 用 `--yolo` 取代 `--auto`（高风险动作仍会询问）；不是沙箱 | 拒绝 | 拒绝 | 拒绝 | 拒绝 |
+| 信任是否持久化 | driver 不管；用户须先在项目里跑一次 `claude`，否则启动快速失败 | 是：回答「Folder access」（0.163+）会把仓库根写成受信任，保存在 Codex 配置里；hooks 信任提示用 Escape 暂时拒绝 | 是：两种模式都会选「Trust and continue」，由 Kimi 持久化 | 否：`--approve` 只在本次运行信任项目文件 | 否：`--settings '{"trustedWorkspaces":[…]}'` 只信任本次会话 | 否：`--trust` 仅本次调用 | 否：`--respect-workspace-trust false` 仅本次运行 |
+| 自更新 | driver 未压制（上游行为未在此核实） | 更新对话框用「Skip」跳过；未压制 | `KIMI_CODE_NO_AUTO_UPDATE=1` | `--offline` 跳过 Pi 启动时的更新和目录检查 | `AGY_CLI_DISABLE_AUTO_UPDATE=true`（1.5.2 只认小写 `true`；设成 `1` 仍会拉起更新进程） | `VIBE_ENABLE_AUTO_UPDATE=false`, `VIBE_ENABLE_UPDATE_CHECKS=false` | 未压制：`auto_update` 只存在于用户配置；文档写明下次启动才生效 |
+| 模型／effort | 启动时 `--model`、`--effort`；运行时经模型菜单切换 | `--model`、`-c model_reasoning_effort=`；运行时经模型菜单切换 | 只有 `--model <config.toml 别名>`；无 effort；不能运行时切换 | `--model provider/id`，`--effort` 以 `--thinking` 传入；页脚显示的模型和级别与请求不符就启动失败（Pi 会静默降级）；不能运行时切换 | 默认 `--model gemini-4-neon --effort medium`；带后缀的 id（如 `gemini-4-neon-high`）须配同名 `--effort`；不能运行时切换 | 会话 agent TOML 由 pane 在启动 `vibe` 前写入：分别默认 `mistral-large-4-0-3` / `high` 和 `deepseek-v4-1-flash-1017` / `high`；不能运行时切换 | `--model <family>-<effort>`：默认 `swe-2-flash` / `medium`（`swe-2-flash-medium`，Free 套餐的唯一模型）；带后缀的 ID 须配同名 `--effort`；不能运行时切换 |
+| 最后验证的上游版本 | 树内未记录固定版本；`doctor` 报告已安装版本 | 0.163+（Folder access）；容量短语见于 0.154；更新对话框格式 ≤0.15x 与 0.160 | Kimi Code 2.x（`--auto` 需要） | 接受 ≥ 1.4.0；TUI 在 1.5.0 上测试（2026-11-07） | 接受 ≥ 1.5.2；TUI 在 1.5.3 上测试（2026-11-07） | TUI 在 3.1.0 上测试（2026-11-07） | 3000.14.30821（2026-11-19） |
 
 ponytail: 手写会和代码漂移；漂移真正造成麻烦时，再改成从 `AgentDriver` 生成。
 
@@ -210,7 +210,7 @@ Spike 决定这个 TUI 到底能不能驱动（不能就拒绝，不做桥接）
 
 ## 候选登记表
 
-2026-11-18 更新。公开 helper 类型不必等于 harness 名：Vibe 对应 `mistral` 和 `deepseek`（Mistral 订阅）；Pi 对应 `deepseek-pi`（先在 CC-Switch 中配置 DeepSeek 并同步到 Pi）和 `glm`（OpenCode Go 套餐，经本地 magpie 网关）。小名和内部 harness ID 见[名字目录](../../skill/references/names.md)；数据库只存 harness ID。「停在」指候选被检验到的最后一步；标「仅文档」的步骤只读了上游文档，没有运行。
+2026-11-19 更新。公开 helper 类型不必等于 harness 名：Vibe 对应 `mistral` 和 `deepseek`（Mistral 订阅）；Pi 对应 `deepseek-pi`（先在 CC-Switch 中配置 DeepSeek 并同步到 Pi）和 `glm`（OpenCode Go 套餐，经本地 magpie 网关）。小名和内部 harness ID 见[名字目录](../../skill/references/names.md)；数据库只存 harness ID。「停在」指候选被检验到的最后一步；标「仅文档」的步骤只读了上游文档，没有运行。
 
 | 候选 | 层 | 状态 | 停在 | 卡片 |
 | --- | --- | --- | --- | --- |
@@ -223,6 +223,7 @@ Spike 决定这个 TUI 到底能不能驱动（不能就拒绝，不做桥接）
 | Gemini CLI | helper 后端 | **不接（2026-11-06）**：不再服务个人账号 | 第 2 步 | [gemini-cli](../backends/gemini-cli.md) |
 | `gemini`（Antigravity CLI） | helper 后端 | 已接入（2026-11-06）；自 2026-11-07 起经 TUI 驱动（此前一天为 stream-json 桥接）；默认 `gemini-4-neon` / `medium`（2026-11-19 前为 `gemini-4-argon`） | 不适用 | [agy](../backends/agy.md)、`skill/references/agy.md` |
 | `mistral` / `deepseek` (Mistral Vibe CLI) | helper 后端 | 已接入（2026-11-06）；自 2026-11-07 起经 TUI 驱动（此前为 headless 桥接）；分别默认 `mistral-large-4-0-3` / `high` 和 `deepseek-v4-1-flash-1017` / `high` | 不适用 | [vibe](../backends/vibe.md)、`skill/references/vibe.md` |
+| `devin` (Devin CLI) | helper 后端 | 已接入（2026-11-19），低优先级选项；经其 TUI 驱动；默认 `swe-2-flash` / `medium`，Free 套餐的唯一模型（按 Cognition 说法免费到 2026-11-30）；回合中途 kill 前先 `interrupt` | 不适用 | [devin](../backends/devin.md)、`skill/references/devin.md` |
 | OpenCode | helper 后端 | **候选**：通过第 1、2 步；第 3、4 步仅读文档，未做 spike | 第 4 步，仅文档 | [opencode](../backends/opencode.md) |
 | dimAgent | helper 后端（CLI），属于更大的产品族 | **暂缓（2026-11-06）**：两个 CLI 都在变动，其中一个仍是 alpha | 第 2 步 | [dimagent](../backends/dimagent.md) |
 | Raft（原 Slock） | 同行运行时 | **参照**；不写 driver | 第 1 步 | [raft](../backends/raft.md) |

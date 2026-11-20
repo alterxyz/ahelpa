@@ -198,6 +198,31 @@ Uses the Pi harness with `magpie/opencode-go/glm-5.3` / `high` for both `worker`
 - Same driver as `deepseek-pi`: no `--safe`, no runtime model switch; magpie must be running.
 - The plan's pricing page (read 2026-11-18) lists a monthly allowance of $500 for GLM-5.3 on Go, 20% of it per 5-hour window and 50% per week, with "higher usage limits" through 2026-11-22. Read it again after that date before leaning on it for bulk work.
 
+## devin
+
+Uses Devin CLI with `swe-2-flash` / `medium` (sent as `swe-2-flash-medium`) for both `worker` and `reviewer`, through a Devin account. On the Free plan this is the only model offered, and Cognition's post says SWE-2 Flash is free through 2026-11-30. Observation status (2026-11-19): only the integration spike and the closure gate, which are tiny tasks. No real helper work yet; the entries below are what those runs showed, not rates.
+
+**A low-priority option (owner's decision, 2026-11-19).** Choose it when the owner or the brief asks for it, or when the helpers above are unavailable or out of quota for a small, low-stakes task. Never pick it by default.
+
+**Best at**
+- Not yet observed on real work. The vendor positions SWE-2 Flash as a fast, cheaper sibling of SWE-2. Start it on the same kind of work as `glm`: bounded mechanical tasks with a clear spec, where a miss costs little.
+- Fast turns, usually: the whole closure gate (first task, resume with recall, mid-turn interrupt and kill) took 28–30 s in two runs.
+
+**Watch for**
+- Erratic latency on trivial work: in 3 of 14 one-line turns (2026-11-19) it sat on `Thinking` for minutes. One took about 6.6 min; two had already written a correct `summary.md` and were still `Thinking · 8m 20s` when the gate's 500 s wait gave up. Devin's log showed its service request idle for 60 s and then no reply, so this is the service stalling. The others finished in seconds. ahelpa gives a working screen no time limit, so after a few minutes of `Thinking` with the result already written, `capture` once, then `interrupt` it (keeps the session) rather than waiting on it.
+- The sentinel: with a short ad-hoc prompt it finished without `[AHELPA:DONE]`, though its reasoning said to print it. With ahelpa's full task line it printed it (2 of 2, plus the gate's 2 of 2). Expect more idle-fallback endings than with larger models; read `summary.md` before treating one as a failure.
+- Killing mid-turn: Devin runs each tool in a session of its own, and `kill` alone leaves that tool running. Run `ahelpa interrupt <id> --token <tok>` first (it stops the tool), then `kill`.
+- The question tool: it can stop and ask a multiple-choice question; the helper then ends `needs_attention`. Attach, or `kill` and relaunch with the answer in the brief.
+- Devin loads the user's own MCP servers and rules into the helper, as it does for interactive use.
+
+**Give it**
+- What you would give `glm`: a clear spec, a file list, `--scope`, an acceptance command in `--check`, and a stop rule.
+- Not reviews that decide shipping, and not open problems, until real observations exist.
+
+**Runtime quirks**
+- `--model` takes a Devin model ID or family; the effort is folded into the ID (`--model swe-2-flash --effort medium` becomes `swe-2-flash-medium`). Other models (`swe-2`, `claude-opus-5-5`, …) need a paid plan; on the Free plan devin exits with `Upgrade to Pro`, and launch reports it.
+- No `--safe`, no runtime model switch, no turn-end hook.
+
 ## Task type to helper
 
 | Task | Helper | Role | Contract emphasis |

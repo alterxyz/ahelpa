@@ -89,12 +89,14 @@ run_gate() (
   agent_name="$agent"
   if [ "$harness" = "kimi" ]; then agent_name="Kimi"; fi
   if [ "$harness" = "pi" ]; then agent_name="Pi"; fi
+  if [ "$harness" = "devin" ]; then agent_name="Devin"; fi
   # agy, Vibe and Pi run their own TUI in the pane; the pattern names their process.
   tui_process=""
   case "$harness" in
     agy) tui_process="agy" ;;
     vibe) tui_process="vibe|vibe-rs" ;;
     pi) tui_process="pi|node" ;;
+    devin) tui_process="devin" ;;
   esac
   requested_role="${2:-}"
   expected_role=""
@@ -136,6 +138,11 @@ run_gate() (
       expected_model="deepseek-v4-1-flash-1017"
       expected_effort="high"
       ;;
+    devin: | devin:worker)
+      expected_role="worker"
+      expected_model="swe-2-flash"
+      expected_effort="medium"
+      ;;
     kimi:) ;;
     *) fail "Unsupported gate scenario: $agent $requested_role" ;;
   esac
@@ -157,7 +164,7 @@ run_gate() (
   native_id=""
   tree_pids=""
   wait_seconds=180
-  if [ "$harness" = "kimi" ] || [ "$harness" = "pi" ] || [ "$harness" = "agy" ] || [ "$harness" = "vibe" ]; then
+  if [ "$harness" = "kimi" ] || [ -n "$tui_process" ]; then
     context_marker="$(bun -e 'process.stdout.write(crypto.randomUUID())')"
     task="Remember this context marker for our next turn: $context_marker. $task"
     wait_seconds=500
@@ -179,6 +186,8 @@ run_gate() (
     local result=$?
     trap - EXIT
     if [ "$cleaned" -eq 0 ] && [ -n "$session_id" ] && [ -n "$owner_token" ]; then
+      # A busy Devin's tool outlives a bare kill; best effort, it may be idle or the failure itself.
+      if [ "$harness" = "devin" ]; then "$CLI" interrupt "$session_id" --token "$owner_token" >/dev/null 2>&1 || true; fi
       if ! "$CLI" kill "$session_id" --token "$owner_token" >"$GATE_DIR/kill-$label.txt" 2>&1; then
         echo "cleanup failed for $agent session $session_id; see $GATE_DIR/kill-$label.txt" >&2
         result=1
@@ -309,7 +318,9 @@ run_gate() (
         const sessions = JSON.parse(require("fs").readFileSync(0, "utf8"));
         const id = sessions.find(entry => entry.id === process.argv[1])?.agentResumeId;
         // Vibe prints the first 8 hex digits of its session ID; bridge-era records stored the full UUID.
-        const short = process.argv[2] === "vibe" && /^[a-f0-9]{8}$/.test(id ?? "");
+        // Devin names a session with words ("maddening-trawler").
+        const short = (process.argv[2] === "vibe" && /^[a-f0-9]{8}$/.test(id ?? ""))
+          || (process.argv[2] === "devin" && /^[a-z0-9]+(?:-[a-z0-9]+)+$/.test(id ?? ""));
         if (typeof id !== "string" || !(short || /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(id))) process.exit(1);
         process.stdout.write(id);
       } catch { process.exit(1); }
@@ -407,6 +418,13 @@ TASK
       sleep 1
     done
     if [ "$observed" -ne 1 ]; then fail "$agent_name did not expose its process tree with the running sleep tool"; fi
+    if [ "$harness" = "devin" ]; then
+      # Devin starts each tool in a session of its own and leaves it running on
+      # hangup; interrupt stops it first (the documented way to kill mid-turn).
+      if ! "$CLI" interrupt "$session_id" --token "$owner_token" >"$GATE_DIR/interrupt-$label.txt" 2>&1; then
+        fail "interrupt failed for $agent session $session_id"
+      fi
+    fi
     reclaim_session
     echo "pass > $agent mid-turn kill reclaims the TUI and its tool"
   fi
@@ -457,6 +475,11 @@ run_integration_gate() (
     run_gate deepseek
   else
     echo "skip > deepseek (set AHELPA_GATE_DEEPSEEK=1 to include)"
+  fi
+  if [ "${AHELPA_GATE_DEVIN:-}" = 1 ]; then
+    run_gate devin
+  else
+    echo "skip > devin (set AHELPA_GATE_DEVIN=1 to include)"
   fi
   # Kimi's live run is opt-in.
   if [ "${AHELPA_GATE_KIMI:-}" = 1 ]; then

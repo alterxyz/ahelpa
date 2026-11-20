@@ -18,11 +18,13 @@ Codex 0.163 及更高版本在 launch 目录所在的 git 仓库根目录尚未�
 
 Pi 仍会保存原生会话内容。Pi 放弃一个回合时，ahelpa 的状态原因只带 HTTP 状态码；供应方自己的错误原文留在屏幕上，`capture` 和 `logs` 都能看到，所以要把这些输出当作可能含有账号信息。只有在 helper 退出之后，才用 `pi --session <uuid>` 接管会话；同一个会话上的两个 Pi 进程互不协调。见 [Pi 说明](../../skill/references/pi.md)。
 
-kill 一个 helper 会结束它的 tmux 会话，CLI 收到挂断后会停掉正在跑的工具（2026-11-07 对 Pi、agy、Vibe 都核实过）。这不能约束故意逃出进程树的程序。
+kill 一个 helper 会结束它的 tmux 会话，CLI 收到挂断后会停掉正在跑的工具（2026-11-07 对 Pi、agy、Vibe 都核实过）。Devin 是例外：它把每个工具跑在它自己独立的会话里，tmux 关闭时正在运行的工具会继续运行（2026-11-19，devin 3000.14.30821）；回合中途要 `kill` 它，先 `interrupt`。这不能约束故意逃出进程树的程序。
 
 agy 以 `--dangerously-skip-permissions` 运行自己的 TUI，launch／resume 都拒绝 `--safe`。工作区信任经 `--settings` 只在本次会话传入，从不保存；ahelpa 不写任何 agy 设置或信任条目；它写给 agy 的唯一文件是会话 hook `.ahelpa/<id>/agy-hook/.agents/hooks.json`，经 `--add-dir` 加载（见「会话回合 Hooks」）。跳过权限时，agy 读写工作区之外的文件也不会询问（2026-11-07，agy 1.5.3）；它的受保护命令仍由 agy 自己检查（据 agy 1.5.2 changelog）。模型自己的提问工具会打开一个等人回答的对话框，ahelpa 将其报告为 needs_attention。由于 helper 在本次会话信任了工作区，项目自带的 `.agents/hooks.json` hook 可能在 agy helper 下运行。agy 的错误原文按 agy 自己打印的样子出现在屏幕上，agy 也会把对话留在它自己的历史里。见 [agy 说明](../../skill/references/agy.md)。
 
 `mistral` 和 `deepseek` 使用的 Vibe harness 以会话目录内的 `ahelpa-helper.toml`（`safety = "yolo"`、`bypass_tool_permissions = true`，权限 0600）运行 Vibe 自己的 TUI，launch／resume 都拒绝 `--safe`。`--trust` 只对本次调用生效，不持久化受信任目录。ahelpa 不在 `~/.vibe` 下写任何东西；Vibe 的 TUI 自己仍会更新那里的界面缓存。TUI 启动时设置 `VIBE_ENABLE_AUTO_UPDATE=false` 和 `VIBE_ENABLE_UPDATE_CHECKS=false`。可能含账号信息的错误原文按 Vibe 自己打印的样子出现在屏幕上。Vibe 保留自己的原生会话历史。见 [Vibe 说明](../../skill/references/vibe.md)。
+
+Devin 以 `--permission-mode dangerous` 运行自己的 TUI，该旗标会批准每一次工具调用，launch／resume 都拒绝 `--safe`。`--respect-workspace-trust false` 只在本次运行跳过信任检查，不保存任何内容。ahelpa 不写任何 Devin 配置，也从不传 `--config`——它会替换用户配置并启动设置向导（测试中，一次按键回答了那个向导，把用户的 GitHub 账号连到了 Devin）。Devin 仍会加载用户自己的 rules、skills 和 MCP server。它的后台更新器保持用户自己的配置。回合在 Devin 的服务器上、以用户的 Devin 账号运行，Devin 把会话记录保存在 `~/.local/share/devin/cli`。见 [Devin 说明](../../skill/references/devin.md)。
 
 ## 会话回合 Hooks
 

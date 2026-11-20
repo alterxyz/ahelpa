@@ -17,7 +17,7 @@ ahelpa doctor
 ahelpa doctor codex --project /path/to/project
 ```
 
-`doctor [agent] [--project <path>]` checks all registered drivers, or one of `claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, `deepseek`, and `glm`. The project defaults to the current directory; relative paths resolve from the caller's directory and must name an existing directory.
+`doctor [agent] [--project <path>]` checks all registered drivers, or one of `claude`, `codex`, `kimi`, `deepseek-pi`, `gemini`, `mistral`, `deepseek`, `glm`, and `devin`. The project defaults to the current directory; relative paths resolve from the caller's directory and must name an existing directory.
 
 The JSON result has `project`, `tmux: {present, executable}`, and `agents` keyed by driver name. Each agent has `executable`, `version` (or `null` when unavailable), `locally_ready: true|false|"unknown"`, and `reasons: [...]`. Missing tmux or a missing agent binary makes that agent not ready. A definite blocker takes precedence over an unknown probe. A completed check exits 0 even if an agent is not ready; invalid arguments or a missing project directory exit 1. Consumers should inspect `locally_ready`; a ready agent can still list informational `reasons`.
 
@@ -28,6 +28,7 @@ The driver probes inspect local state only. Agent executables are never run, eve
 - Kimi checks the default model/provider and local API-key or file OAuth presence under `KIMI_CODE_HOME` (default `~/.kimi-code`), including model environment overrides. Models require a model name and positive integer `max_context_size`; provider API keys and OAuth are mutually exclusive. Incomplete or conflicting config, keyring and service-identity state are `unknown`.
 - agy reads the version string embedded in its Go binary and refuses versions older than the tested 1.5.2. It lists every distinct `agy` on `PATH` when more than one exists, naming the one that shadows the others and whether it sits inside a desktop `.app` bundle. agy keeps its sign-in in the OS keychain, which doctor does not open, so sign-in stays `unknown` until launch.
 - Vibe checks `vibe` on PATH and reads the installed `mistral-vibe` dist-info metadata, flagging versions older than the tested 3.1.0 baseline. Doctor does not read the keychain; sign-in stays `unknown` until the first turn.
+- Devin reads its version from the install path (`…/devin/cli/_versions/<version>/bin/devin`) and checks only that `~/.local/share/devin/credentials.toml` exists; without it, readiness is `unknown`.
 
 `doctor` checks the shape of local credentials and configuration, not their full validity; for example, it does not detect duplicate JWT claim keys. `locally_ready: true` means nothing locally known to block a launch. It does not validate credentials against a server, refresh tokens, check quota, or guarantee a successful model call. No model is called, no interactive session or daemon starts, and no config, tmux session, database, task file, or FIFO is created. For source-mode checks, set `BUN_RUNTIME_TRANSPILER_CACHE_PATH=0` to also disable Bun's own transpilation cache.
 
@@ -107,6 +108,12 @@ agy defaults to `worker` with `--model gemini-4-neon --effort medium`, which agy
 Complete Vibe sign-in, run `ahelpa doctor mistral`, then launch with `ahelpa launch mistral --file ./task.md --project /path/to/project`. The tested baseline is 3.1.0. `worker` (default) and `reviewer` both select `mistral-large-4-0-3` / `high`. `--model` accepts an alias; `--effort off|low|medium|high|max` sets that model’s thinking through a session-local agent TOML. Levels vary by model; see `ahelpa models mistral`.
 
 Vibe's own TUI runs in tmux, so `tmux attach` shows it and Esc stops the current turn while keeping the session. `--trust` applies to the invocation only; global Vibe configuration is untouched and update checks and automatic updates are disabled. The sentinel on screen settles the turn. On exit Vibe prints its session ID, which `resume` passes back with `--resume`; unknown resume IDs fail explicitly. `advisor`, `--safe`, and runtime model switching are refused. Use `ahelpa launch deepseek --file ./task.md` for `deepseek-v4-1-flash-1017` / `high` through the Mistral subscription. Before Vibe starts, the pane writes a full per-session model definition without relying on global config; the subscription must include it or the turn reports model unavailability with a subscription hint. `deepseek-pi` is the API backup, defaulting to `cc-switch-deep-seek/deepseek-flash` / `high`; configure DeepSeek in CC-Switch and sync to Pi first. The host chooses this fallback after a subscription model-unavailable or authentication failure; the runtime never switches routes automatically. The `glm` name runs GLM through the OpenCode Go plan and the local magpie gateway on the same Pi driver, defaulting to `magpie/opencode-go/glm-5.3` / `high`; see [Pi setup](../skill/references/pi.md). See the [name directory](../skill/references/names.md) for nicknames, stored harness IDs, and all fallback policies. See [Vibe setup](../skill/references/vibe.md).
+
+**Devin**
+
+Run `devin setup` once in a terminal and finish its wizard, run `ahelpa doctor devin`, then launch with `ahelpa launch devin --file ./task.md --project /path/to/project`. The tested version is 3000.14.30821. `worker` (default) and `reviewer` both select `swe-2-flash` / `medium`, which devin receives as `swe-2-flash-medium`, the only model the Free plan offers (free through 2026-11-30, per Cognition). Model IDs carry their effort: `--model swe-2-flash --effort high` gives `swe-2-flash-high`, and a suffixed `--model` needs a matching `--effort`.
+
+Devin's own TUI runs in tmux with `--permission-mode dangerous` and `--respect-workspace-trust false` (this run only); ahelpa writes nothing to Devin's configuration. `C-c` stops the current turn and its tool while keeping the session. **To kill a helper mid-turn, `interrupt` it first:** Devin runs each tool in a session of its own, and closing tmux does not stop it. On exit devin prints its session name, which `resume` passes back with `-r`; an unknown name is refused. `advisor`, `--safe`, and runtime model switching are refused. See [Devin setup](../skill/references/devin.md).
 
 Use `--label` to tag sessions for easier identification:
 
@@ -259,7 +266,7 @@ ahelpa model "$session_id" --to gpt-5.4 --effort xhigh --token "$token"
 
 The helper must be idle at its input prompt. Claude Code switches the current session only. Codex uses its `/model` TUI, which writes the Codex config; ahelpa restores the previous config by default after the running session changes. If unrelated config changes are detected, it preserves the current file and reports that defaults could not be restored. Add `--persist` when you want Codex's new model to remain the default. Successful switches update the model and explicit effort that `resume` reuses; omitting effort lets the resumed CLI choose its default.
 
-Runtime `ahelpa model` switching is unsupported for `kimi`, `gemini`, `mistral`, `deepseek`, `deepseek-pi`, and `glm`. Choose settings at launch.
+Runtime `ahelpa model` switching is unsupported for `kimi`, `gemini`, `mistral`, `deepseek`, `deepseek-pi`, `glm`, and `devin`. Choose settings at launch.
 
 Claude Code rejects runtime `--effort` and `--persist`; set its effort at launch. Model switches require a new confirmation matching the selected model, and failures close the model menu before returning an error.
 

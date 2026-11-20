@@ -12,7 +12,7 @@ import { defaultRuntimeLayout } from "../src/runtime-layout";
 import { defaultWakeup } from "../src/wakeup";
 import * as daemon from "../src/daemon";
 
-const names = ["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi", "glm"];
+const names = ["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi", "glm", "devin"];
 const spellings = [
   ["claude", "claude", "claude-code"], ["claude-code", "claude", "claude-code"],
   ["codex", "codex", "codex"], ["gpt", "codex", "codex"],
@@ -20,6 +20,7 @@ const spellings = [
   ["kimi", "kimi", "kimi"], ["mistral", "mistral", "vibe"], ["vibe", "mistral", "vibe"],
   ["deepseek", "deepseek", "vibe"], ["deepseek-vibe", "deepseek", "vibe"],
   ["deepseek-pi", "deepseek-pi", "pi"], ["pi", "deepseek-pi", "pi"], ["glm", "glm", "pi"],
+  ["devin", "devin", "devin"], ["swe", "devin", "devin"],
 ] as const;
 
 test("public names, nicknames and internal IDs resolve while first-layer listings expose only public names", () => {
@@ -33,7 +34,7 @@ test("public names, nicknames and internal IDs resolve while first-layer listing
   const help = renderHelpText();
   expect(help).toContain("launch <name>");
   for (const name of names) expect(help).toContain(`  ${name}: `);
-  for (const nickname of ["claude-code", "gpt", "agy", "antigravity", "vibe", "deepseek-vibe", "pi", "dsh"]) {
+  for (const nickname of ["claude-code", "gpt", "agy", "antigravity", "vibe", "deepseek-vibe", "pi", "swe", "dsh"]) {
     expect(help).not.toContain(`  ${nickname}: `);
   }
   expect(help).not.toContain("cc-switch-deep-seek");
@@ -131,12 +132,13 @@ describe("name and harness persistence", () => {
     if (name === "glm") expect(row.model).toBe("magpie/opencode-go/glm-5.3");
     if (name === "deepseek") expect(row.model).toBe("deepseek-v4-1-flash-1017");
     if (name === "mistral") expect(row.model).toBe("mistral-large-4-0-3");
+    if (name === "devin") expect(row).toMatchObject({ model: "swe-2-flash", effort: "medium" });
   });
 
   test.each([
     ["claude", "claude-code"], ["codex", "codex"], ["gemini", "agy"], ["agy", "agy"],
     ["kimi", "kimi"], ["mistral", "vibe"], ["deepseek", "vibe"], ["vibe", "vibe"],
-    ["deepseek-pi", "pi"], ["pi", "pi"], ["glm", "pi"],
+    ["deepseek-pi", "pi"], ["pi", "pi"], ["glm", "pi"], ["devin", "devin"],
   ])("resume keeps the %s prefix and recorded settings via harness %s", async (prefix, harness) => {
     const oldId = `${prefix}-0123456789ab`;
     const model = harness === "pi" ? "previous-provider/previous-model" : "previous-model";
