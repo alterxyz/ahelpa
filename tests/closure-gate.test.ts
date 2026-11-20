@@ -15,7 +15,7 @@ afterAll(() => {
   for (const root of fixtureRoots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
-async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gatePi = "", piModel = "", piEffort = "", gateAgy = "", gateVibe = "", gateDeepseek = "") {
+async function runFixture(scenario: string, agent = "codex", integration = false, role = "", gateKimi = "", gatePi = "", piModel = "", piEffort = "", gateAgy = "", gateVibe = "", gateDeepseek = "", gateDevin = "") {
   const root = mkdtempSync(join(realpathSync(tmpdir()), "ahelpa-closure-test-"));
   fixtureRoots.push(root);
   const evidenceDir = join(root, "evidence");
@@ -222,6 +222,7 @@ exit 1
       AHELPA_GATE_AGY: gateAgy,
       AHELPA_GATE_VIBE: gateVibe,
       AHELPA_GATE_DEEPSEEK: gateDeepseek,
+      AHELPA_GATE_DEVIN: gateDevin,
       AHELPA_GATE_POLL_SECONDS: "0",
     },
     stdout: "pipe",
@@ -338,8 +339,12 @@ describe.concurrent("closure gate", () => {
     expect(failed.stderr).toContain("interrupt failed for devin");
     // Cleanup tries the interrupt again before its kill.
     expect(failed.calls.map(call => call.command).slice(-3)).toEqual(["interrupt", "interrupt", "kill"]);
-    const result = await runFixture("success", "codex", true);
-    expect(result.stdout).toContain("skip > devin (set AHELPA_GATE_DEVIN=1 to include)");
+    const skipped = await runFixture("success", "codex", true);
+    expect(skipped.stdout).toContain("skip > devin (set AHELPA_GATE_DEVIN=1 to include)");
+    const result = await runFixture("success", "codex", true, "", "", "", "", "", "", "", "", "1");
+    expect(result.exitCode).toBe(0);
+    expect(result.calls.filter(call => call.command === "launch").map(call => call.args[0]))
+      .toEqual(["claude", "claude", "codex", "devin"]);
   }, 30000);
   test("gemini live gate is opt-in", async () => {
     const skipped = await runFixture("success", "codex", true);
