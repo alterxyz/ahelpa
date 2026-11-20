@@ -265,7 +265,7 @@ test("unknown exclusion IDs fail before scanning", async () => {
   expect(errors[0]).toContain("Unknown disk usage category");
 });
 
-test.each(["claude", "codex", "gemini", "kimi", "dsh", "agy", "vibe", "pi", "mistral", "deepseek", "deepseek-pi", "glm"])("%s runtime sessions attribute bridge and per-turn input files", prefix => {
+test.each(["claude", "codex", "gemini", "kimi", "dsh", "agy", "vibe", "pi", "mistral", "deepseek", "deepseek-pi", "glm", "devin"])("%s runtime sessions attribute bridge and per-turn input files", prefix => {
   const f = fixture();
   const delivery = join(f.layout.ahelpaDir, `${prefix}-0123456789ab`);
   for (const name of ["vibe-terminal.mjs", "vibe-process.json", "ahelpa-helper.toml"]) file(join(delivery, name), 7);

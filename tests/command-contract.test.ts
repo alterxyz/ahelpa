@@ -114,7 +114,7 @@ test("Pi catalog renders the standard DeepSeek API defaults", () => {
 
 test("default model catalogs expose new types and hide harness aliases", () => {
   const text = renderModelsText();
-  for (const name of ["mistral", "deepseek", "deepseek-pi", "glm"]) expect(text).toContain(`\n${name}\n`);
+  for (const name of ["mistral", "deepseek", "deepseek-pi", "glm", "devin"]) expect(text).toContain(`\n${name}\n`);
   for (const name of ["vibe", "pi"]) expect(text).not.toContain(`\n${name}\n`);
   expect(text).not.toContain("glm-5-3");
   expect(renderModelsText("vibe")).toBe(renderModelsText("mistral"));

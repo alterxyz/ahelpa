@@ -86,10 +86,10 @@ afterEach(() => rmSync(root, { recursive: true, force: true }));
 
 describe("doctor", () => {
   test("default report lists model-named types without compatibility aliases", () => {
-    expect(Object.keys(report().agents)).toEqual(["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi", "glm"]);
+    expect(Object.keys(report().agents)).toEqual(["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi", "glm", "devin"]);
   });
 
-  test.each(["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi", "glm"])("never executes a writing executable: %s", (agent) => {
+  test.each(["claude", "codex", "gemini", "kimi", "mistral", "deepseek", "deepseek-pi", "glm", "devin"])("never executes a writing executable: %s", (agent) => {
     const binary = agent === "gemini" ? "agy" : ["mistral", "deepseek"].includes(agent) ? "vibe" : ["deepseek-pi", "glm"].includes(agent) ? "pi" : agent;
     stub(binary, 'printf "executed" > "$HOME/executed-marker"\nprintf "fixture 1.2.3\\n"');
     const before = snapshot(root);

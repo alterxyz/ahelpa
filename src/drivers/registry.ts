@@ -5,6 +5,7 @@ import { kimiDriver } from "./kimi";
 import { piDriver } from "./pi";
 import { agyDriver } from "./agy";
 import { VIBE_MODEL_UNAVAILABLE, vibeDriver } from "./vibe";
+import { devinDriver } from "./devin";
 
 export const REMOVED_DSH_MESSAGE = "dsh was removed on 2026-11-06";
 
@@ -122,6 +123,14 @@ export const HELPER_NAMES: readonly HelperName[] = [
     purpose: "GLM tasks through the OpenCode Go plan.",
     harnessName: "Pi Coding Agent", route: "OpenCode Go plan through the local magpie gateway",
     prerequisites: "Install Pi >= 1.4.0 and Node.js; add OpenCode Go as a provider in magpie and connect Pi so provider magpie lists opencode-go/glm-5.3; keep magpie running.",
+    fallback: [],
+  },
+  {
+    name: "devin", aliases: ["swe"], harnessId: "devin",
+    driver: devinDriver,
+    purpose: "SWE-2 Flash tasks through a Devin account.",
+    harnessName: "Devin CLI", route: "Devin account (the Free plan offers swe-2-flash-medium)",
+    prerequisites: "Install Devin CLI (cli.devin.ai) and sign in once with `devin setup` in a terminal.",
     fallback: [],
   },
 ];
