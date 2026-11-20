@@ -336,6 +336,8 @@ describe.concurrent("closure gate", () => {
     const failed = await runFixture("devin-no-interrupt", "devin");
     expect(failed.exitCode).not.toBe(0);
     expect(failed.stderr).toContain("interrupt failed for devin");
+    // Cleanup tries the interrupt again before its kill.
+    expect(failed.calls.map(call => call.command).slice(-3)).toEqual(["interrupt", "interrupt", "kill"]);
     const result = await runFixture("success", "codex", true);
     expect(result.stdout).toContain("skip > devin (set AHELPA_GATE_DEVIN=1 to include)");
   }, 30000);

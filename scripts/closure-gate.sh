@@ -186,6 +186,8 @@ run_gate() (
     local result=$?
     trap - EXIT
     if [ "$cleaned" -eq 0 ] && [ -n "$session_id" ] && [ -n "$owner_token" ]; then
+      # A busy Devin's tool outlives a bare kill; best effort, it may be idle or the failure itself.
+      if [ "$harness" = "devin" ]; then "$CLI" interrupt "$session_id" --token "$owner_token" >/dev/null 2>&1 || true; fi
       if ! "$CLI" kill "$session_id" --token "$owner_token" >"$GATE_DIR/kill-$label.txt" 2>&1; then
         echo "cleanup failed for $agent session $session_id; see $GATE_DIR/kill-$label.txt" >&2
         result=1

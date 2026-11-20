@@ -16,10 +16,12 @@ const SUFFIX = new RegExp(`-(${EFFORTS.join("|")})(?:-(?:fast|priority|lightning
 // region at the bottom is a status line, the composer between two rules (the
 // top one may carry the session title at its right), then a footer.
 const RULE = /^─{3,}/;
+const BOTTOM_RULE = /^─{3,}\s*$/;
 // The composer prompt sits at column 0; question-dialog options are indented ("  ❭ 1 red").
 const PROMPT = /^❭/;
-// The empty composer while no turn runs; narrow panes truncate the rest.
-const IDLE_COMPOSER = /^❭ Ask Devin to\b/;
+// The empty composer while no turn runs. A narrower pane may cut it short with "…"
+// (unobserved; 80 columns show it whole); a draft that only starts the same way is a draft.
+const PLACEHOLDER = "Ask Devin to build features, fix bugs, or work on your code";
 // The live status line: "⢀⡄ Running tools · 6s (esc twice to interrupt)", also "Thinking".
 const WORKING = /\(esc twice to interrupt\)\s*$/;
 // A submitted turn: "❭ text" at column 0, wrapped lines indented by two spaces.
@@ -30,28 +32,41 @@ const START_ERROR = /^Error: (.+)$/m;
 // Printed by /exit: " devin -r maddening-trawler", then " resumes this session · ...".
 const EXIT_ID = /^\s*devin -r ([\w-]+)\s*$/gm;
 
-interface Screen { transcript: string; composer: string | undefined; working: boolean }
+// composer: its first line, and only when it is one line long.
+interface Screen { transcript: string; composer: string | undefined; draft: boolean; working: boolean }
 
 function parse(output: string): Screen {
   const lines = output.split("\n");
   let at = -1;
   for (let i = lines.length - 1; i > 0 && at < 0; i--) if (PROMPT.test(lines[i]) && RULE.test(lines[i - 1])) at = i;
-  // No composer: a question or approval dialog, a setup screen, or the shell after exit.
-  if (at < 0) return { transcript: output, composer: undefined, working: false };
+  const end = at < 0 ? -1 : lines.findIndex((line, i) => i > at && BOTTOM_RULE.test(line));
+  // The composer is live only with at most the footer below its bottom rule. Otherwise
+  // this is a question or approval dialog, a setup screen, or the shell after devin
+  // exited or died, which can leave its last frame above the prompt.
+  if (end < 0 || lines.slice(end + 1).filter(line => line.trim()).length > 1) {
+    return { transcript: output, composer: undefined, draft: false, working: false };
+  }
   const above = lines.slice(0, at - 1);
   const status = above.filter(line => line.trim()).at(-1) ?? "";
-  return { transcript: above.join("\n"), composer: lines[at], working: WORKING.test(status) };
+  return { transcript: above.join("\n"), composer: lines[at], draft: end > at + 1, working: WORKING.test(status) };
+}
+
+function emptyComposer(line: string): boolean {
+  const text = line.replace(/^❭ /, "").trimEnd();
+  return text === PLACEHOLDER || (text.endsWith("…") && text.length > 30 && PLACEHOLDER.startsWith(text.slice(0, -1)));
 }
 
 function ready(screen: Screen): boolean {
-  return !screen.working && IDLE_COMPOSER.test(screen.composer ?? "");
+  return !screen.working && !screen.draft && screen.composer !== undefined && emptyComposer(screen.composer);
 }
 
 // Unmasked on purpose: the echo names the sentinels, and a narrow pane can wrap
 // one onto a line of its own, which must stay part of the echo. The agent's
 // reply always follows a blank line, so it never joins the echo.
+// A "❭" line right below a rule is a composer frame (one a dead TUI left behind), not an echo.
 function userTurns(screen: Screen): RegExpExecArray[] {
-  return [...screen.transcript.matchAll(USER_TURN)];
+  return [...screen.transcript.matchAll(USER_TURN)]
+    .filter(match => !RULE.test(screen.transcript.slice(0, Math.max(0, match.index - 1)).split("\n").at(-1) ?? ""));
 }
 
 // What the agent wrote after the latest task echo.

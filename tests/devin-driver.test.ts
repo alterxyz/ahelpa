@@ -90,6 +90,16 @@ test("devin reads work, dialogs and the empty composer from the screen", () => {
   // Shell after the TUI left: nothing works and nothing accepts a task.
   expect(driver.detectActivity(exitScreen)).toBe("idle");
   expect(driver.acceptsInput!(exitScreen)).toBe(false);
+  // A TUI that died leaves its last frame above the shell prompt; that frame is not live.
+  expect(driver.acceptsInput!(`${ready}\nbash-3.2$`)).toBe(false);
+  const crashed = `${working()}\nKilled: 9\nbash-3.2$`;
+  expect(driver.detectActivity(crashed)).toBe("idle");
+  expect(driver.detectStatus(`${done()}\nKilled: 9\nbash-3.2$`)).toBe("idle");
+  // Only the placeholder itself, or a truncation of it, is an empty composer.
+  const composerWith = (text: string) => `${banner} ⏺ /tmp/project\n${rule}\n❭ ${text}\n${rule}\nSWE-2 Flash Medium · bypass`;
+  expect(driver.acceptsInput!(composerWith("Ask Devin to fix the parser"))).toBe(false);
+  expect(driver.acceptsInput!(composerWith("Ask Devin to build features, fix bugs, or…"))).toBe(true);
+  expect(driver.acceptsInput!(composerWith("Ask Devin to fix…"))).toBe(false);
 });
 
 test("devin submission needs a turn that left the composer", async () => {
