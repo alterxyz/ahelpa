@@ -207,6 +207,8 @@ AHELPA_GATE_CLI="$HOME/.ahelpa/bin/ahelpa" bun run closure:gate
 
 `mistral` 的真机 gate 通过 `AHELPA_GATE_VIBE=1` 启用，需要 vibe ≥ 3.1.0 及已有登录，使用 `mistral-large-4-0-3`／`high`。gate 在 TUI 运行时记录 pane 的进程树，等 daemon 在 draining 期间从退出画面读到原生恢复 ID，接着 resume 并检查第二个回合记得上下文，再 resume 一次运行 `sleep 120`、在回合中途 kill，确认记录下的进程（包括工具）一个不剩。Vibe 的 8 位十六进制会话 ID 在多次 resume 之间必须不变。`AHELPA_GATE_DEEPSEEK=1` 以 `deepseek` 类型运行同一 Vibe 场景，默认 `deepseek-v4-1-flash-1017`／`high`，需要 Mistral 订阅包含该模型。Vibe 自己保存原生会话历史。
 
+`devin` 的真机 gate 通过 `AHELPA_GATE_DEVIN=1` 启用，需要 Devin CLI（在 3000.14.30821 上测试），并先在终端里完成一次 `devin setup`；使用 `swe-2-flash`／`medium`，Free 套餐包含该模型。场景与 agy 和 Vibe 相同，只有一处不同：Devin 把每个工具跑在它自己独立的会话里，tmux 关闭后它仍在运行，所以回合中途那一步先 `interrupt` 再 `kill`（这是杀掉忙碌 Devin helper 的文档规定方法），然后确认记录下的进程一个不剩。Devin 的会话名（两个词，如 `artistic-learning`）在多次 resume 之间必须不变。
+
 ## 添加 driver
 
 请先读 [Helper 后端](backends.md)。它回答一个候选到底该不该做成 driver（分类和准入漏斗）、helper 怎么接（只有一种：在 tmux 里跑它自己的 TUI）以及为什么、spike 清单，以及已评估候选的登记表。无论接不接，结论都要记进登记表。driver 是最后一步，不是第一步。

@@ -90,6 +90,7 @@ Helper 会在自己的 tmux session 中运行，拥有独立上下文。它读�
 | `deepseek` | 优先使用订阅完成 DeepSeek 任务。 |
 | `deepseek-pi` | 需要 API 路线时作为 DeepSeek 的备份。 |
 | `glm` | 通过 OpenCode Go 套餐运行 GLM 任务。 |
+| `devin` | 通过 Devin 账号用 SWE-2 Flash 完成规格明确的小任务。 |
 
 小名、实际后端、默认模型、登录前提和回退策略见[名字目录](skill/references/names.md)，或运行 `ahelpa models`。回退由 host 决定，运行时不会自动切换。
 
