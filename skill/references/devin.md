@@ -34,7 +34,7 @@ The pane runs `devin --process-model in-process --permission-mode dangerous --re
 ## Turns, interrupt, kill, resume
 
 - The daemon reads the screen: a sentinel written after the latest task echo, with no `(esc twice to interrupt)` status line, ends the turn. There is no turn-end hook, so a turn that ends without a sentinel settles through the idle fallback (about 12 s), and the completion nudge applies.
-- A turn can sit on `Thinking` for minutes even on trivial work (3 of 14 small turns on 2026-11-19; Devin's log showed its service request stalled). While the status line shows work, the daemon waits without a limit; if the result is already written, `interrupt` the turn rather than waiting.
+- A turn can sit on `Thinking` for minutes even on trivial work (4 of 15 small turns on 2026-11-19; Devin's log showed its service request stalled, with the plan's usage window at 100%). While the status line shows work, the daemon waits without a limit; if the result is already written, `interrupt` the turn rather than waiting.
 - If the agent asks a question (its `ask_user_question` dialog), the session ends `needs_attention`. Attach with `tmux attach -t <id>` to answer, or kill and relaunch with the answer in the brief.
 - `ahelpa interrupt` sends one `C-c`: devin prints `Canceled. What should Devin do?`, stops the running tool, and keeps the session for `send` or `task`.
 - **Kill mid-turn: interrupt first.** Devin starts each tool command in a session of its own, and when tmux closes, devin exits without stopping it. `ahelpa kill` alone can leave that command running (observed with `sleep`, 2026-11-19). Run `ahelpa interrupt <id> --token <tok>`, then `ahelpa kill`. A helper that finished its turn has no tool running.
