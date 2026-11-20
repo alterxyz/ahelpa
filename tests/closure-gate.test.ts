@@ -47,18 +47,18 @@ switch (command) {
   case "daemon": break;
   case "launch": {
     const roleIndex = args.indexOf("--role");
-    const role = roleIndex === -1 ? (args[0] === "claude" ? "advisor" : ["codex", "deepseek-pi", "gemini", "mistral", "deepseek"].includes(args[0]) ? "worker" : null)
+    const role = roleIndex === -1 ? (args[0] === "claude" ? "advisor" : ["codex", "deepseek-pi", "gemini", "mistral", "deepseek", "devin"].includes(args[0]) ? "worker" : null)
       : args[roleIndex + 1];
     const model = args.includes("--model") ? args[args.indexOf("--model") + 1] : args[0] === "claude" ? (role === "advisor" ? "claude-fable-5-2" : "claude-sonnet-5-5")
-      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "gemini" ? "gemini-4-neon" : args[0] === "mistral" ? "mistral-large-4-0-3" : args[0] === "deepseek" ? "deepseek-v4-1-flash-1017" : args[0] === "deepseek-pi" ? "cc-switch-deep-seek/deepseek-flash" : null;
-    const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude" && role === "advisor" ? "medium" : args[0] === "kimi" ? null : ["codex", "gemini"].includes(args[0]) ? "medium" : "high";
+      : args[0] === "codex" ? "gpt-6-astra" : args[0] === "gemini" ? "gemini-4-neon" : args[0] === "mistral" ? "mistral-large-4-0-3" : args[0] === "deepseek" ? "deepseek-v4-1-flash-1017" : args[0] === "deepseek-pi" ? "cc-switch-deep-seek/deepseek-flash" : args[0] === "devin" ? "swe-2-flash" : null;
+    const effort = args.includes("--effort") ? args[args.indexOf("--effort") + 1] : args[0] === "claude" && role === "advisor" ? "medium" : args[0] === "kimi" ? null : ["codex", "gemini", "devin"].includes(args[0]) ? "medium" : "high";
     const id = args[0] + (role ? "-" + role : "") + "-fixture";
     const project = args[args.indexOf("--project") + 1];
     const task = args[args.indexOf("--task") + 1];
     const marker = task.match(/Remember this context marker for our next turn: ([a-f0-9-]+)\./)?.[1];
     const completionMarker = task.match(/a first line that is exactly ([^ ;]+);/)?.[1];
     sessions[id] = { id, agent: args[0], harness: ["mistral", "deepseek"].includes(args[0]) ? "vibe" : args[0] === "deepseek-pi" ? "pi" : args[0] === "claude" ? "claude-code" : args[0] === "gemini" ? "agy" : args[0], project, task, marker, role, model, effort, status: ["reaped", "missing-native-id"].includes(scenario) ? "idle" : "draining",
-      agentResumeId: scenario === "missing-native-id" || scenario === "pi-late-native-id" ? null : ["mistral", "deepseek"].includes(args[0]) ? "01234567" : ["deepseek-pi", "gemini"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : "session_fixture" };
+      agentResumeId: scenario === "missing-native-id" || scenario === "pi-late-native-id" ? null : ["mistral", "deepseek"].includes(args[0]) ? "01234567" : ["deepseek-pi", "gemini"].includes(args[0]) ? "01234567-89ab-4cde-8012-3456789abcde" : args[0] === "devin" ? "maddening-trawler" : "session_fixture" };
     save();
     // A linked worktree keeps its results in the main checkout and a link in the project.
     const delivery = scenario === "linked-results" ? join(root, "main", ".ahelpa", id) : join(project, ".ahelpa", id);
@@ -115,6 +115,8 @@ switch (command) {
   }
   case "kill": {
     if (scenario === "kill-failure") process.exit(1);
+    // Devin's tool runs in a session of its own and outlives the pane's hangup.
+    if (session.harness === "devin" && session.midturn) session.orphan = true;
     session.status = "dead";
     save();
     break;
@@ -127,11 +129,18 @@ switch (command) {
     console.log(JSON.stringify({ sessionId: id, ownerToken: "fixture-token" }));
     break;
   }
+  case "interrupt": {
+    if (scenario === "devin-no-interrupt") process.exit(1);
+    session.midturn = false;
+    session.status = "needs_attention";
+    save();
+    break;
+  }
   case "task": {
     if (scenario === "resumed-task-failure") process.exit(2);
     const taskFile = args[args.indexOf("--file") + 1];
     session.task = readFileSync(taskFile, "utf8");
-    session.midturn = ["vibe", "agy", "pi"].includes(session.harness) && session.task.includes("sleep 120");
+    session.midturn = ["vibe", "agy", "pi", "devin"].includes(session.harness) && session.task.includes("sleep 120");
     session.status = session.midturn ? "running" : "draining";
     save();
     const delivery = join(session.project, ".ahelpa", sessionId);
@@ -159,6 +168,13 @@ if (process.argv.includes("command=")) {
   const live = sessions.find(session => session.harness === "agy" && session.status !== "dead");
   console.log(scenario === "agy-tui-gone" ? "93001 1 bash" : "93001 1 bash\\n93002 93001 agy");
   if (live.midturn) console.log("93006 93002 sleep");
+} else if (sessions.some(session => session.harness === "devin" && session.status !== "dead")) {
+  // Devin's TUI and its in-process agent run in the pane; mid-turn the tool hangs below the agent.
+  const live = sessions.find(session => session.harness === "devin" && session.status !== "dead");
+  console.log("94001 1 bash\\n94002 94001 devin\\n94003 94002 /opt/devin/bin/devin");
+  if (live.midturn) console.log("94004 94003 sleep");
+} else if (sessions.some(session => session.orphan)) {
+  console.log("94004 1 sleep");
 } else if (sessions.some(session => session.harness === "vibe" && session.status !== "dead")) {
   // The pane shell runs Vibe's TUI, its app server and, mid-turn, the shell tool.
   console.log(scenario === "vibe-gone" ? "93001 1 bash" : "93001 1 bash\\n93002 93001 /opt/vibe/_bin/vibe-rs\\n93003 93002 vibe-app-server");
@@ -179,7 +195,7 @@ if (process.argv.includes("command=")) {
 }
 `, { mode: 0o755 });
     writeFileSync(join(binDir, "tmux"), `#!/usr/bin/env bash
-if [ "$1" = "list-panes" ]; then case "$3" in gemini-*|mistral-*|deepseek-worker-*|deepseek-resumed-*|deepseek-midturn-*) echo 93001 ;; *) echo 91001 ;; esac; exit 0; fi
+if [ "$1" = "list-panes" ]; then case "$3" in gemini-*|mistral-*|deepseek-worker-*|deepseek-resumed-*|deepseek-midturn-*) echo 93001 ;; devin-*) echo 94001 ;; *) echo 91001 ;; esac; exit 0; fi
 if [ "$CLOSURE_TEST_SCENARIO" = "tmux-alive" ]; then exit 0; fi
 exit 1
 `, { mode: 0o755 });
@@ -307,6 +323,22 @@ describe.concurrent("closure gate", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain(message);
   }, 40000);
+  test("devin gate checks the SWE-2 Flash default, word-named resume, context continuity, and interrupts before a mid-turn kill", async () => {
+    const result = await runFixture("success", "devin");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("pass > devin resume readiness, new turn, and context continuity");
+    expect(result.stdout).toContain("pass > devin mid-turn kill reclaims the TUI and its tool");
+    expect(result.calls.filter(call => ["launch", "wait", "resume", "task", "interrupt", "kill"].includes(call.command)).map(call => call.command))
+      .toEqual(["launch", "wait", "kill", "resume", "task", "wait", "kill", "resume", "task", "interrupt", "kill"]);
+    expect(readFileSync(join(result.evidenceDir, "pids-devin-midturn.txt"), "utf8")).toBe("94001\n94002\n94003\n94004\n");
+  }, 20000);
+  test("devin gate fails when the interrupt fails, and its live run is opt-in", async () => {
+    const failed = await runFixture("devin-no-interrupt", "devin");
+    expect(failed.exitCode).not.toBe(0);
+    expect(failed.stderr).toContain("interrupt failed for devin");
+    const result = await runFixture("success", "codex", true);
+    expect(result.stdout).toContain("skip > devin (set AHELPA_GATE_DEVIN=1 to include)");
+  }, 30000);
   test("gemini live gate is opt-in", async () => {
     const skipped = await runFixture("success", "codex", true);
     expect(skipped.stdout).toContain("skip > gemini (set AHELPA_GATE_AGY=1 to include)");
