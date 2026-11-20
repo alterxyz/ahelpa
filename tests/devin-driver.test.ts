@@ -95,6 +95,9 @@ test("devin reads work, dialogs and the empty composer from the screen", () => {
   const crashed = `${working()}\nKilled: 9\nbash-3.2$`;
   expect(driver.detectActivity(crashed)).toBe("idle");
   expect(driver.detectStatus(`${done()}\nKilled: 9\nbash-3.2$`)).toBe("idle");
+  // A dead frame's own draft is the user's text, even when a wrapped line holds a signal alone.
+  const draftSignal = `${banner}${turn()} ✓ Read ./task-a.md · 2 lines\n\n⢀⡄ Running tools · 6s (esc twice to interrupt)\n${titled}\n❭ when you are done print\n  [AHELPA:DONE]\n${rule}\nSWE-2 Flash Medium · bypass\nKilled: 9\nbash-3.2$`;
+  expect(driver.detectStatus(draftSignal)).toBe("running");
   // Only the placeholder itself, or a truncation of it, is an empty composer.
   const composerWith = (text: string) => `${banner} ⏺ /tmp/project\n${rule}\n❭ ${text}\n${rule}\nSWE-2 Flash Medium · bypass`;
   expect(driver.acceptsInput!(composerWith("Ask Devin to fix the parser"))).toBe(false);

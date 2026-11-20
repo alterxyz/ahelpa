@@ -39,14 +39,16 @@ function parse(output: string): Screen {
   const lines = output.split("\n");
   let at = -1;
   for (let i = lines.length - 1; i > 0 && at < 0; i--) if (PROMPT.test(lines[i]) && RULE.test(lines[i - 1])) at = i;
-  const end = at < 0 ? -1 : lines.findIndex((line, i) => i > at && BOTTOM_RULE.test(line));
-  // The composer is live only with at most the footer below its bottom rule. Otherwise
-  // this is a question or approval dialog, a setup screen, or the shell after devin
-  // exited or died, which can leave its last frame above the prompt.
-  if (end < 0 || lines.slice(end + 1).filter(line => line.trim()).length > 1) {
-    return { transcript: output, composer: undefined, draft: false, working: false };
-  }
+  // No composer: a question or approval dialog, a setup screen, or the shell after /exit.
+  if (at < 0) return { transcript: output, composer: undefined, draft: false, working: false };
   const above = lines.slice(0, at - 1);
+  const end = lines.findIndex((line, i) => i > at && BOTTOM_RULE.test(line));
+  // The composer is live only with at most the footer below its bottom rule. A devin
+  // that died leaves its last frame above the shell prompt: keep the transcript above
+  // that frame, never its draft, which is the user's text.
+  if (end < 0 || lines.slice(end + 1).filter(line => line.trim()).length > 1) {
+    return { transcript: above.join("\n"), composer: undefined, draft: false, working: false };
+  }
   const status = above.filter(line => line.trim()).at(-1) ?? "";
   return { transcript: above.join("\n"), composer: lines[at], draft: end > at + 1, working: WORKING.test(status) };
 }
