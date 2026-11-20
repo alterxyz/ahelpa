@@ -128,7 +128,7 @@ export const HELPER_NAMES: readonly HelperName[] = [
   {
     name: "devin", aliases: ["swe"], harnessId: "devin",
     driver: devinDriver,
-    purpose: "SWE-2 Flash tasks through a Devin account.",
+    purpose: "Low-priority option: SWE-2 Flash tasks through a Devin account.",
     harnessName: "Devin CLI", route: "Devin account (the Free plan offers swe-2-flash-medium)",
     prerequisites: "Install Devin CLI (cli.devin.ai) and sign in once with `devin setup` in a terminal.",
     fallback: [],

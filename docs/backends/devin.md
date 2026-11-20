@@ -4,7 +4,7 @@ English only: a dated evidence record for agents, not a user guide. Principles a
 
 - **Evaluated:** 2026-11-19 (owner's machine, macOS arm64, a personal Devin account on the Free plan).
 - **Class:** Helper backend; host-target status unverified.
-- **Verdict:** **Integrated (2026-11-19)** as public name `devin` (nickname `swe`), driven through Devin's own interactive TUI in tmux. Defaults: `swe-2-flash` / `medium` (sent as `--model swe-2-flash-medium`), the one model the Free plan offers. Not in default dispatch.
+- **Verdict:** **Integrated (2026-11-19)** as public name `devin` (nickname `swe`), driven through Devin's own interactive TUI in tmux. Defaults: `swe-2-flash` / `medium` (sent as `--model swe-2-flash-medium`), the one model the Free plan offers. A low-priority option by the owner's decision (2026-11-19): not in default dispatch.
 - **Stopped at:** n/a. Floor tier plus model/effort and a verified interrupt key: no turn-end hook, no `--safe`, no runtime model switch.
 - **Version seen:** Devin CLI 3000.14.30821 (commit a09cd7f323ee), installed by `cli.devin.ai/install.sh` into `~/.local/share/devin/cli/_versions/<version>/bin/devin`, linked from `~/.local/bin/devin`.
 - **Re-evaluate when:** the composer, status line or exit screen changes; the Free plan or the SWE-2 Flash offer changes (the vendor's post says free through 2026-11-30); Devin offers a per-launch hook or settings file; `AHELPA_GATE_DEVIN=1` fails.
@@ -54,7 +54,6 @@ Measured 2026-11-19 on 3000.14.30821/macOS in tmux at 80x24, 120x30 and 160x45, 
 - Permission prompts in `dangerous` mode for MCP servers or team-admin `ask` rules (none appeared; the account has no team rules).
 - A lower-permission posture: `--sandbox` with `--permission-mode autonomous` exists but was not tested, including whether it can write a result directory outside the workspace.
 - Linux.
-- Whether the GitHub connection made by the setup wizard (see `--config` above) gives Devin's cloud access beyond what the owner intended; the owner decides whether to keep it.
 
 ## Why this verdict
 
@@ -63,4 +62,5 @@ It passes every hard gate: its own TUI runs in tmux and takes keystrokes, severa
 ## History
 
 - 2026-11-19: spiked and integrated on 3000.14.30821. The live gate scenario passed in 30 s on a source build: first task, resume with the remembered marker, then `sleep 120` interrupted and killed with none of the 11 recorded processes left (the pane shell, `devin`, `devin acp`, the user's MCP servers and `sleep`). The native name (`artistic-learning`) stayed the same across both resumes. Startup timing over 3 runs (median, range): `launch` 1.8 s (1.4–1.9), `summary.md` 6.2 s (5.5–6.5), `wait` 9.3 s (8.1–9.3).
+- 2026-11-19: the owner kept the GitHub connection the setup wizard made through the `gh` CLI (see `--config` above), and set `devin` as a low-priority option.
 - 2026-11-19, after two review rounds (a dead TUI's frame read as live; a draft read as the empty composer; that frame's draft read as a signal), all fixed with tests. `AHELPA_GATE_DEVIN=1 bun run closure:gate`: tests, typecheck, build, `claude` and `codex` passed; the `devin` scenario failed once because the resumed turn sat on `Thinking` past the 500 s wait (see Latency). Two more runs of the `devin` scenario on the final build passed (28 s and 420 s, the second with a 6.6 min first turn).

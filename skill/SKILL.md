@@ -60,7 +60,7 @@ Choose a helper by its public name:
 | `deepseek` | DeepSeek tasks through the subscription first. |
 | `deepseek-pi` | DeepSeek's API backup. |
 | `glm` | GLM tasks through the OpenCode Go plan. |
-| `devin` | Small, well-specified tasks with SWE-2 Flash through a Devin account. |
+| `devin` | Low-priority option: small, well-specified tasks with SWE-2 Flash through a Devin account. |
 
 Read [the name directory](references/names.md), or run `ahelpa models`, for nicknames, harnesses, routes, prerequisites, defaults, and fallback policies. The host decides whether to fall back; ahelpa never changes the route automatically.
 

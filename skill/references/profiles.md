@@ -202,6 +202,8 @@ Uses the Pi harness with `magpie/opencode-go/glm-5.3` / `high` for both `worker`
 
 Uses Devin CLI with `swe-2-flash` / `medium` (sent as `swe-2-flash-medium`) for both `worker` and `reviewer`, through a Devin account. On the Free plan this is the only model offered, and Cognition's post says SWE-2 Flash is free through 2026-11-30. Observation status (2026-11-19): only the integration spike and the closure gate, which are tiny tasks. No real helper work yet; the entries below are what those runs showed, not rates.
 
+**A low-priority option (owner's decision, 2026-11-19).** Choose it when the owner or the brief asks for it, or when the helpers above are unavailable or out of quota for a small, low-stakes task. Never pick it by default.
+
 **Best at**
 - Not yet observed on real work. The vendor positions SWE-2 Flash as a fast, cheaper sibling of SWE-2. Start it on the same kind of work as `glm`: bounded mechanical tasks with a clear spec, where a miss costs little.
 - Fast turns, usually: the whole closure gate (first task, resume with recall, mid-turn interrupt and kill) took 28–30 s in two runs.

@@ -223,7 +223,7 @@ Spike 决定这个 TUI 到底能不能驱动（不能就拒绝，不做桥接）
 | Gemini CLI | helper 后端 | **不接（2026-11-06）**：不再服务个人账号 | 第 2 步 | [gemini-cli](../backends/gemini-cli.md) |
 | `gemini`（Antigravity CLI） | helper 后端 | 已接入（2026-11-06）；自 2026-11-07 起经 TUI 驱动（此前一天为 stream-json 桥接）；默认 `gemini-4-neon` / `medium`（2026-11-19 前为 `gemini-4-argon`） | 不适用 | [agy](../backends/agy.md)、`skill/references/agy.md` |
 | `mistral` / `deepseek` (Mistral Vibe CLI) | helper 后端 | 已接入（2026-11-06）；自 2026-11-07 起经 TUI 驱动（此前为 headless 桥接）；分别默认 `mistral-large-4-0-3` / `high` 和 `deepseek-v4-1-flash-1017` / `high` | 不适用 | [vibe](../backends/vibe.md)、`skill/references/vibe.md` |
-| `devin` (Devin CLI) | helper 后端 | 已接入（2026-11-19）；经其 TUI 驱动；默认 `swe-2-flash` / `medium`，Free 套餐的唯一模型（按 Cognition 说法免费到 2026-11-30）；回合中途 kill 前先 `interrupt` | 不适用 | [devin](../backends/devin.md)、`skill/references/devin.md` |
+| `devin` (Devin CLI) | helper 后端 | 已接入（2026-11-19），低优先级选项；经其 TUI 驱动；默认 `swe-2-flash` / `medium`，Free 套餐的唯一模型（按 Cognition 说法免费到 2026-11-30）；回合中途 kill 前先 `interrupt` | 不适用 | [devin](../backends/devin.md)、`skill/references/devin.md` |
 | OpenCode | helper 后端 | **候选**：通过第 1、2 步；第 3、4 步仅读文档，未做 spike | 第 4 步，仅文档 | [opencode](../backends/opencode.md) |
 | dimAgent | helper 后端（CLI），属于更大的产品族 | **暂缓（2026-11-06）**：两个 CLI 都在变动，其中一个仍是 alpha | 第 2 步 | [dimagent](../backends/dimagent.md) |
 | Raft（原 Slock） | 同行运行时 | **参照**；不写 driver | 第 1 步 | [raft](../backends/raft.md) |
