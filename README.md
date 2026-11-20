@@ -90,6 +90,7 @@ For longer tasks, use `ahelpa launch codex --file ./task.md`. Choose exactly one
 | `deepseek` | DeepSeek tasks through the subscription first. |
 | `deepseek-pi` | DeepSeek's backup when an API route is needed. |
 | `glm` | GLM tasks through the OpenCode Go plan. |
+| `devin` | Small, well-specified tasks with SWE-2 Flash through a Devin account. |
 
 See the [name directory](skill/references/names.md), or run `ahelpa models`, for nicknames, actual backends, model defaults, login prerequisites, and fallback policies. The host chooses any fallback; the runtime never switches automatically.
 
