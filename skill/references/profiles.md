@@ -204,9 +204,10 @@ Uses Devin CLI with `swe-2-flash` / `medium` (sent as `swe-2-flash-medium`) for 
 
 **Best at**
 - Not yet observed on real work. The vendor positions SWE-2 Flash as a fast, cheaper sibling of SWE-2. Start it on the same kind of work as `glm`: bounded mechanical tasks with a clear spec, where a miss costs little.
-- Fast turns: the whole closure gate (first task, resume with recall, mid-turn interrupt and kill) took 30 s.
+- Fast turns, usually: the whole closure gate (first task, resume with recall, mid-turn interrupt and kill) took 28–30 s in two runs.
 
 **Watch for**
+- Erratic latency on trivial work: in 2 of 11 one-line gate and timing turns (2026-11-19), the model sat on `Thinking` for minutes. One turn took about 6.6 min; another had already written a correct `summary.md` and was still `Thinking · 8m 20s` when the gate's 500 s wait gave up. The others finished in seconds. ahelpa gives a working screen no time limit, so after a few minutes of `Thinking` with the result already written, `capture` once, then `interrupt` it (keeps the session) rather than waiting on it.
 - The sentinel: with a short ad-hoc prompt it finished without `[AHELPA:DONE]`, though its reasoning said to print it. With ahelpa's full task line it printed it (2 of 2, plus the gate's 2 of 2). Expect more idle-fallback endings than with larger models; read `summary.md` before treating one as a failure.
 - Killing mid-turn: Devin runs each tool in a session of its own, and `kill` alone leaves that tool running. Run `ahelpa interrupt <id> --token <tok>` first (it stops the tool), then `kill`.
 - The question tool: it can stop and ask a multiple-choice question; the helper then ends `needs_attention`. Attach, or `kill` and relaunch with the answer in the brief.
